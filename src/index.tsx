@@ -342,5 +342,5 @@ serve({
   hostname: '0.0.0.0'
 })
 
-console.log(\`🚀 TrustiqLegal Platform running on port \${port}\`)
+console.log(`🚀 TrustiqLegal Platform running on port ${port}`)
 
