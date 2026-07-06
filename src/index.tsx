@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { serveStatic } from 'hono/cloudflare-workers'
+import { serve } from '@hono/node-server'
+import { serveStatic } from '@hono/node-server/serve-static'
 import { renderer } from './renderer'
 
 import authRoutes from './routes/auth'
@@ -114,3 +115,14 @@ app.get('/health', (c) => {
 })
 
 export default app
+
+const isDirectRun = process.argv[1]?.includes('src/index.tsx') || process.argv[1]?.includes('src\\index.tsx')
+
+if (isDirectRun) {
+  const port = Number(process.env.PORT) || 3000
+  serve({
+    fetch: app.fetch,
+    port,
+    hostname: '0.0.0.0'
+  })
+}
