@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TrustiQ Legal Platform - Standalone</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .section { display: none; }
+    .section.active { display: block; }
+  </style>
+</head>
+<body class="bg-gray-50">
+  <div class="max-w-5xl mx-auto p-8">
+    <h1 class="text-3xl font-bold mb-4">TrustiQ Legal Platform</h1>
+    <p class="mb-6">Standalone demo of the TrustiQ UI shell.</p>
+    <div class="flex gap-3 mb-6">
+      <button class="px-3 py-2 bg-slate-800 text-white rounded" onclick="showSection('dashboard')">Dashboard</button>
+      <button class="px-3 py-2 bg-slate-800 text-white rounded" onclick="showSection('cases')">Cases</button>
+      <button class="px-3 py-2 bg-slate-800 text-white rounded" onclick="showSection('documents')">Documents</button>
+    </div>
+    <div id="dashboard" class="section active card p-4 bg-white rounded shadow">Dashboard content</div>
+    <div id="cases" class="section card p-4 bg-white rounded shadow">Cases content</div>
+    <div id="documents" class="section card p-4 bg-white rounded shadow">Documents content</div>
+  </div>
+  <script>
+    function showSection(id) {
+      document.querySelectorAll('.section').forEach(el => el.classList.remove('active'))
+      const target = document.getElementById(id)
+      if (target) target.classList.add('active')
+    }
+  </script>
+</body>
+</html>
