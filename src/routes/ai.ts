@@ -6,7 +6,7 @@ import { LegalAIService } from '../services/ai-simple.js'
 const aiRoutes = new Hono()
 
 function getAIService(env?: any): LegalAIService | null {
-  const apiKey = env?.OPENAI_API_KEY || process.env.OPENAI_API_KEY
+  const apiKey = env?.OPENAI_API_KEY
   if (!apiKey) return null
   return new LegalAIService(apiKey)
 }
