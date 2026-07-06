@@ -1,15 +1,32 @@
 {
   "name": "trustiqlegal-platform",
-  "description": "TrustiQ Legal Platform",
+  "description": "TrustiqLegal - The World's Most Advanced Legal Platform",
   "type": "module",
   "scripts": {
     "dev": "tsx src/index.tsx",
+    "dev:sandbox": "tsx src/index.tsx",
+    "build": "node -e \"console.log('No build step required for Railway')\"",
+    "preview": "NODE_ENV=production tsx src/index.tsx",
     "start": "NODE_ENV=production tsx src/index.tsx",
-    "build": "node -e \"console.log('No build step required')\""
+    "deploy": "npm run build && npm run start",
+    "clean-port": "fuser -k 3000/tcp 2>/dev/null || true",
+    "test": "curl http://localhost:3000"
   },
   "dependencies": {
     "@hono/node-server": "^1.19.1",
+    "@hono/zod-validator": "^0.7.4",
+    "@types/bcryptjs": "^2.4.6",
+    "bcryptjs": "^3.0.2",
     "hono": "^4.9.10",
-    "tsx": "^4.23.0"
+    "mammoth": "^1.11.0",
+    "pdf-lib": "^1.17.1",
+    "tsx": "^4.23.0",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@hono/vite-build": "^1.2.0",
+    "@hono/vite-dev-server": "^0.18.2",
+    "vite": "^6.3.5",
+    "wrangler": "^4.4.0"
   }
 }
