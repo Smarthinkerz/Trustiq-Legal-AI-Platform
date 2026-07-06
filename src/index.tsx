@@ -1,6 +1,7 @@
+import { serve } from '@hono/node-server'
+import { serveStatic } from '@hono/node-server/serve-static'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { serveStatic } from 'hono/cloudflare-workers'
 import { renderer } from './renderer'
 
 import authRoutes from './routes/auth'
@@ -113,4 +114,6 @@ app.get('/health', (c) => {
   })
 })
 
-export default app
+const port = Number(process.env.PORT) || 8080
+serve({ fetch: app.fetch, port, hostname: '0.0.0.0' })
+console.log(`Server running on port ${port}`)
