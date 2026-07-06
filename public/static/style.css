@@ -1,0 +1,32 @@
+:root {
+  --legal-primary: #1a365d;
+  --legal-secondary: #2d3748;
+  --legal-accent: #3182ce;
+  --legal-gold: #d69e2e;
+}
+
+body {
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.section { display: none; }
+.section.active { display: block; }
+.hidden { display: none !important; }
+
+.nav-link.active,
+.language-toggle:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.bg-legal-primary { background-color: var(--legal-primary); }
+.bg-legal-secondary { background-color: var(--legal-secondary); }
+.bg-legal-accent { background-color: var(--legal-accent); }
+.bg-legal-gold { background-color: var(--legal-gold); }
+.text-legal-primary { color: var(--legal-primary); }
+
+.card {
+  background: white;
+  border-radius: 0.75rem;
+  box-shadow: 0 10px 25px rgba(15, 23, 42, 0.08);
+  padding: 1.25rem;
+}
