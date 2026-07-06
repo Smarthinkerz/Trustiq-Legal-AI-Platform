@@ -1,1 +1,40 @@
-Comprehensive contract contract test content for TrustiQ.
+SERVICE AGREEMENT
+
+This Service Agreement ("Agreement") is entered into on January 1, 2024, between:
+
+COMPANY A LLC
+Commercial Registration: 123456789
+Address: Dubai, United Arab Emirates
+("Client")
+
+AND
+
+COMPANY B CONSULTANCY
+Commercial Registration: 987654321  
+Address: Abu Dhabi, United Arab Emirates
+("Service Provider")
+
+1. SCOPE OF SERVICES
+The Service Provider agrees to provide cloud infrastructure consulting services including system design, implementation, and maintenance support.
+
+2. TERM
+This Agreement shall commence on January 1, 2024 and continue for a period of 12 months, automatically renewable unless terminated by either party with 30 days written notice.
+
+3. COMPENSATION
+Client agrees to pay Service Provider AED 50,000 per month, payable within 30 days of invoice receipt.
+
+4. CONFIDENTIALITY
+Both parties agree to maintain strict confidentiality of all proprietary information shared during the course of this engagement.
+
+5. LIABILITY
+Service Provider's liability is limited to the amount paid under this Agreement in the 12 months preceding the claim.
+
+6. GOVERNING LAW
+This Agreement shall be governed by and construed in accordance with the laws of the United Arab Emirates.
+
+7. DISPUTE RESOLUTION
+Any disputes shall be resolved through arbitration in Dubai in accordance with UAE arbitration laws.
+
+IN WITNESS WHEREOF, the parties have executed this Agreement as of the date first written above.
+
+[Signatures and dates would appear here]
