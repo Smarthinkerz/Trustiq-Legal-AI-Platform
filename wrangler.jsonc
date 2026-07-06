@@ -1,0 +1,7 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "trustiqlegal-platform",
+  "compatibility_date": "2025-10-10",
+  "pages_build_output_dir": "./dist",
+  "compatibility_flags": ["nodejs_compat"]
+}
