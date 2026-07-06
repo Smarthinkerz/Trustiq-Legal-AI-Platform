@@ -1,13 +1,22 @@
-import build from '@hono/vite-build/cloudflare-pages'
+import build from '@hono/vite-build/node'
 import devServer from '@hono/vite-dev-server'
-import adapter from '@hono/vite-dev-server/cloudflare'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
   plugins: [
-    build(),
+    build({
+      entry: 'src/index.tsx',
+      output: 'dist/index.js',
+      minify: false,
+      emptyOutDir: true,
+      external: [
+        '@hono/node-server',
+        'bcryptjs',
+        'mammoth',
+        'pdf-lib'
+      ]
+    }),
     devServer({
-      adapter,
       entry: 'src/index.tsx'
     })
   ]
