@@ -334,15 +334,13 @@ const page = `<!DOCTYPE html>
 app.get('/', (c) => c.html(page))
 app.get('/health', (c) => c.json({ status: 'healthy', service: 'TrustiqLegal Platform', timestamp: new Date().toISOString() }))
 
-export default app
+// Start the Node.js server
+const port = Number(process.env.PORT) || 8080
+serve({
+  fetch: app.fetch,
+  port,
+  hostname: '0.0.0.0'
+})
 
-const isDirectRun = process.argv[1]?.includes('src/index.tsx') || process.argv[1]?.includes('src\\index.tsx')
+console.log(`🚀 TrustiqLegal Platform running on port ${port}`)
 
-if (isDirectRun) {
-  const port = Number(process.env.PORT) || 3000
-  serve({
-    fetch: app.fetch,
-    port,
-    hostname: '0.0.0.0'
-  })
-}
