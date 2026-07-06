@@ -1,0 +1,15 @@
+{
+  "name": "trustiqlegal-platform",
+  "description": "TrustiQ Legal Platform",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/index.tsx",
+    "start": "NODE_ENV=production tsx src/index.tsx",
+    "build": "node -e \"console.log('No build step required')\""
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.19.1",
+    "hono": "^4.9.10",
+    "tsx": "^4.23.0"
+  }
+}
