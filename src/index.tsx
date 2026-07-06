@@ -57,6 +57,7 @@ const page = `<!DOCTYPE html>
               <a href="#ai-assistant" class="nav-link px-3 py-2 rounded-md font-medium hover:bg-legal-secondary" onclick="showSection('ai-assistant'); return false;">AI Assistant</a>
               <a href="#schedule" class="nav-link px-3 py-2 rounded-md font-medium hover:bg-legal-secondary" onclick="showSection('schedule'); return false;">Schedule</a>
               <a href="#clients" class="nav-link px-3 py-2 rounded-md font-medium hover:bg-legal-secondary" onclick="showSection('clients'); return false;">Clients</a>
+              <a href="#pricing" class="nav-link px-3 py-2 rounded-md font-medium hover:bg-legal-secondary" onclick="showSection('pricing'); return false;">Pricing</a>
             </div>
           </div>
           <div class="flex items-center gap-3">
@@ -315,6 +316,110 @@ const page = `<!DOCTYPE html>
           <div class="client-card cursor-pointer" onclick="viewClientDetails('abc-corp')"><div class="client-name">ABC Corporation</div><div class="client-meta">Commercial dispute • UAE</div><div class="mt-3 text-sm text-gray-500">Primary contact: procurement@abccorp.com</div></div>
           <div class="client-card cursor-pointer" onclick="viewClientDetails('mohamed-ahmed')"><div class="client-name">محمد أحمد علي</div><div class="client-meta">Personal injury • UAE</div><div class="mt-3 text-sm text-gray-500">Mobile: +968 9xxxxxxx</div></div>
           <div class="client-card cursor-pointer" onclick="viewClientDetails('emirates-trading')"><div class="client-name">Emirates Trading LLC</div><div class="client-meta">Corporate • GCC</div><div class="mt-3 text-sm text-gray-500">Portfolio: 4 matters</div></div>
+        </div>
+      </section>
+
+      <section id="pricing" class="section">
+        <div class="text-center mb-12">
+          <h2 class="text-3xl font-bold text-gray-900">Simple, Transparent Pricing</h2>
+          <p class="mt-3 text-gray-500 max-w-xl mx-auto">Choose the plan that fits your practice. All plans include bilingual support and GCC jurisdiction coverage.</p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-8 items-stretch">
+
+          <!-- Starter -->
+          <div class="card flex flex-col border border-gray-200 hover:shadow-xl transition-shadow duration-300 rounded-2xl overflow-hidden">
+            <div class="p-8 flex-1">
+              <div class="mb-6">
+                <h3 class="text-xl font-bold text-gray-900">Starter</h3>
+                <p class="text-sm text-gray-500 mt-1">For solo practitioners and small firms</p>
+              </div>
+              <div class="flex items-end gap-1 mb-8">
+                <span class="text-4xl font-extrabold text-gray-900">AED 499</span>
+                <span class="text-gray-500 mb-1">/month</span>
+              </div>
+              <ul class="space-y-3 text-sm">
+                <li class="flex items-center gap-3"><span class="w-5 h-5 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0"><i class="fas fa-check text-green-600 text-xs"></i></span><span>Up to 5 active cases</span></li>
+                <li class="flex items-center gap-3"><span class="w-5 h-5 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0"><i class="fas fa-check text-green-600 text-xs"></i></span><span>50 documents / month</span></li>
+                <li class="flex items-center gap-3"><span class="w-5 h-5 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0"><i class="fas fa-check text-green-600 text-xs"></i></span><span>Basic legal templates</span></li>
+                <li class="flex items-center gap-3"><span class="w-5 h-5 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0"><i class="fas fa-check text-green-600 text-xs"></i></span><span>Email support</span></li>
+                <li class="flex items-center gap-3"><span class="w-5 h-5 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0"><i class="fas fa-times text-red-400 text-xs"></i></span><span class="text-gray-400">Advanced AI analysis</span></li>
+                <li class="flex items-center gap-3"><span class="w-5 h-5 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0"><i class="fas fa-times text-red-400 text-xs"></i></span><span class="text-gray-400">Client portal</span></li>
+                <li class="flex items-center gap-3"><span class="w-5 h-5 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0"><i class="fas fa-times text-red-400 text-xs"></i></span><span class="text-gray-400">API access</span></li>
+              </ul>
+            </div>
+            <div class="px-8 pb-8">
+              <button class="btn-outline w-full py-3 rounded-xl font-semibold" onclick="showSection('dashboard')">Get Started</button>
+            </div>
+          </div>
+
+          <!-- Professional (Most Popular) -->
+          <div class="flex flex-col border-2 border-legal-accent hover:shadow-2xl transition-shadow duration-300 rounded-2xl overflow-hidden relative" style="background: linear-gradient(to bottom, #0f172a, #1e293b);">
+            <div class="absolute top-4 right-4">
+              <span class="bg-legal-accent text-legal-primary text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider">Most Popular</span>
+            </div>
+            <div class="p-8 flex-1">
+              <div class="mb-6">
+                <h3 class="text-xl font-bold text-white">Professional</h3>
+                <p class="text-sm text-slate-400 mt-1">For growing firms and legal teams</p>
+              </div>
+              <div class="flex items-end gap-1 mb-8">
+                <span class="text-4xl font-extrabold text-white">AED 1,299</span>
+                <span class="text-slate-400 mb-1">/month</span>
+              </div>
+              <ul class="space-y-3 text-sm">
+                <li class="flex items-center gap-3"><span class="w-5 h-5 rounded-full bg-green-500 bg-opacity-20 flex items-center justify-center flex-shrink-0"><i class="fas fa-check text-green-400 text-xs"></i></span><span class="text-slate-200">Up to 25 active cases</span></li>
+                <li class="flex items-center gap-3"><span class="w-5 h-5 rounded-full bg-green-500 bg-opacity-20 flex items-center justify-center flex-shrink-0"><i class="fas fa-check text-green-400 text-xs"></i></span><span class="text-slate-200">500 documents / month</span></li>
+                <li class="flex items-center gap-3"><span class="w-5 h-5 rounded-full bg-green-500 bg-opacity-20 flex items-center justify-center flex-shrink-0"><i class="fas fa-check text-green-400 text-xs"></i></span><span class="text-slate-200">Premium legal templates</span></li>
+                <li class="flex items-center gap-3"><span class="w-5 h-5 rounded-full bg-green-500 bg-opacity-20 flex items-center justify-center flex-shrink-0"><i class="fas fa-check text-green-400 text-xs"></i></span><span class="text-slate-200">Advanced AI analysis</span></li>
+                <li class="flex items-center gap-3"><span class="w-5 h-5 rounded-full bg-green-500 bg-opacity-20 flex items-center justify-center flex-shrink-0"><i class="fas fa-check text-green-400 text-xs"></i></span><span class="text-slate-200">Client portal</span></li>
+                <li class="flex items-center gap-3"><span class="w-5 h-5 rounded-full bg-green-500 bg-opacity-20 flex items-center justify-center flex-shrink-0"><i class="fas fa-check text-green-400 text-xs"></i></span><span class="text-slate-200">Priority support</span></li>
+                <li class="flex items-center gap-3"><span class="w-5 h-5 rounded-full bg-red-500 bg-opacity-20 flex items-center justify-center flex-shrink-0"><i class="fas fa-times text-red-400 text-xs"></i></span><span class="text-slate-500">API access</span></li>
+              </ul>
+            </div>
+            <div class="px-8 pb-8">
+              <button class="btn-gold w-full py-3 rounded-xl font-semibold text-legal-primary" onclick="showSection('dashboard')">Start Free Trial</button>
+            </div>
+          </div>
+
+          <!-- Enterprise -->
+          <div class="card flex flex-col border border-gray-200 hover:shadow-xl transition-shadow duration-300 rounded-2xl overflow-hidden">
+            <div class="p-8 flex-1">
+              <div class="mb-6">
+                <h3 class="text-xl font-bold text-gray-900">Enterprise</h3>
+                <p class="text-sm text-gray-500 mt-1">For large firms and legal departments</p>
+              </div>
+              <div class="flex items-end gap-1 mb-8">
+                <span class="text-4xl font-extrabold text-gray-900">Custom</span>
+              </div>
+              <ul class="space-y-3 text-sm">
+                <li class="flex items-center gap-3"><span class="w-5 h-5 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0"><i class="fas fa-check text-green-600 text-xs"></i></span><span>Unlimited cases</span></li>
+                <li class="flex items-center gap-3"><span class="w-5 h-5 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0"><i class="fas fa-check text-green-600 text-xs"></i></span><span>Unlimited documents</span></li>
+                <li class="flex items-center gap-3"><span class="w-5 h-5 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0"><i class="fas fa-check text-green-600 text-xs"></i></span><span>Custom AI model training</span></li>
+                <li class="flex items-center gap-3"><span class="w-5 h-5 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0"><i class="fas fa-check text-green-600 text-xs"></i></span><span>White-label platform</span></li>
+                <li class="flex items-center gap-3"><span class="w-5 h-5 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0"><i class="fas fa-check text-green-600 text-xs"></i></span><span>Dedicated account manager</span></li>
+                <li class="flex items-center gap-3"><span class="w-5 h-5 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0"><i class="fas fa-check text-green-600 text-xs"></i></span><span>24/7 premium support</span></li>
+                <li class="flex items-center gap-3"><span class="w-5 h-5 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0"><i class="fas fa-check text-green-600 text-xs"></i></span><span>Full API access</span></li>
+              </ul>
+            </div>
+            <div class="px-8 pb-8">
+              <button class="btn-secondary w-full py-3 rounded-xl font-semibold" onclick="showSection('dashboard')">Contact Sales</button>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- CTA Banner -->
+        <div class="mt-16 rounded-2xl overflow-hidden" style="background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 50%, #0f172a 100%);">
+          <div class="px-8 py-12 text-center">
+            <h3 class="text-2xl font-bold text-white mb-3">Ready to transform your legal practice?</h3>
+            <p class="text-slate-300 max-w-xl mx-auto mb-8">Join hundreds of legal professionals across the GCC who trust TrustiqLegal to manage their most critical work.</p>
+            <div class="flex flex-col sm:flex-row gap-4 justify-center">
+              <button class="btn-gold px-8 py-3 rounded-xl font-semibold text-legal-primary text-base" onclick="showSection('dashboard')"><i class="fas fa-rocket mr-2"></i>Start Free Trial</button>
+              <button class="border border-slate-500 text-white px-8 py-3 rounded-xl font-semibold text-base hover:bg-slate-700 transition-colors" onclick="showSection('dashboard')"><i class="fas fa-phone mr-2"></i>Talk to Sales</button>
+            </div>
+            <p class="text-slate-500 text-sm mt-6">No credit card required &nbsp;·&nbsp; 14-day free trial &nbsp;·&nbsp; Cancel anytime</p>
+          </div>
         </div>
       </section>
     </main>
