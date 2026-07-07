@@ -3,6 +3,9 @@ import { cors } from 'hono/cors'
 import { serve } from '@hono/node-server'
 import { serveStatic } from '@hono/node-server/serve-static'
 import { renderer } from './renderer'
+import { adminPage } from './admin'
+import { landingPage } from './landing'
+import { cmsAdminPage } from './cms-admin'
 
 import authRoutes from './routes/auth'
 import apiRoutes from './routes/api'
@@ -10,6 +13,7 @@ import casesRoutes from './routes/cases'
 import documentsRoutes from './routes/documents'
 import aiRoutes from './routes/ai'
 import brandingRoutes from './routes/branding'
+import cmsRoutes from './routes/cms'
 
 type Bindings = {
   OPENAI_API_KEY?: string
@@ -32,30 +36,7 @@ app.route('/api/cases', casesRoutes)
 app.route('/api/documents', documentsRoutes)
 app.route('/api/ai', aiRoutes)
 app.route('/api/branding', brandingRoutes)
-
-import { landingPage } from './landing'
-
-type Bindings = {
-  OPENAI_API_KEY?: string
-  JWT_SECRET?: string
-}
-
-const app = new Hono<{ Bindings: Bindings }>()
-
-app.use(renderer)
-app.use('/api/*', cors({
-  origin: '*',
-  allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization']
-}))
-app.use('/static/*', serveStatic({ root: './public' }))
-
-app.route('/auth', authRoutes)
-app.route('/api', apiRoutes)
-app.route('/api/cases', casesRoutes)
-app.route('/api/documents', documentsRoutes)
-app.route('/api/ai', aiRoutes)
-app.route('/api/branding', brandingRoutes)
+app.route('/api/cms', cmsRoutes)
 
 const appPage = `<!DOCTYPE html>
 <html lang="en" dir="ltr" id="html-root">
@@ -349,6 +330,8 @@ const appPage = `<!DOCTYPE html>
 </body>
 </html>`
 
+app.get('/cms-admin', (c) => c.html(cmsAdminPage))
+app.get('/admin', (c) => c.html(adminPage))
 app.get('/', (c) => c.html(landingPage))
 app.get('/app', (c) => c.html(appPage))
 app.get('/health', (c) => c.json({ status: 'healthy', service: 'TrustiqLegal Platform', timestamp: new Date().toISOString() }))
