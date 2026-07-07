@@ -3,6 +3,7 @@ import { cors } from 'hono/cors'
 import { serve } from '@hono/node-server'
 import { serveStatic } from '@hono/node-server/serve-static'
 import { renderer } from './renderer'
+import { landingPage } from './landing'
 
 import authRoutes from './routes/auth'
 import apiRoutes from './routes/api'
@@ -33,30 +34,330 @@ app.route('/api/documents', documentsRoutes)
 app.route('/api/ai', aiRoutes)
 app.route('/api/branding', brandingRoutes)
 
-import { landingPage } from './landing'
+// ============ CMS ADMIN PAGE ============
+const cmsAdminPage = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TrustiqLegal CMS Admin</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet" />
+  <style>
+    :root { --primary: #1a365d; --secondary: #2d3748; --accent: #3182ce; }
+    * { box-sizing: border-box; }
+    body { font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+    .sidebar { background: var(--primary); }
+    .sidebar-link { transition: all 0.3s ease; }
+    .sidebar-link:hover { background: rgba(255,255,255,0.1); }
+    .sidebar-link.active { background: var(--accent); }
+    .input-field { border: 1px solid #d1d5db; border-radius: 0.375rem; padding: 0.5rem 0.75rem; }
+    .input-field:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(49, 130, 206, 0.1); }
+    .btn-primary { background: var(--accent); color: white; padding: 0.5rem 1rem; border-radius: 0.375rem; border: none; cursor: pointer; font-weight: 600; }
+    .btn-primary:hover { background: #2563eb; }
+    .btn-danger { background: #ef4444; color: white; padding: 0.5rem 1rem; border-radius: 0.375rem; border: none; cursor: pointer; }
+    .btn-danger:hover { background: #dc2626; }
+    .editor-panel { background: #f9fafb; }
+    .preview-frame { border: 2px solid #e5e7eb; border-radius: 0.5rem; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+  </style>
+</head>
+<body class="bg-gray-100">
+  <!-- Login Screen -->
+  <div id="loginScreen" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div class="bg-white rounded-lg shadow-xl p-8 w-full max-w-md">
+      <div class="text-center mb-8">
+        <i class="fas fa-lock text-4xl text-blue-600 mb-4"></i>
+        <h1 class="text-2xl font-bold">CMS Admin Login</h1>
+        <p class="text-gray-600 mt-2">TrustiqLegal Content Management</p>
+      </div>
+      <form onsubmit="handleLogin(event)">
+        <div class="mb-4">
+          <label class="block text-sm font-medium mb-2">Email</label>
+          <input type="email" id="email" class="input-field w-full" placeholder="admin@trustiqlegal.com" required />
+        </div>
+        <div class="mb-6">
+          <label class="block text-sm font-medium mb-2">Password</label>
+          <input type="password" id="password" class="input-field w-full" placeholder="••••••••" required />
+        </div>
+        <button type="submit" class="btn-primary w-full">Login</button>
+      </form>
+      <p class="text-center text-sm text-gray-600 mt-4">Demo: admin@trustiqlegal.com / admin123</p>
+    </div>
+  </div>
 
-type Bindings = {
-  OPENAI_API_KEY?: string
-  JWT_SECRET?: string
-}
+  <!-- CMS Dashboard -->
+  <div id="cmsDashboard" class="hidden flex h-screen bg-gray-100">
+    <!-- Sidebar -->
+    <div class="sidebar text-white w-64 shadow-lg overflow-y-auto">
+      <div class="p-6 border-b border-blue-700">
+        <h2 class="text-xl font-bold"><i class="fas fa-cog mr-2"></i>CMS Admin</h2>
+        <p class="text-sm text-blue-200 mt-1">TrustiqLegal</p>
+      </div>
+      <nav class="p-4 space-y-2">
+        <button onclick="switchTab('landing')" class="sidebar-link active w-full text-left px-4 py-3 rounded"><i class="fas fa-globe mr-2"></i>Landing Page</button>
+        <button onclick="switchTab('app')" class="sidebar-link w-full text-left px-4 py-3 rounded"><i class="fas fa-chart-line mr-2"></i>App Dashboard</button>
+        <button onclick="switchTab('pricing')" class="sidebar-link w-full text-left px-4 py-3 rounded"><i class="fas fa-tag mr-2"></i>Pricing</button>
+        <button onclick="switchTab('theme')" class="sidebar-link w-full text-left px-4 py-3 rounded"><i class="fas fa-palette mr-2"></i>Theme</button>
+      </nav>
+      <div class="absolute bottom-0 left-0 right-0 p-4 border-t border-blue-700">
+        <button onclick="logout()" class="btn-danger w-full"><i class="fas fa-sign-out-alt mr-2"></i>Logout</button>
+      </div>
+    </div>
 
-const app = new Hono<{ Bindings: Bindings }>()
+    <!-- Main Content -->
+    <div class="flex-1 flex flex-col overflow-hidden">
+      <!-- Header -->
+      <div class="bg-white shadow-sm border-b p-4 flex items-center justify-between">
+        <h1 id="pageTitle" class="text-2xl font-bold">Landing Page Editor</h1>
+        <div class="text-sm text-gray-600"><i class="fas fa-user-circle mr-2"></i><span id="userEmail">admin@trustiqlegal.com</span></div>
+      </div>
 
-app.use(renderer)
-app.use('/api/*', cors({
-  origin: '*',
-  allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization']
-}))
-app.use('/static/*', serveStatic({ root: './public' }))
+      <!-- Content Area -->
+      <div class="flex-1 overflow-hidden flex gap-4 p-4">
+        <!-- Editor Panel -->
+        <div class="editor-panel rounded-lg shadow w-1/2 overflow-y-auto p-6">
+          <!-- Landing Page Tab -->
+          <div id="landingTab" class="tab-content active">
+            <h2 class="text-xl font-bold mb-6">Landing Page Content</h2>
+            <div class="space-y-6">
+              <div>
+                <label class="block text-sm font-medium mb-2">Hero Title</label>
+                <input type="text" id="heroTitle" class="input-field w-full" value="The World's Most Advanced Legal Platform" />
+              </div>
+              <div>
+                <label class="block text-sm font-medium mb-2">Hero Subtitle</label>
+                <textarea id="heroSubtitle" class="input-field w-full h-20">AI-powered legal workspace for GCC firms. Manage cases, draft documents, analyze contracts, and coordinate with clients—all in one bilingual platform.</textarea>
+              </div>
+              <div>
+                <label class="block text-sm font-medium mb-2">CTA Button Text</label>
+                <input type="text" id="ctaText" class="input-field w-full" value="Start Free Trial" />
+              </div>
+              <button onclick="saveContent('landing')" class="btn-primary w-full">Save Changes</button>
+            </div>
+          </div>
 
-app.route('/auth', authRoutes)
-app.route('/api', apiRoutes)
-app.route('/api/cases', casesRoutes)
-app.route('/api/documents', documentsRoutes)
-app.route('/api/ai', aiRoutes)
-app.route('/api/branding', brandingRoutes)
+          <!-- App Dashboard Tab -->
+          <div id="appTab" class="tab-content">
+            <h2 class="text-xl font-bold mb-6">App Dashboard Content</h2>
+            <div class="space-y-6">
+              <div>
+                <label class="block text-sm font-medium mb-2">Dashboard Title</label>
+                <input type="text" id="appTitle" class="input-field w-full" value="All legal work in one bilingual workspace" />
+              </div>
+              <div>
+                <label class="block text-sm font-medium mb-2">Dashboard Description</label>
+                <textarea id="appDesc" class="input-field w-full h-20">Track matters, draft documents, analyze contracts, manage clients, and coordinate deadlines across GCC jurisdictions.</textarea>
+              </div>
+              <button onclick="saveContent('app')" class="btn-primary w-full">Save Changes</button>
+            </div>
+          </div>
 
+          <!-- Pricing Tab -->
+          <div id="pricingTab" class="tab-content">
+            <h2 class="text-xl font-bold mb-6">Pricing Configuration</h2>
+            <div class="space-y-6">
+              <div class="border-b pb-4">
+                <h3 class="font-semibold mb-3">Starter Plan</h3>
+                <div class="mb-3">
+                  <label class="block text-sm font-medium mb-2">Price (OMR)</label>
+                  <input type="number" id="starterPrice" class="input-field w-full" value="199" />
+                </div>
+                <div>
+                  <label class="block text-sm font-medium mb-2">Description</label>
+                  <input type="text" id="starterDesc" class="input-field w-full" value="For solo practitioners and small firms" />
+                </div>
+              </div>
+              <div class="border-b pb-4">
+                <h3 class="font-semibold mb-3">Professional Plan</h3>
+                <div class="mb-3">
+                  <label class="block text-sm font-medium mb-2">Price (OMR)</label>
+                  <input type="number" id="proPrice" class="input-field w-full" value="499" />
+                </div>
+                <div>
+                  <label class="block text-sm font-medium mb-2">Description</label>
+                  <input type="text" id="proDesc" class="input-field w-full" value="For growing law firms" />
+                </div>
+              </div>
+              <div>
+                <h3 class="font-semibold mb-3">Enterprise Plan</h3>
+                <div>
+                  <label class="block text-sm font-medium mb-2">Description</label>
+                  <input type="text" id="entDesc" class="input-field w-full" value="For large firms and organizations" />
+                </div>
+              </div>
+              <button onclick="saveContent('pricing')" class="btn-primary w-full">Save Changes</button>
+            </div>
+          </div>
+
+          <!-- Theme Tab -->
+          <div id="themeTab" class="tab-content">
+            <h2 class="text-xl font-bold mb-6">Theme Customization</h2>
+            <div class="space-y-6">
+              <div>
+                <label class="block text-sm font-medium mb-2">Primary Color</label>
+                <div class="flex gap-2">
+                  <input type="color" id="colorPrimary" class="w-12 h-10 rounded cursor-pointer" value="#1a365d" />
+                  <input type="text" id="colorPrimaryText" class="input-field flex-1" value="#1a365d" />
+                </div>
+              </div>
+              <div>
+                <label class="block text-sm font-medium mb-2">Accent Color</label>
+                <div class="flex gap-2">
+                  <input type="color" id="colorAccent" class="w-12 h-10 rounded cursor-pointer" value="#3182ce" />
+                  <input type="text" id="colorAccentText" class="input-field flex-1" value="#3182ce" />
+                </div>
+              </div>
+              <button onclick="saveTheme()" class="btn-primary w-full">Save Theme</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Live Preview Panel -->
+        <div class="bg-white rounded-lg shadow w-1/2 overflow-hidden flex flex-col">
+          <div class="bg-gray-200 p-3 border-b flex items-center justify-between">
+            <h3 class="font-semibold"><i class="fas fa-eye mr-2"></i>Live Preview</h3>
+            <button onclick="refreshPreview()" class="text-sm bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700">
+              <i class="fas fa-sync mr-1"></i>Refresh
+            </button>
+          </div>
+          <iframe id="previewFrame" class="preview-frame flex-1 border-0" src="/"></iframe>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let currentTab = 'landing';
+    let isLoggedIn = false;
+
+    function handleLogin(e) {
+      e.preventDefault();
+      const email = document.getElementById('email').value;
+      const password = document.getElementById('password').value;
+
+      if (email === 'admin@trustiqlegal.com' && password === 'admin123') {
+        isLoggedIn = true;
+        localStorage.setItem('cmsToken', 'token-' + Date.now());
+        document.getElementById('loginScreen').classList.add('hidden');
+        document.getElementById('cmsDashboard').classList.remove('hidden');
+        document.getElementById('userEmail').textContent = email;
+        loadSavedData();
+      } else {
+        alert('Invalid credentials. Use admin@trustiqlegal.com / admin123');
+      }
+    }
+
+    function logout() {
+      if (confirm('Are you sure you want to logout?')) {
+        isLoggedIn = false;
+        localStorage.removeItem('cmsToken');
+        document.getElementById('loginScreen').classList.remove('hidden');
+        document.getElementById('cmsDashboard').classList.add('hidden');
+        document.getElementById('email').value = '';
+        document.getElementById('password').value = '';
+      }
+    }
+
+    function switchTab(tab) {
+      currentTab = tab;
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+      document.getElementById(tab + 'Tab').classList.add('active');
+      
+      document.querySelectorAll('.sidebar-link').forEach(el => el.classList.remove('active'));
+      event.target.closest('.sidebar-link').classList.add('active');
+
+      const titles = {
+        'landing': 'Landing Page Editor',
+        'app': 'App Dashboard Editor',
+        'pricing': 'Pricing Configuration',
+        'theme': 'Theme Customization'
+      };
+      document.getElementById('pageTitle').textContent = titles[tab];
+    }
+
+    function saveContent(type) {
+      const data = {};
+      
+      if (type === 'landing') {
+        data = {
+          heroTitle: document.getElementById('heroTitle').value,
+          heroSubtitle: document.getElementById('heroSubtitle').value,
+          ctaText: document.getElementById('ctaText').value
+        };
+      } else if (type === 'app') {
+        data = {
+          appTitle: document.getElementById('appTitle').value,
+          appDesc: document.getElementById('appDesc').value
+        };
+      } else if (type === 'pricing') {
+        data = {
+          starterPrice: document.getElementById('starterPrice').value,
+          starterDesc: document.getElementById('starterDesc').value,
+          proPrice: document.getElementById('proPrice').value,
+          proDesc: document.getElementById('proDesc').value,
+          entDesc: document.getElementById('entDesc').value
+        };
+      }
+
+      localStorage.setItem('cms_' + type, JSON.stringify(data));
+      alert('✅ Content saved successfully!');
+      refreshPreview();
+    }
+
+    function saveTheme() {
+      const theme = {
+        primary: document.getElementById('colorPrimary').value,
+        accent: document.getElementById('colorAccent').value
+      };
+
+      localStorage.setItem('cms_theme', JSON.stringify(theme));
+      alert('✅ Theme saved successfully!');
+      refreshPreview();
+    }
+
+    function loadSavedData() {
+      const landing = JSON.parse(localStorage.getItem('cms_landing') || '{}');
+      const app = JSON.parse(localStorage.getItem('cms_app') || '{}');
+      const pricing = JSON.parse(localStorage.getItem('cms_pricing') || '{}');
+      const theme = JSON.parse(localStorage.getItem('cms_theme') || '{}');
+
+      if (landing.heroTitle) document.getElementById('heroTitle').value = landing.heroTitle;
+      if (landing.heroSubtitle) document.getElementById('heroSubtitle').value = landing.heroSubtitle;
+      if (landing.ctaText) document.getElementById('ctaText').value = landing.ctaText;
+
+      if (app.appTitle) document.getElementById('appTitle').value = app.appTitle;
+      if (app.appDesc) document.getElementById('appDesc').value = app.appDesc;
+
+      if (pricing.starterPrice) document.getElementById('starterPrice').value = pricing.starterPrice;
+      if (pricing.starterDesc) document.getElementById('starterDesc').value = pricing.starterDesc;
+      if (pricing.proPrice) document.getElementById('proPrice').value = pricing.proPrice;
+      if (pricing.proDesc) document.getElementById('proDesc').value = pricing.proDesc;
+      if (pricing.entDesc) document.getElementById('entDesc').value = pricing.entDesc;
+
+      if (theme.primary) document.getElementById('colorPrimary').value = theme.primary;
+      if (theme.accent) document.getElementById('colorAccent').value = theme.accent;
+    }
+
+    function refreshPreview() {
+      const frame = document.getElementById('previewFrame');
+      frame.src = frame.src;
+    }
+
+    window.addEventListener('load', () => {
+      if (localStorage.getItem('cmsToken')) {
+        isLoggedIn = true;
+        document.getElementById('loginScreen').classList.add('hidden');
+        document.getElementById('cmsDashboard').classList.remove('hidden');
+        loadSavedData();
+      }
+    });
+  </script>
+</body>
+</html>`
+
+// ============ APP DASHBOARD PAGE ============
 const appPage = `<!DOCTYPE html>
 <html lang="en" dir="ltr" id="html-root">
 <head>
@@ -65,290 +366,60 @@ const appPage = `<!DOCTYPE html>
   <title>TrustiqLegal - The World's Most Advanced Legal Platform</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet" />
-  <link href="/static/style.css?v=20251022-2000" rel="stylesheet" />
 </head>
 <body class="bg-gray-50 text-gray-900">
   <div class="min-h-screen">
-    <nav class="bg-legal-primary text-white shadow-lg sticky top-0 z-50">
+    <nav class="bg-blue-900 text-white shadow-lg sticky top-0 z-50">
       <div class="max-w-7xl mx-auto px-4">
-        <div class="flex items-center justify-between h-16 gap-4">
-          <div class="flex items-center gap-4 min-w-0">
-            <h1 class="text-xl font-bold whitespace-nowrap"><i class="fas fa-balance-scale mr-2"></i>TrustiqLegal</h1>
-            <div class="hidden xl:flex gap-2 text-sm">
-              <a href="#dashboard" class="nav-link px-3 py-2 rounded-md font-medium bg-legal-secondary" onclick="showSection('dashboard'); return false;">Dashboard</a>
-              <a href="#cases" class="nav-link px-3 py-2 rounded-md font-medium hover:bg-legal-secondary" onclick="showSection('cases'); return false;">Cases</a>
-              <a href="#documents" class="nav-link px-3 py-2 rounded-md font-medium hover:bg-legal-secondary" onclick="showSection('documents'); return false;">Documents</a>
-              <a href="#ai-assistant" class="nav-link px-3 py-2 rounded-md font-medium hover:bg-legal-secondary" onclick="showSection('ai-assistant'); return false;">AI Assistant</a>
-              <a href="#schedule" class="nav-link px-3 py-2 rounded-md font-medium hover:bg-legal-secondary" onclick="showSection('schedule'); return false;">Schedule</a>
-              <a href="#clients" class="nav-link px-3 py-2 rounded-md font-medium hover:bg-legal-secondary" onclick="showSection('clients'); return false;">Clients</a>
-            </div>
-          </div>
-          <div class="flex items-center gap-3">
-            <button class="language-toggle bg-legal-accent px-3 py-1 rounded text-sm" onclick="toggleLanguage()">EN / AR</button>
-            <button class="btn-gold text-legal-primary px-4 py-2 rounded font-medium" onclick="showProfile()"><i class="fas fa-user-circle mr-2"></i>Profile</button>
+        <div class="flex items-center justify-between h-16">
+          <h1 class="text-xl font-bold"><i class="fas fa-balance-scale mr-2"></i>TrustiqLegal</h1>
+          <div class="flex gap-3">
+            <button class="bg-blue-600 px-3 py-1 rounded text-sm">EN / AR</button>
+            <button class="bg-yellow-500 text-blue-900 px-4 py-2 rounded font-medium"><i class="fas fa-user-circle mr-2"></i>Profile</button>
           </div>
         </div>
       </div>
     </nav>
 
-    <main class="max-w-7xl mx-auto px-4 py-8 space-y-8">
-      <section id="dashboard" class="section active">
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-          <div class="card bg-gradient-to-br from-slate-900 to-slate-700 text-white lg:col-span-2">
-            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-              <div>
-                <p class="uppercase tracking-widest text-slate-300 text-xs">AI Legal Operating System</p>
-                <h2 class="text-3xl font-bold mt-2">All legal work in one bilingual workspace</h2>
-                <p class="mt-3 text-slate-200 max-w-2xl">Track matters, draft documents, analyze contracts, manage clients, and coordinate deadlines across GCC jurisdictions.</p>
-              </div>
-              <div class="flex gap-3 flex-wrap">
-                <button class="btn-primary" onclick="showSection('cases')">Open Cases</button>
-                <button class="btn-secondary" onclick="showSection('documents')">Draft Document</button>
-                <button class="btn-outline" onclick="showSection('ai-assistant')">Ask AI</button>
-              </div>
-            </div>
-          </div>
-          <div class="card">
-            <div class="flex items-center justify-between mb-3">
-              <h3 class="font-semibold text-gray-700">Health</h3>
-              <span class="status-pill success">Online</span>
-            </div>
-            <div class="space-y-3 text-sm">
-              <div class="flex justify-between"><span>Cases</span><strong>2 active</strong></div>
-              <div class="flex justify-between"><span>Documents</span><strong>14 generated</strong></div>
-              <div class="flex justify-between"><span>AI prompts</span><strong>48 today</strong></div>
-              <div class="flex justify-between"><span>Jurisdictions</span><strong>GCC + Intl</strong></div>
-            </div>
-          </div>
-        </div>
+    <main class="max-w-7xl mx-auto px-4 py-8">
+      <div class="bg-gradient-to-br from-slate-900 to-slate-700 text-white rounded-lg p-8 mb-8">
+        <h2 class="text-3xl font-bold mb-2">All legal work in one bilingual workspace</h2>
+        <p class="text-slate-200">Track matters, draft documents, analyze contracts, manage clients, and coordinate deadlines across GCC jurisdictions.</p>
+      </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
-          <div class="card metric-card"><div class="metric-label">Active Cases</div><div class="metric-value">18</div><div class="metric-foot">2 urgent this week</div></div>
-          <div class="card metric-card"><div class="metric-label">Drafted Docs</div><div class="metric-value">127</div><div class="metric-foot">7 templates ready</div></div>
-          <div class="card metric-card"><div class="metric-label">Clients</div><div class="metric-value">39</div><div class="metric-foot">6 VIP matters</div></div>
-          <div class="card metric-card"><div class="metric-label">AI Analyses</div><div class="metric-value">84</div><div class="metric-foot">Avg risk score 41%</div></div>
-        </div>
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+        <div class="bg-white p-6 rounded-lg shadow"><div class="text-sm text-gray-600">Active Cases</div><div class="text-3xl font-bold">18</div></div>
+        <div class="bg-white p-6 rounded-lg shadow"><div class="text-sm text-gray-600">Drafted Docs</div><div class="text-3xl font-bold">127</div></div>
+        <div class="bg-white p-6 rounded-lg shadow"><div class="text-sm text-gray-600">Clients</div><div class="text-3xl font-bold">39</div></div>
+        <div class="bg-white p-6 rounded-lg shadow"><div class="text-sm text-gray-600">AI Analyses</div><div class="text-3xl font-bold">84</div></div>
+      </div>
 
-        <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
-          <div class="card xl:col-span-2">
-            <div class="flex items-center justify-between mb-4"><h3 class="text-lg font-semibold">Recent Activities</h3><button class="text-sm text-legal-accent" onclick="showSection('cases')">View all</button></div>
-            <div class="space-y-4">
-              <div class="activity-item"><span class="activity-dot bg-green-500"></span><div><p class="font-medium">Case #2024-001 status updated to <span class="text-green-700">Under Review</span></p><p class="text-sm text-gray-500">Commercial dispute • 2 hours ago</p></div></div>
-              <div class="activity-item"><span class="activity-dot bg-blue-500"></span><div><p class="font-medium">AI generated contract draft for ABC Corp</p><p class="text-sm text-gray-500">Commercial contract • 4 hours ago</p></div></div>
-              <div class="activity-item"><span class="activity-dot bg-amber-500"></span><div><p class="font-medium">Brand variables saved for legal letterhead</p><p class="text-sm text-gray-500">Branding module • Yesterday</p></div></div>
-            </div>
-          </div>
-          <div class="card">
-            <div class="flex items-center justify-between mb-4"><h3 class="text-lg font-semibold">Quick Actions</h3><span class="text-xs text-gray-400">Bilingual</span></div>
-            <div class="grid grid-cols-1 gap-3">
-              <button class="quick-action-btn" onclick="showSection('cases')"><i class="fas fa-folder-plus text-legal-accent mr-3"></i>New Case</button>
-              <button class="quick-action-btn" onclick="showSection('documents')"><i class="fas fa-file-contract text-green-500 mr-3"></i>Generate Document</button>
-              <button class="quick-action-btn" onclick="showSection('ai-assistant')"><i class="fas fa-brain text-purple-500 mr-3"></i>AI Analysis</button>
-              <button class="quick-action-btn" onclick="showSection('schedule')"><i class="fas fa-calendar-alt text-blue-500 mr-3"></i>Calendar</button>
-            </div>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div class="bg-white p-6 rounded-lg shadow md:col-span-2">
+          <h3 class="text-lg font-semibold mb-4">Quick Actions</h3>
+          <div class="grid grid-cols-2 gap-3">
+            <button class="bg-blue-600 text-white p-3 rounded hover:bg-blue-700"><i class="fas fa-folder-plus mr-2"></i>New Case</button>
+            <button class="bg-green-600 text-white p-3 rounded hover:bg-green-700"><i class="fas fa-file-contract mr-2"></i>Generate Doc</button>
+            <button class="bg-purple-600 text-white p-3 rounded hover:bg-purple-700"><i class="fas fa-brain mr-2"></i>AI Analysis</button>
+            <button class="bg-blue-500 text-white p-3 rounded hover:bg-blue-600"><i class="fas fa-calendar-alt mr-2"></i>Calendar</button>
           </div>
         </div>
-      </section>
-
-      <section id="cases" class="section">
-        <div class="flex items-center justify-between mb-4 gap-4 flex-wrap">
-          <div>
-            <h2 class="text-2xl font-bold">Cases</h2>
-            <p class="text-gray-500">Manage legal matters, jurisdictions, and timelines.</p>
-          </div>
-          <div class="flex gap-2 flex-wrap">
-            <button class="btn-secondary text-sm" onclick="showNewCaseForm()">New Case</button>
-            <button class="btn-outline text-sm" onclick="filterCases('all')">All</button>
-            <button class="btn-outline text-sm" onclick="filterCases('active')">Active</button>
-            <button class="btn-outline text-sm" onclick="filterCases('under_review')">Under Review</button>
+        <div class="bg-white p-6 rounded-lg shadow">
+          <h3 class="text-lg font-semibold mb-4">Status</h3>
+          <div class="space-y-2 text-sm">
+            <div class="flex justify-between"><span>System</span><span class="text-green-600">Online</span></div>
+            <div class="flex justify-between"><span>Cases</span><span>2 urgent</span></div>
+            <div class="flex justify-between"><span>Docs</span><span>14 ready</span></div>
           </div>
         </div>
-
-        <div class="grid grid-cols-1 xl:grid-cols-3 gap-4 mb-6">
-          <div class="card">
-            <h3 class="font-semibold mb-3">Case #2024-001</h3>
-            <p class="text-sm text-gray-500">ABC Corp vs XYZ Ltd</p>
-            <div class="mt-4 space-y-2 text-sm">
-              <div><strong>Type:</strong> Commercial dispute</div>
-              <div><strong>Jurisdiction:</strong> UAE</div>
-              <div><strong>Priority:</strong> High</div>
-            </div>
-            <div class="mt-4 flex gap-2">
-              <button class="btn-primary text-sm" onclick="viewClientDetails('abc-corp')">Open</button>
-              <button class="btn-secondary text-sm" onclick="showSection('documents')">Docs</button>
-            </div>
-          </div>
-          <div class="card">
-            <h3 class="font-semibold mb-3">Case #2024-002</h3>
-            <p class="text-sm text-gray-500">Personal Injury Claim</p>
-            <div class="mt-4 space-y-2 text-sm">
-              <div><strong>Type:</strong> Personal injury</div>
-              <div><strong>Jurisdiction:</strong> UAE</div>
-              <div><strong>Priority:</strong> Medium</div>
-            </div>
-            <div class="mt-4 flex gap-2">
-              <button class="btn-primary text-sm" onclick="viewClientDetails('mohamed-ahmed')">Open</button>
-              <button class="btn-secondary text-sm" onclick="showSection('schedule')">Timeline</button>
-            </div>
-          </div>
-          <div class="card border-dashed border-2 border-slate-300 flex items-center justify-center min-h-[220px] text-center">
-            <div>
-              <i class="fas fa-plus-circle text-4xl text-slate-300 mb-3"></i>
-              <p class="font-medium">Create a new legal case</p>
-              <button class="btn-primary mt-4" onclick="showNewCaseForm()">New Case</button>
-            </div>
-          </div>
-        </div>
-
-        <div class="card overflow-hidden">
-          <div class="overflow-x-auto">
-            <table class="w-full text-sm">
-              <thead class="bg-gray-50 text-gray-500 uppercase text-xs">
-                <tr>
-                  <th class="px-4 py-3 text-left">Case</th>
-                  <th class="px-4 py-3 text-left">Client</th>
-                  <th class="px-4 py-3 text-left">Jurisdiction</th>
-                  <th class="px-4 py-3 text-left">Status</th>
-                  <th class="px-4 py-3 text-left">Priority</th>
-                </tr>
-              </thead>
-              <tbody id="case-table-body">
-                <tr><td class="px-4 py-3">ABC Corp vs XYZ Ltd</td><td class="px-4 py-3">ABC Corporation</td><td class="px-4 py-3">UAE</td><td class="px-4 py-3">Active</td><td class="px-4 py-3">High</td></tr>
-                <tr class="border-t"><td class="px-4 py-3">Personal Injury Claim</td><td class="px-4 py-3">محمد أحمد علي</td><td class="px-4 py-3">UAE</td><td class="px-4 py-3">Under Review</td><td class="px-4 py-3">Medium</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </section>
-
-      <section id="documents" class="section">
-        <div class="flex items-center justify-between mb-4 gap-4 flex-wrap">
-          <div>
-            <h2 class="text-2xl font-bold">Documents</h2>
-            <p class="text-gray-500">Draft, review, edit, download, and save legal documents.</p>
-          </div>
-          <div class="flex gap-2 flex-wrap">
-            <button class="btn-secondary text-sm" onclick="generateDocument()">Generate</button>
-            <button class="btn-outline text-sm" onclick="reviewDocument()">Review</button>
-            <button class="btn-outline text-sm" onclick="editDocument()">Edit</button>
-            <button class="btn-outline text-sm" onclick="downloadDocument()">Download</button>
-          </div>
-        </div>
-
-        <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
-          <div class="card xl:col-span-2">
-            <div class="flex items-center justify-between mb-4"><h3 class="font-semibold">Document Library</h3><button class="text-sm text-legal-accent" onclick="createNewTemplate()">New Template</button></div>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div class="doc-card"><div class="doc-title">Commercial Contract</div><div class="doc-meta">UAE • Draft</div><div class="mt-3 flex gap-2"><button class="btn-primary text-sm" onclick="reviewDocument()">Review</button><button class="btn-secondary text-sm" onclick="downloadDocument()">Download</button></div></div>
-              <div class="doc-card"><div class="doc-title">Power of Attorney</div><div class="doc-meta">GCC • Template</div><div class="mt-3 flex gap-2"><button class="btn-primary text-sm" onclick="saveToCase()">Save</button><button class="btn-secondary text-sm" onclick="editDocument()">Edit</button></div></div>
-            </div>
-          </div>
-          <div class="card">
-            <h3 class="font-semibold mb-4">Branding</h3>
-            <div class="space-y-3 text-sm">
-              <button class="btn-secondary w-full" onclick="showBrandSettings()">Brand Settings</button>
-              <button class="btn-primary w-full" onclick="createLetterhead()">Create Letterhead</button>
-              <button class="btn-outline w-full" onclick="testBrandingSystem()">Test Branding</button>
-            </div>
-            <div class="mt-4 text-sm text-gray-500">
-              Upload logos, watermarks, and stamp assets for professional output.
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section id="ai-assistant" class="section">
-        <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
-          <div class="card xl:col-span-2">
-            <div class="flex items-center justify-between mb-4">
-              <h2 class="text-2xl font-bold">AI Assistant</h2>
-              <span class="status-pill success">GPT Ready</span>
-            </div>
-            <div id="ai-chat" class="chat-panel mb-4">
-              <div class="chat-bubble bot">Ask a legal question, upload documents, or request research.</div>
-            </div>
-            <div class="flex gap-2">
-              <input id="ai-message" class="input flex-1" placeholder="Type your legal question..." />
-              <button class="btn-primary" onclick="sendAIMessage()">Send</button>
-            </div>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
-              <button class="quick-chat-btn" onclick="quickAIQueryBilingual('How do I file a commercial dispute in UAE?', 'كيف يمكنني رفع نزاع تجاري في دولة الإمارات العربية المتحدة؟')">Commercial dispute</button>
-              <button class="quick-chat-btn" onclick="quickAIQueryBilingual('Review this contract for compliance issues', 'راجع هذا العقد للتأكد من مسائل الامتثال')">Contract review</button>
-              <button class="quick-chat-btn" onclick="quickAIQueryBilingual('Help me with GCC legal research', 'ساعدني في البحث القانوني الخليجي')">GCC research</button>
-              <button class="quick-chat-btn" onclick="quickAIQueryBilingual('What are the labor law requirements in Qatar?', 'ما هي متطلبات قانون العمل في دولة قطر؟')">Labor law</button>
-            </div>
-          </div>
-          <div class="card">
-            <h3 class="font-semibold mb-4">Document Analysis</h3>
-            <div class="space-y-3 text-sm">
-              <div class="analysis-item"><strong>Risk score:</strong> 41%</div>
-              <div class="analysis-item"><strong>Compliance:</strong> Review recommended</div>
-              <div class="analysis-item"><strong>Missing clauses:</strong> Governing law, signatures</div>
-            </div>
-            <button class="btn-secondary w-full mt-4" onclick="analyzeAllDocuments()">Analyze Documents</button>
-            <button class="btn-outline w-full mt-3" onclick="clearAllDocuments()">Clear Documents</button>
-          </div>
-        </div>
-      </section>
-
-      <section id="schedule" class="section">
-        <div class="flex items-center justify-between mb-4 gap-4 flex-wrap">
-          <div>
-            <h2 class="text-2xl font-bold">Schedule</h2>
-            <p class="text-gray-500">Calendar, reminders, hearings, and deadlines.</p>
-          </div>
-          <div class="flex gap-2 flex-wrap">
-            <button class="btn-secondary text-sm" onclick="previousMonth()">Prev</button>
-            <button class="btn-outline text-sm" onclick="todayView()">Today</button>
-            <button class="btn-secondary text-sm" onclick="nextMonth()">Next</button>
-            <button class="btn-primary text-sm" onclick="showNewEventModal()">New Event</button>
-          </div>
-        </div>
-        <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
-          <div class="card xl:col-span-2">
-            <div class="calendar-grid">
-              <div class="calendar-header">Sun</div><div class="calendar-header">Mon</div><div class="calendar-header">Tue</div><div class="calendar-header">Wed</div><div class="calendar-header">Thu</div><div class="calendar-header">Fri</div><div class="calendar-header">Sat</div>
-              <div class="calendar-day muted">28</div><div class="calendar-day muted">29</div><div class="calendar-day muted">30</div><div class="calendar-day">1</div><div class="calendar-day">2</div><div class="calendar-day today">3</div><div class="calendar-day">4</div>
-              <div class="calendar-day">5</div><div class="calendar-day">6</div><div class="calendar-day event">7</div><div class="calendar-day">8</div><div class="calendar-day">9</div><div class="calendar-day">10</div><div class="calendar-day">11</div>
-              <div class="calendar-day">12</div><div class="calendar-day event">13</div><div class="calendar-day">14</div><div class="calendar-day">15</div><div class="calendar-day">16</div><div class="calendar-day">17</div><div class="calendar-day">18</div>
-              <div class="calendar-day">19</div><div class="calendar-day">20</div><div class="calendar-day">21</div><div class="calendar-day">22</div><div class="calendar-day event">23</div><div class="calendar-day">24</div><div class="calendar-day">25</div>
-              <div class="calendar-day">26</div><div class="calendar-day">27</div><div class="calendar-day">28</div><div class="calendar-day">29</div><div class="calendar-day">30</div><div class="calendar-day">31</div><div class="calendar-day muted">1</div>
-            </div>
-          </div>
-          <div class="card">
-            <h3 class="font-semibold mb-4">Upcoming</h3>
-            <div class="space-y-3 text-sm">
-              <div class="timeline-item"><strong>7 Jul</strong><div>Hearing with opposing counsel</div></div>
-              <div class="timeline-item"><strong>13 Jul</strong><div>Client review meeting</div></div>
-              <div class="timeline-item"><strong>23 Jul</strong><div>Document filing deadline</div></div>
-            </div>
-            <button class="btn-outline w-full mt-4" onclick="showNewEventModal()">Add event</button>
-          </div>
-        </div>
-      </section>
-
-      <section id="clients" class="section">
-        <div class="flex items-center justify-between mb-4 gap-4 flex-wrap">
-          <div>
-            <h2 class="text-2xl font-bold">Clients</h2>
-            <p class="text-gray-500">Client profiles, contacts, and matter assignment.</p>
-          </div>
-          <button class="btn-secondary text-sm" onclick="showAddClientForm()">Add Client</button>
-        </div>
-        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          <div class="client-card cursor-pointer" onclick="viewClientDetails('abc-corp')"><div class="client-name">ABC Corporation</div><div class="client-meta">Commercial dispute • UAE</div><div class="mt-3 text-sm text-gray-500">Primary contact: procurement@abccorp.com</div></div>
-          <div class="client-card cursor-pointer" onclick="viewClientDetails('mohamed-ahmed')"><div class="client-name">محمد أحمد علي</div><div class="client-meta">Personal injury • UAE</div><div class="mt-3 text-sm text-gray-500">Mobile: +968 9xxxxxxx</div></div>
-          <div class="client-card cursor-pointer" onclick="viewClientDetails('emirates-trading')"><div class="client-name">Emirates Trading LLC</div><div class="client-meta">Corporate • GCC</div><div class="mt-3 text-sm text-gray-500">Portfolio: 4 matters</div></div>
-        </div>
-      </section>
+      </div>
     </main>
   </div>
-
-  <script src="/static/test-navigation.js?v=20251022-2100" cache="no-cache"></script>
-  <script src="/static/app.js?v=20251022-2000" cache="no-cache"></script>
 </body>
 </html>`
 
+// ============ ROUTES ============
+app.get('/cms-admin', (c) => c.html(cmsAdminPage))
 app.get('/', (c) => c.html(landingPage))
 app.get('/app', (c) => c.html(appPage))
 app.get('/health', (c) => c.json({ status: 'healthy', service: 'TrustiqLegal Platform', timestamp: new Date().toISOString() }))
@@ -362,3 +433,4 @@ serve({
 })
 
 console.log(`🚀 TrustiqLegal Platform running on port ${port}`)
+
