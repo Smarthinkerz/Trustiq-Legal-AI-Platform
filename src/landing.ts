@@ -165,7 +165,7 @@ export const landingPage = `<!DOCTYPE html>
             <h3 class="text-2xl font-bold mb-2">Starter</h3>
             <p class="text-gray-600 mb-6">For solo practitioners and small firms</p>
             <div class="mb-8">
-              <span class="text-4xl font-extrabold">AED 499</span>
+              <span class="text-4xl font-extrabold">OMR 199</span>
               <span class="text-gray-600">/month</span>
             </div>
             <ul class="space-y-4 mb-8">
@@ -192,7 +192,7 @@ export const landingPage = `<!DOCTYPE html>
             <h3 class="text-2xl font-bold mb-2">Professional</h3>
             <p class="text-gray-600 mb-6">For growing law firms</p>
             <div class="mb-8">
-              <span class="text-4xl font-extrabold">AED 1,299</span>
+              <span class="text-4xl font-extrabold">OMR 499</span>
               <span class="text-gray-600">/month</span>
             </div>
             <ul class="space-y-4 mb-8">
