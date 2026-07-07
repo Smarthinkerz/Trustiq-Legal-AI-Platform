@@ -5,6 +5,7 @@ import { serveStatic } from '@hono/node-server/serve-static'
 import { renderer } from './renderer'
 
 import authRoutes from './routes/auth'
+import { adminPage } from './admin'
 import apiRoutes from './routes/api'
 import casesRoutes from './routes/cases'
 import documentsRoutes from './routes/documents'
@@ -349,6 +350,7 @@ const appPage = `<!DOCTYPE html>
 </body>
 </html>`
 
+app.get('/admin', (c) => c.html(adminPage))
 app.get('/', (c) => c.html(landingPage))
 app.get('/app', (c) => c.html(appPage))
 app.get('/health', (c) => c.json({ status: 'healthy', service: 'TrustiqLegal Platform', timestamp: new Date().toISOString() }))
