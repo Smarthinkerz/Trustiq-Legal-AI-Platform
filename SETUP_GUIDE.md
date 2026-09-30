@@ -1,9 +1,11 @@
 # Setup Guide
 
-1. Install dependencies with `npm install`
-2. Copy `.env.example` to `.env`
-3. Set `OPENAI_API_KEY` and `JWT_SECRET`
-4. Build with `npm run build`
-5. Run with `npm start`
+**Local:** `npm install && npm run dev`, then open http://localhost:8080. No database or API keys are needed to try it.
 
-For Cloudflare Pages, deploy the `dist` output using Wrangler.
+**Production (Railway):**
+
+1. Add a PostgreSQL service and expose its `DATABASE_URL` to the app.
+2. Set `NODE_ENV=production`, `APP_URL`, `OPENAI_API_KEY`, `SMTP_HOST`/`SMTP_USER`/`SMTP_PASS`/`MAIL_FROM` and `PLATFORM_ADMIN_EMAILS`.
+3. Deploy. The build compiles CSS; migrations run automatically on start; `/ready` is the health check.
+
+See `README.md` for configuration, operations and the launch checklist.
