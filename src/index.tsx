@@ -3,6 +3,7 @@ import { cors } from 'hono/cors'
 import { serve } from '@hono/node-server'
 import { serveStatic } from '@hono/node-server/serve-static'
 import { renderer } from './renderer'
+import { landingPage } from './landing'
 
 import authRoutes from './routes/auth'
 import apiRoutes from './routes/api'
@@ -10,30 +11,6 @@ import casesRoutes from './routes/cases'
 import documentsRoutes from './routes/documents'
 import aiRoutes from './routes/ai'
 import brandingRoutes from './routes/branding'
-
-type Bindings = {
-  OPENAI_API_KEY?: string
-  JWT_SECRET?: string
-}
-
-const app = new Hono<{ Bindings: Bindings }>()
-
-app.use(renderer)
-app.use('/api/*', cors({
-  origin: '*',
-  allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization']
-}))
-app.use('/static/*', serveStatic({ root: './public' }))
-
-app.route('/auth', authRoutes)
-app.route('/api', apiRoutes)
-app.route('/api/cases', casesRoutes)
-app.route('/api/documents', documentsRoutes)
-app.route('/api/ai', aiRoutes)
-app.route('/api/branding', brandingRoutes)
-
-import { landingPage } from './landing'
 
 type Bindings = {
   OPENAI_API_KEY?: string
