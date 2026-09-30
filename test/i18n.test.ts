@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+import { execFileSync } from 'node:child_process'
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error plain browser ESM without type declarations
 import en from '../public/static/app/locales/en.js'
@@ -17,6 +18,21 @@ function sources(dir: string): string[] {
 }
 
 const placeholders = (s: string) => [...s.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort()
+
+function files(dir: string): string[] {
+  return readdirSync(dir).flatMap((f) => {
+    const p = join(dir, f)
+    return statSync(p).isDirectory() ? files(p) : p.endsWith('.js') ? [p] : []
+  })
+}
+
+describe('browser modules', () => {
+  it('every SPA module parses as an ES module', () => {
+    for (const f of files(APP_DIR)) {
+      execFileSync(process.execPath, ['--check', '--input-type=module'], { input: readFileSync(f), stdio: ['pipe', 'pipe', 'pipe'] })
+    }
+  })
+})
 
 describe('translations', () => {
   it('English and Arabic define exactly the same keys', () => {
@@ -40,13 +56,21 @@ describe('translations', () => {
       status: ['active', 'pending', 'under_review', 'on_hold', 'closed', 'draft', 'review', 'final'],
       priority: ['low', 'medium', 'high', 'urgent'],
       severity: ['low', 'medium', 'high', 'critical'],
-      role: ['owner', 'admin', 'lawyer', 'staff'],
+      role: ['owner', 'admin', 'lawyer', 'staff', 'client'],
+      task_status: ['open', 'in_progress', 'done'],
+      invoice_status: ['draft', 'issued', 'paid', 'void', 'outstanding', 'overdue'],
+      law_status: ['in_force', 'amended', 'repealed'],
+      law_kind: ['law', 'royal_decree', 'regulation', 'ministerial_decision', 'judgment', 'circular', 'treaty', 'other'],
+      checklist: ['litigation', 'arbitration', 'employment', 'corporate', 'real_estate', 'commercial', 'family'],
+      payment_status: ['initiated', 'paid', 'failed', 'cancelled'],
+      ai_feature: ['chat', 'draft', 'analysis', 'ocr'],
+      'billing.tab': ['invoices', 'time', 'expenses', 'settings'],
       event: ['hearing', 'deadline', 'filing', 'meeting', 'reminder'],
       plan: ['trial', 'starter', 'professional', 'enterprise'],
       'analysis.type': ['summary', 'risk', 'compliance', 'review'],
       'docs.source': ['upload', 'ai', 'manual'],
       doctype: ['contract', 'correspondence', 'evidence', 'court_filing', 'other'],
-      nav: ['dashboard', 'cases', 'clients', 'documents', 'assistant', 'calendar', 'settings', 'admin'],
+      nav: ['dashboard', 'cases', 'clients', 'documents', 'assistant', 'calendar', 'settings', 'admin', 'tasks', 'templates', 'library', 'billing', 'reports'],
       settings: ['profile', 'firm', 'team', 'branding', 'plan', 'audit']
     }
     const missing: string[] = []

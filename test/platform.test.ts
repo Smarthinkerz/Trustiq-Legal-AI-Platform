@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { totpCode } from '../src/lib/totp'
 import { runDailyDigest, runRenewalReminders } from '../src/services/jobs'
 import { createLogger } from '../src/lib/logger'
+import { citationLabel } from '../src/services/library'
 import { client, registered, setup } from './helpers'
 
 let ctx: Awaited<ReturnType<typeof setup>>
@@ -52,6 +53,14 @@ describe('law library and cited research', () => {
     // Only platform admins may add to the shared library.
     form.set('scope', 'platform')
     expect((await c.post('/api/library/sources', form)).status).toBe(403)
+  })
+})
+
+describe('citation labels', () => {
+  it('formats law numbers without repeating the year', () => {
+    expect(citationLabel({ title: 'Labour Law', number: '35/2003', year: 2003, label: 'Article 43' } as any)).toBe('Labour Law (No. 35/2003) – Article 43')
+    expect(citationLabel({ title: 'Labour Law', number: '35', year: 2003, label: null } as any)).toBe('Labour Law (No. 35/2003)')
+    expect(citationLabel({ title: 'Judgment', number: null, year: 2019, label: null } as any)).toBe('Judgment (2019)')
   })
 })
 

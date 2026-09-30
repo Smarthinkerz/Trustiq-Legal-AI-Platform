@@ -23,4 +23,6 @@ export function refOptions(listName) {
 }
 
 export const aiEnabled = () => !!store.me?.features.ai
-export const readOnly = () => !!store.me?.org.trial_expired
+export const readOnly = () => !!(store.me?.org.trial_expired || store.me?.org.subscription_expired)
+export const isClient = () => role() === 'client'
+export const isStaff = () => !!store.me && role() !== 'client'

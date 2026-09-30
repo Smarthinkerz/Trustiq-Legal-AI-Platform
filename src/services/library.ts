@@ -183,7 +183,9 @@ export async function searchLibrary(q: Queryable, orgId: string, question: strin
 }
 
 export function citationLabel(p: Pick<Passage, 'title' | 'number' | 'year' | 'label'>) {
-  const ref = [p.number && `No. ${p.number}`, p.year && `/${p.year}`].filter(Boolean).join('')
+  // "35/2003" already carries its year; "35" with year 2003 becomes "No. 35/2003".
+  const hasYear = !!p.number && !!p.year && String(p.number).includes(String(p.year))
+  const ref = p.number ? `No. ${p.number}${p.year && !hasYear ? `/${p.year}` : ''}` : p.year ? String(p.year) : ''
   return `${p.title}${ref ? ` (${ref})` : ''}${p.label ? ` – ${p.label}` : ''}`
 }
 

@@ -62,6 +62,7 @@ export async function assistantView(root, { params, query, isCurrent }) {
             ${searchPicker({ name: 'case_id', label: t('ai.case_context'), value: presetCase, valueLabel: presetCaseLabel })}
             ${selectField({ name: 'jurisdiction', label: t('common.jurisdiction'), options: refOptions('jurisdictions'), value: store.me.org.default_jurisdiction })}
           </div>` : ''}
+          <label class="flex items-center gap-2 text-xs text-slate-600"><input type="checkbox" name="library_only" /> <i class="fas fa-book-open"></i>${t('ai.library_only')}</label>
           <div class="flex gap-2 items-end">
             <textarea name="message" rows="2" class="input flex-1 resize-none" dir="auto" placeholder="${t('ai.placeholder')}" maxlength="8000" required aria-label="${t('ai.placeholder')}"></textarea>
             <button type="submit" class="btn btn-primary h-11" aria-label="${t('ai.send')}"><i class="fas fa-paper-plane rtl:-scale-x-100"></i><span class="hidden sm:inline">${t('ai.send')}</span></button>
@@ -88,6 +89,11 @@ export async function assistantView(root, { params, query, isCurrent }) {
     render(list, html`${state.messages.map((m) => html`
       <div class="flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}">
         <div class="chat-msg ${m.role}" dir="auto">${m.role === 'assistant' ? renderRichText(m.content) : m.content}</div>
+        ${m.role === 'assistant' && m.sources?.length ? html`<div class="mt-2 max-w-3xl w-full">
+          <p class="text-xs font-semibold text-slate-500 mb-1"><i class="fas fa-book-open"></i> ${t('ai.sources')}</p>
+          <ul class="flex flex-wrap gap-1.5">${m.sources.map((src) => html`<li><a href="#/library/${src.source_id}" class="badge ${src.status === 'repealed' ? 'bg-red-50 text-red-700' : 'bg-brand-50 text-brand-700'} hover:underline" dir="auto" title="${src.status === 'repealed' ? t('law_status.repealed') : ''}">[${src.ref}] ${src.citation}</a></li>`)}</ul>
+        </div>` : ''}
+        ${m.role === 'assistant' && m.library_matches === 0 && !m.sources?.length ? html`<p class="text-xs text-slate-400 mt-1"><i class="fas fa-circle-info"></i> ${t('ai.no_library_matches')} <a class="underline" href="#/library">${t('nav.library')}</a></p>` : ''}
         ${m.role === 'assistant' && !m.pending ? html`<button class="text-xs text-slate-400 hover:text-slate-700 mt-1" data-action="copy" data-idx="${state.messages.indexOf(m)}"><i class="fas fa-copy"></i> ${t('common.copy')}</button>` : ''}
       </div>`)}
       ${state.sending ? html`<div class="flex items-start"><div class="chat-msg assistant text-slate-500"><i class="fas fa-circle-notch fa-spin"></i> ${t('ai.thinking')}</div></div>` : ''}`)
@@ -104,7 +110,7 @@ export async function assistantView(root, { params, query, isCurrent }) {
     const btn = form.querySelector('[type=submit]')
     btn.disabled = true
     try {
-      const body = { message: text, language: getLang() }
+      const body = { message: text, language: getLang(), library_only: !!form.elements.library_only?.checked }
       if (state.conversationId) body.conversation_id = state.conversationId
       else {
         const caseId = form.elements.case_id?.value
@@ -113,7 +119,7 @@ export async function assistantView(root, { params, query, isCurrent }) {
       }
       const res = await api.post('/api/ai/chat', body)
       if (!isCurrent()) return
-      state.messages.push({ role: 'assistant', content: res.reply })
+      state.messages.push({ role: 'assistant', content: res.reply, sources: res.sources, library_matches: res.library_matches })
       textarea.value = ''
       if (!state.conversationId) {
         state.conversationId = res.conversation_id
@@ -159,5 +165,6 @@ export async function assistantView(root, { params, query, isCurrent }) {
     },
     forms: { send: () => send(textarea.value) }
   })
+  if (textarea && query.get('q') && !state.messages.length) textarea.value = t('ai.ask_about', { title: query.get('q') })
   textarea?.focus()
 }

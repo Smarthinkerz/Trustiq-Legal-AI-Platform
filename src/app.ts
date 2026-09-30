@@ -4,6 +4,8 @@ import { bodyLimit } from 'hono/body-limit'
 import { secureHeaders } from 'hono/secure-headers'
 import { serveStatic } from '@hono/node-server/serve-static'
 import { randomUUID } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type { AppEnv, Deps } from './context'
 import { clientIp } from './context'
 import { forbidden, HttpError, tooMany, unauthorized } from './lib/errors'
@@ -179,6 +181,25 @@ export function createApp(deps: Deps) {
     rewriteRequestPath: (p) => p.replace(/^\/vendor\/fa/, '')
   }))
   app.get('/favicon.ico', (c) => c.redirect(`/static/favicon.svg?v=${assetVersion}`, 301))
+  app.get('/manifest.webmanifest', (c) => {
+    c.header('content-type', 'application/manifest+json')
+    c.header('cache-control', 'public, max-age=3600')
+    return c.body(JSON.stringify({
+      name: 'TrustiqLegal', short_name: 'TrustiqLegal', description: 'Legal practice management and AI for GCC law firms',
+      start_url: '/app', scope: '/', display: 'standalone', background_color: '#f8fafc', theme_color: '#1a365d', dir: 'auto',
+      icons: [
+        { src: '/static/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
+        { src: '/static/icons/icon-512.png', sizes: '512x512', type: 'image/png' },
+        { src: '/static/icons/maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }
+      ]
+    }))
+  })
+  const swSource = readFileSync(join(process.cwd(), 'public/sw.js'), 'utf8')
+  app.get('/sw.js', (c) => {
+    c.header('content-type', 'text/javascript; charset=utf-8')
+    c.header('cache-control', 'no-cache')
+    return c.body(swSource)
+  })
   app.get('/robots.txt', (c) => c.text('User-agent: *\nAllow: /\nDisallow: /app\nDisallow: /api\n'))
 
   // ---------- Pages ----------
