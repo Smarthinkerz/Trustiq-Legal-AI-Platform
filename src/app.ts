@@ -18,6 +18,14 @@ import aiRoutes from './routes/ai'
 import dashboardRoutes from './routes/dashboard'
 import referenceRoutes from './routes/api'
 import adminRoutes from './routes/admin'
+import libraryRoutes from './routes/library'
+import billingRoutes from './routes/billing'
+import reportsRoutes from './routes/reports'
+import tasksRoutes from './routes/tasks'
+import workspaceRoutes from './routes/workspace'
+import portalRoutes from './routes/portal'
+import { subscriptionRoutes, tapPublicRoutes } from './routes/subscription'
+import { buildIcs } from './services/jobs'
 import { landingPage } from './landing'
 import { appShell } from './pages/app-shell'
 import { legalPage } from './pages/legal'
@@ -25,8 +33,11 @@ import { legalPage } from './pages/legal'
 // Endpoints reachable without a session.
 const PUBLIC_API = new Set([
   'POST /api/auth/register', 'POST /api/auth/login', 'POST /api/auth/logout', 'POST /api/auth/forgot-password',
-  'POST /api/auth/reset-password', 'POST /api/auth/accept-invite', 'GET /api/reference'
+  'POST /api/auth/reset-password', 'POST /api/auth/accept-invite', 'POST /api/auth/login/mfa', 'GET /api/reference'
 ])
+// Client-portal users may only reach these API prefixes.
+const CLIENT_API = ['/api/portal', '/api/auth', '/api/reference']
+const clientAllowed = (path: string) => CLIENT_API.some((p) => path === p || path.startsWith(`${p}/`))
 const isPublicApi = (method: string, path: string) =>
   PUBLIC_API.has(`${method} ${path}`) || (method === 'GET' && path.startsWith('/api/auth/invite/'))
 
@@ -104,13 +115,16 @@ export function createApp(deps: Deps) {
   const uploadLimit = bodyLimit({ maxSize: config.maxUploadBytes + 1024 * 1024 })
   const jsonLimit = bodyLimit({ maxSize: 3 * 1024 * 1024 })
   app.use('/api/*', async (c, next) => {
-    const isUpload = c.req.path === '/api/documents/upload' || c.req.path === '/api/org/branding/logo'
+    const p = c.req.path
+    const isUpload = p === '/api/documents/upload' || p === '/api/org/branding/logo' || p === '/api/library/sources' || p === '/api/portal/documents'
     return (isUpload ? uploadLimit : jsonLimit)(c, next)
   })
 
   app.use('/api/*', loadSession)
   app.use('/api/*', async (c, next) => {
-    if (!c.get('user') && !isPublicApi(c.req.method, c.req.path)) throw unauthorized()
+    const user = c.get('user')
+    if (!user && !isPublicApi(c.req.method, c.req.path)) throw unauthorized()
+    if (user?.role === 'client' && !clientAllowed(c.req.path)) throw forbidden('This area is only available to the law firm.')
     await next()
   })
 
@@ -118,15 +132,34 @@ export function createApp(deps: Deps) {
   app.route('/api/reference', referenceRoutes)
   app.route('/api/org', orgRoutes)
   app.route('/api/admin', adminRoutes)
+  app.route('/api/subscription', subscriptionRoutes)
   for (const [path, routes] of [
     ['/api/dashboard', dashboardRoutes], ['/api/clients', clientsRoutes], ['/api/cases', casesRoutes],
-    ['/api/documents', documentsRoutes], ['/api/events', eventsRoutes], ['/api/ai', aiRoutes]
+    ['/api/documents', documentsRoutes], ['/api/events', eventsRoutes], ['/api/ai', aiRoutes],
+    ['/api/library', libraryRoutes], ['/api/billing', billingRoutes], ['/api/reports', reportsRoutes],
+    ['/api/tasks', tasksRoutes], ['/api/workspace', workspaceRoutes], ['/api/portal', portalRoutes]
   ] as const) {
     app.use(`${path}/*`, requireActiveSubscription)
     app.use(path, requireActiveSubscription)
     app.route(path, routes)
   }
   app.all('/api/*', (c) => c.json({ error: { code: 'not_found', message: 'API endpoint not found' } }, 404))
+
+  // ---------- Payments (public, verified by signature / re-fetch from Tap) ----------
+  app.use('/webhooks/*', bodyLimit({ maxSize: 256 * 1024 }))
+  app.route('/', tapPublicRoutes)
+
+  // ---------- Calendar feed (token in URL, read-only) ----------
+  app.get('/calendar/:file', async (c) => {
+    const m = c.req.param('file').match(/^([A-Za-z0-9_-]{20,100})\.ics$/)
+    const r = deps.limiters.api.take(`ics:${clientIp(c)}`)
+    if (!m || !r.ok) return c.text('Not found', 404)
+    const ics = await buildIcs(deps.db, m[1]!, config.appUrl)
+    if (!ics) return c.text('Not found', 404)
+    c.header('content-type', 'text/calendar; charset=utf-8')
+    c.header('cache-control', 'private, max-age=300')
+    return c.body(ics)
+  })
 
   // ---------- Health ----------
   app.get('/health', (c) => c.json({ status: 'ok' }))

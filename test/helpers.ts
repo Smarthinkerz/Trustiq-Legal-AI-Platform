@@ -5,6 +5,7 @@ import { createLogger } from '../src/lib/logger'
 import type { Mail, Mailer } from '../src/lib/mailer'
 import { RateLimiter } from '../src/lib/rate-limit'
 import type { AiService, ChatMessage } from '../src/services/ai'
+import type { TapCharge, TapClient } from '../src/services/tap'
 
 export type FakeAi = AiService & { calls: ChatMessage[][]; nextReply: string | null }
 
@@ -26,6 +27,32 @@ export function fakeAi(): FakeAi {
   return ai
 }
 
+export type FakeTap = TapClient & { charges: Map<string, TapCharge>; created: Record<string, any>[] }
+
+export function fakeTap(): FakeTap {
+  let n = 0
+  const tap: FakeTap = {
+    configured: true,
+    charges: new Map(),
+    created: [],
+    async createCharge(body: any) {
+      tap.created.push(body)
+      const charge: TapCharge = {
+        id: `chg_TS${++n}${Date.now()}`, status: 'INITIATED', amount: body.amount, currency: body.currency,
+        metadata: body.metadata, reference: body.reference, transaction: { url: `https://checkout.tap.test/${n}`, created: Date.now() }
+      }
+      tap.charges.set(charge.id, charge)
+      return charge
+    },
+    async retrieveCharge(id) {
+      const c = tap.charges.get(id)
+      if (!c) throw new Error('unknown charge')
+      return c
+    }
+  }
+  return tap
+}
+
 export async function setup(env: Record<string, string> = {}) {
   const config = loadConfig({
     NODE_ENV: 'test', APP_URL: 'http://localhost:8080', PLATFORM_ADMIN_EMAILS: 'ops@trustiq.test',
@@ -36,12 +63,13 @@ export async function setup(env: Record<string, string> = {}) {
   const mails: Mail[] = []
   const mailer: Mailer = { configured: true, async send(m) { mails.push(m) } }
   const ai = fakeAi()
+  const tap = fakeTap()
   const app = createApp({
-    config, db, ai, mailer,
+    config, db, ai, mailer, tap,
     log: createLogger('error', true),
-    limiters: { auth: new RateLimiter(1000, 60_000), api: new RateLimiter(10_000, 60_000), ai: new RateLimiter(1000, 60_000) }
+    limiters: { auth: new RateLimiter(1000, 60_000), api: new RateLimiter(10_000, 60_000), ai: new RateLimiter(1000, 60_000), webhook: new RateLimiter(1000, 60_000) }
   })
-  return { app, db, ai, mails, config }
+  return { app, db, ai, mails, config, tap }
 }
 
 type App = Awaited<ReturnType<typeof setup>>['app']

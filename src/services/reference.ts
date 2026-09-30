@@ -54,3 +54,59 @@ export const DOCUMENT_TEMPLATES = [
 export const DOC_TYPE_IDS = [...DOCUMENT_TEMPLATES.map((t) => t.id), 'contract', 'correspondence', 'evidence', 'court_filing', 'other'] as unknown as [string, ...string[]]
 
 export const templateName = (id: string) => DOCUMENT_TEMPLATES.find((t) => t.id === id)?.name ?? 'legal document'
+
+// Starter checklists per practice area. Applying one creates tasks on a case; firms can edit them after.
+export const CHECKLISTS: Record<string, { en: string; ar: string }[]> = {
+  litigation: [
+    { en: 'Conflict check and engagement letter signed', ar: 'فحص تعارض المصالح وتوقيع خطاب التكليف' },
+    { en: 'Obtain power of attorney', ar: 'الحصول على الوكالة القانونية' },
+    { en: 'Collect and review evidence and correspondence', ar: 'جمع ومراجعة الأدلة والمراسلات' },
+    { en: 'Assess limitation periods and jurisdiction', ar: 'تقييم مدد التقادم والاختصاص' },
+    { en: 'Draft and file statement of claim / defence', ar: 'صياغة وإيداع صحيفة الدعوى / مذكرة الدفاع' },
+    { en: 'Calendar all hearing dates and filing deadlines', ar: 'قيد جميع مواعيد الجلسات ومهل الإيداع في التقويم' },
+    { en: 'Prepare witness statements and expert reports', ar: 'إعداد إفادات الشهود وتقارير الخبراء' },
+    { en: 'Report judgment to client and assess appeal deadline', ar: 'إبلاغ الموكل بالحكم وتقييم مهلة الاستئناف' }
+  ],
+  arbitration: [
+    { en: 'Review arbitration clause and applicable rules', ar: 'مراجعة شرط التحكيم والقواعد المطبقة' },
+    { en: 'Serve notice of arbitration', ar: 'إرسال إخطار التحكيم' },
+    { en: 'Nominate arbitrator', ar: 'تعيين المحكم' },
+    { en: 'Prepare statement of claim and evidence bundle', ar: 'إعداد بيان الدعوى وملف الأدلة' },
+    { en: 'Procedural timetable entered in calendar', ar: 'قيد الجدول الإجرائي في التقويم' },
+    { en: 'Enforcement strategy for the award', ar: 'استراتيجية تنفيذ حكم التحكيم' }
+  ],
+  employment: [
+    { en: 'Obtain employment contract, payslips and termination letter', ar: 'الحصول على عقد العمل وكشوف الرواتب وخطاب الإنهاء' },
+    { en: 'Calculate end-of-service gratuity and entitlements', ar: 'احتساب مكافأة نهاية الخدمة والمستحقات' },
+    { en: 'File complaint with the labour authority within the deadline', ar: 'تقديم الشكوى لدى جهة العمل المختصة ضمن المهلة' },
+    { en: 'Attend amicable settlement session', ar: 'حضور جلسة التسوية الودية' },
+    { en: 'Refer to labour court if unresolved', ar: 'الإحالة إلى المحكمة العمالية في حال عدم التسوية' }
+  ],
+  corporate: [
+    { en: 'KYC on shareholders and directors', ar: 'التحقق من هوية الشركاء والمديرين' },
+    { en: 'Reserve trade name', ar: 'حجز الاسم التجاري' },
+    { en: 'Draft memorandum and articles of association', ar: 'صياغة عقد التأسيس والنظام الأساسي' },
+    { en: 'Commercial registration filing', ar: 'تقديم طلب السجل التجاري' },
+    { en: 'Open bank account and deposit capital', ar: 'فتح الحساب البنكي وإيداع رأس المال' },
+    { en: 'Post-registration licences and registrations', ar: 'التراخيص والتسجيلات اللاحقة للتأسيس' }
+  ],
+  real_estate: [
+    { en: 'Title deed and encumbrance search', ar: 'التحقق من سند الملكية والرهونات' },
+    { en: 'Review sale or lease agreement', ar: 'مراجعة عقد البيع أو الإيجار' },
+    { en: 'Confirm approvals and permits', ar: 'التأكد من الموافقات والتصاريح' },
+    { en: 'Register transfer or lease with the authority', ar: 'تسجيل نقل الملكية أو الإيجار لدى الجهة المختصة' }
+  ],
+  commercial: [
+    { en: 'Engagement letter and conflict check', ar: 'خطاب التكليف وفحص التعارض' },
+    { en: 'Gather commercial terms and draft agreement', ar: 'جمع الشروط التجارية وصياغة الاتفاقية' },
+    { en: 'Run AI risk review on draft', ar: 'إجراء مراجعة المخاطر بالذكاء الاصطناعي للمسودة' },
+    { en: 'Negotiate and finalise', ar: 'التفاوض والإنهاء' },
+    { en: 'Arrange signing and archive executed copy', ar: 'ترتيب التوقيع وأرشفة النسخة الموقعة' }
+  ],
+  family: [
+    { en: 'Initial consultation notes and documents', ar: 'ملاحظات الاستشارة الأولية والمستندات' },
+    { en: 'File claim with personal status court', ar: 'قيد الدعوى لدى محكمة الأحوال الشخصية' },
+    { en: 'Reconciliation session', ar: 'جلسة الصلح' },
+    { en: 'Hearings and judgment follow-up', ar: 'متابعة الجلسات والحكم' }
+  ]
+}

@@ -5,10 +5,12 @@ import type { Db } from './db'
 import type { Logger } from './lib/logger'
 import type { Mailer } from './lib/mailer'
 import type { AiService } from './services/ai'
+import type { TapClient } from './services/tap'
 import type { RateLimiter } from './lib/rate-limit'
 import { forbidden, unauthorized } from './lib/errors'
 
-export type Role = 'owner' | 'admin' | 'lawyer' | 'staff'
+export type Role = 'owner' | 'admin' | 'lawyer' | 'staff' | 'client'
+export const STAFF_ROLES: Role[] = ['owner', 'admin', 'lawyer', 'staff']
 
 export type AuthUser = {
   id: string
@@ -17,6 +19,9 @@ export type AuthUser = {
   name: string
   role: Role
   locale: 'en' | 'ar'
+  // Set only for client-portal users.
+  client_id: string | null
+  two_factor: boolean
 }
 
 export type Org = {
@@ -24,6 +29,7 @@ export type Org = {
   name: string
   plan: string
   trial_ends_at: Date | null
+  plan_expires_at: Date | null
   default_jurisdiction: string
   default_currency: string
 }
@@ -34,7 +40,8 @@ export type Deps = {
   log: Logger
   mailer: Mailer
   ai: AiService
-  limiters: { auth: RateLimiter; api: RateLimiter; ai: RateLimiter }
+  tap: TapClient
+  limiters: { auth: RateLimiter; api: RateLimiter; ai: RateLimiter; webhook: RateLimiter }
 }
 
 export type AppEnv = {

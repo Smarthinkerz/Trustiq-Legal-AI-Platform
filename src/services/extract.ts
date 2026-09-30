@@ -1,4 +1,6 @@
 import { HttpError } from '../lib/errors'
+import type { Logger } from '../lib/logger'
+import { transcribePdf, type AiService, type Completion } from './ai'
 
 export type FileKind = 'pdf' | 'docx' | 'txt'
 
@@ -48,4 +50,25 @@ export async function extractText(bytes: Uint8Array, kind: FileKind): Promise<st
 
 export function cleanText(text: string): string {
   return text.replace(/\r\n?/g, '\n').replace(/[ \t]+\n/g, '\n').replace(/\n{4,}/g, '\n\n\n').trim()
+}
+
+// A PDF without a text layer is a scan: fall back to AI transcription when available.
+const looksScanned = (text: string) => text.replace(/\s/g, '').length < 200
+
+export async function extractWithOcr(
+  opts: { ai: AiService; log: Logger; onAiUsage?: (c: Completion) => Promise<void> },
+  bytes: Uint8Array, kind: FileKind, fileName: string
+): Promise<{ text: string; ocr: boolean }> {
+  const text = cleanText(await extractText(bytes, kind))
+  if (kind !== 'pdf' || !looksScanned(text) || !opts.ai.configured) return { text, ocr: false }
+  try {
+    const result = await transcribePdf(opts.ai, bytes, fileName)
+    await opts.onAiUsage?.(result)
+    const ocrText = cleanText(result.text)
+    return ocrText.length > text.length ? { text: ocrText, ocr: true } : { text, ocr: false }
+  } catch (err) {
+    // OCR is best-effort; the upload still succeeds with whatever text was found.
+    opts.log.warn('ocr failed', { err, fileName })
+    return { text, ocr: false }
+  }
 }

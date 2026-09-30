@@ -23,7 +23,7 @@ adminRoutes.get('/organizations', queryParams(z.object(pageSchema)), async (c) =
   if (q) { params.push(likePattern(q)); where = `(o.name ILIKE $1 OR EXISTS (SELECT 1 FROM users u WHERE u.org_id = o.id AND u.email ILIKE $1))` }
   const [{ n }] = await db.query(`SELECT count(*)::int AS n FROM organizations o WHERE ${where}`, params)
   const items = await db.query(
-    `SELECT o.id, o.name, o.plan, o.trial_ends_at, o.created_at,
+    `SELECT o.id, o.name, o.plan, o.trial_ends_at, o.plan_expires_at, o.created_at,
             (SELECT email FROM users u WHERE u.org_id = o.id AND u.role = 'owner' ORDER BY u.created_at LIMIT 1) AS owner_email,
             (SELECT count(*)::int FROM users u WHERE u.org_id = o.id AND u.deactivated_at IS NULL) AS users,
             (SELECT count(*)::int FROM cases k WHERE k.org_id = o.id) AS cases,
@@ -36,14 +36,16 @@ adminRoutes.get('/organizations', queryParams(z.object(pageSchema)), async (c) =
 
 adminRoutes.patch('/organizations/:id', jsonBody(z.object({
   plan: z.enum(Object.keys(PLANS) as [string, ...string[]]).optional(),
-  trial_ends_at: z.string().datetime({ offset: true }).nullish()
+  trial_ends_at: z.string().datetime({ offset: true }).nullish(),
+  plan_expires_at: z.string().datetime({ offset: true }).nullish()
 })), async (c) => {
   const id = uuidParam(c.req.param('id'), 'Organization')
   const b = c.req.valid('json')
   const row = await c.get('deps').db.one(
-    `UPDATE organizations SET plan = COALESCE($2, plan), trial_ends_at = CASE WHEN $3::boolean THEN $4::timestamptz ELSE trial_ends_at END, updated_at = now()
-      WHERE id = $1 RETURNING id, name, plan, trial_ends_at`,
-    [id, b.plan ?? null, b.trial_ends_at !== undefined, b.trial_ends_at ?? null])
+    `UPDATE organizations SET plan = COALESCE($2, plan), trial_ends_at = CASE WHEN $3::boolean THEN $4::timestamptz ELSE trial_ends_at END,
+            plan_expires_at = CASE WHEN $5::boolean THEN $6::timestamptz ELSE plan_expires_at END, updated_at = now()
+      WHERE id = $1 RETURNING id, name, plan, trial_ends_at, plan_expires_at`,
+    [id, b.plan ?? null, b.trial_ends_at !== undefined, b.trial_ends_at ?? null, b.plan_expires_at !== undefined, b.plan_expires_at ?? null])
   if (!row) throw notFound('Organization')
   await audit(c, 'admin.organization_updated', 'organization', id, b)
   return c.json({ organization: row })

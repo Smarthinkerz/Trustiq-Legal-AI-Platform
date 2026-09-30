@@ -248,6 +248,237 @@ CREATE TABLE audit_log (
 );
 CREATE INDEX audit_log_org_idx ON audit_log (org_id, created_at DESC);
 `
+  },
+  {
+    version: 2,
+    name: 'practice_platform',
+    sql: `
+ALTER TABLE users DROP CONSTRAINT users_role_check;
+ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('owner','admin','lawyer','staff','client'));
+ALTER TABLE users ADD COLUMN client_id UUID REFERENCES clients(id) ON DELETE CASCADE;
+ALTER TABLE users ADD COLUMN hourly_rate NUMERIC(12,3);
+ALTER TABLE users ADD COLUMN totp_secret TEXT;
+ALTER TABLE users ADD COLUMN totp_enabled_at TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN totp_recovery_codes TEXT[];
+ALTER TABLE users ADD COLUMN calendar_token TEXT;
+ALTER TABLE users ADD COLUMN notify_email BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE users ADD COLUMN last_digest_on DATE;
+CREATE UNIQUE INDEX users_calendar_token_key ON users (calendar_token) WHERE calendar_token IS NOT NULL;
+CREATE INDEX users_client_idx ON users (client_id) WHERE client_id IS NOT NULL;
+
+ALTER TABLE auth_tokens DROP CONSTRAINT auth_tokens_kind_check;
+ALTER TABLE auth_tokens ADD CONSTRAINT auth_tokens_kind_check CHECK (kind IN ('password_reset','invite','mfa'));
+ALTER TABLE auth_tokens ADD COLUMN client_id UUID REFERENCES clients(id) ON DELETE CASCADE;
+
+ALTER TABLE organizations ADD COLUMN invoice_seq INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE organizations ADD COLUMN vat_number TEXT;
+ALTER TABLE organizations ADD COLUMN vat_rate NUMERIC(5,2);
+ALTER TABLE organizations ADD COLUMN payment_terms_days INTEGER NOT NULL DEFAULT 30;
+ALTER TABLE organizations ADD COLUMN bank_details TEXT;
+ALTER TABLE organizations ADD COLUMN invoice_footer TEXT;
+ALTER TABLE organizations ADD COLUMN default_hourly_rate NUMERIC(12,3);
+
+ALTER TABLE documents ADD COLUMN shared_with_client BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE documents ADD COLUMN uploaded_by_client BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE documents ADD COLUMN ocr BOOLEAN NOT NULL DEFAULT false;
+
+ALTER TABLE ai_messages ADD COLUMN sources JSONB;
+
+CREATE TABLE tasks (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  case_id UUID REFERENCES cases(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  description TEXT,
+  assigned_to UUID REFERENCES users(id) ON DELETE SET NULL,
+  due_date DATE,
+  priority TEXT NOT NULL DEFAULT 'medium' CHECK (priority IN ('low','medium','high','urgent')),
+  status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','in_progress','done')),
+  completed_at TIMESTAMPTZ,
+  created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX tasks_org_idx ON tasks (org_id, status, due_date);
+CREATE INDEX tasks_case_idx ON tasks (case_id);
+CREATE INDEX tasks_assignee_idx ON tasks (assigned_to, status);
+
+CREATE TABLE invoices (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  client_id UUID NOT NULL REFERENCES clients(id) ON DELETE RESTRICT,
+  case_id UUID REFERENCES cases(id) ON DELETE SET NULL,
+  number TEXT,
+  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','issued','paid','void')),
+  issue_date DATE,
+  due_date DATE,
+  currency TEXT NOT NULL,
+  subtotal NUMERIC(14,3) NOT NULL DEFAULT 0,
+  vat_rate NUMERIC(5,2) NOT NULL DEFAULT 0,
+  vat_amount NUMERIC(14,3) NOT NULL DEFAULT 0,
+  total NUMERIC(14,3) NOT NULL DEFAULT 0,
+  amount_paid NUMERIC(14,3) NOT NULL DEFAULT 0,
+  paid_at TIMESTAMPTZ,
+  notes TEXT,
+  created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX invoices_number_key ON invoices (org_id, number) WHERE number IS NOT NULL;
+CREATE INDEX invoices_org_idx ON invoices (org_id, status, issue_date);
+CREATE INDEX invoices_client_idx ON invoices (client_id);
+
+CREATE TABLE invoice_lines (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  invoice_id UUID NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL CHECK (kind IN ('time','expense','fixed')),
+  description TEXT NOT NULL,
+  quantity NUMERIC(12,3) NOT NULL DEFAULT 1,
+  unit_price NUMERIC(14,3) NOT NULL DEFAULT 0,
+  amount NUMERIC(14,3) NOT NULL DEFAULT 0,
+  position INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX invoice_lines_invoice_idx ON invoice_lines (invoice_id, position);
+
+CREATE TABLE time_entries (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  case_id UUID NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+  user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  work_date DATE NOT NULL DEFAULT CURRENT_DATE,
+  minutes INTEGER NOT NULL CHECK (minutes > 0 AND minutes <= 1440),
+  description TEXT NOT NULL,
+  rate NUMERIC(12,3) NOT NULL DEFAULT 0,
+  billable BOOLEAN NOT NULL DEFAULT true,
+  invoice_id UUID REFERENCES invoices(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX time_entries_org_idx ON time_entries (org_id, work_date DESC);
+CREATE INDEX time_entries_case_idx ON time_entries (case_id, invoice_id);
+
+CREATE TABLE expenses (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  case_id UUID NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+  user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  incurred_on DATE NOT NULL DEFAULT CURRENT_DATE,
+  description TEXT NOT NULL,
+  amount NUMERIC(14,3) NOT NULL CHECK (amount >= 0),
+  billable BOOLEAN NOT NULL DEFAULT true,
+  invoice_id UUID REFERENCES invoices(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX expenses_case_idx ON expenses (case_id, invoice_id);
+
+CREATE TABLE library_sources (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID REFERENCES organizations(id) ON DELETE CASCADE,
+  jurisdiction TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('law','royal_decree','regulation','ministerial_decision','judgment','circular','treaty','other')),
+  title TEXT NOT NULL,
+  number TEXT,
+  year INTEGER,
+  status TEXT NOT NULL DEFAULT 'in_force' CHECK (status IN ('in_force','amended','repealed')),
+  language TEXT NOT NULL DEFAULT 'ar' CHECK (language IN ('en','ar')),
+  source_url TEXT,
+  notes TEXT,
+  file_name TEXT,
+  mime_type TEXT,
+  file_data BYTEA,
+  articles INTEGER NOT NULL DEFAULT 0,
+  created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX library_sources_org_idx ON library_sources (org_id, jurisdiction);
+
+CREATE TABLE library_chunks (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  source_id UUID NOT NULL REFERENCES library_sources(id) ON DELETE CASCADE,
+  org_id UUID REFERENCES organizations(id) ON DELETE CASCADE,
+  ordinal INTEGER NOT NULL,
+  label TEXT,
+  text TEXT NOT NULL,
+  search TSVECTOR NOT NULL
+);
+CREATE INDEX library_chunks_source_idx ON library_chunks (source_id, ordinal);
+CREATE INDEX library_chunks_search_idx ON library_chunks USING GIN (search);
+
+CREATE TABLE client_messages (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  client_id UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  case_id UUID REFERENCES cases(id) ON DELETE SET NULL,
+  sender_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  from_client BOOLEAN NOT NULL,
+  body TEXT NOT NULL,
+  read_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX client_messages_client_idx ON client_messages (client_id, created_at);
+
+CREATE TABLE document_templates (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  doc_type TEXT NOT NULL DEFAULT 'other',
+  language TEXT NOT NULL DEFAULT 'en' CHECK (language IN ('en','ar')),
+  content TEXT NOT NULL,
+  created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX document_templates_org_idx ON document_templates (org_id, name);
+
+`
+  },
+  {
+    version: 3,
+    name: 'subscriptions_tap',
+    sql: `
+ALTER TABLE organizations ADD COLUMN plan_expires_at TIMESTAMPTZ;
+ALTER TABLE organizations ADD COLUMN renewal_reminded_for DATE;
+
+CREATE TABLE payments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  provider TEXT NOT NULL DEFAULT 'tap',
+  charge_id TEXT,
+  reference_order TEXT NOT NULL,
+  plan TEXT NOT NULL,
+  cycle TEXT NOT NULL DEFAULT 'monthly',
+  amount NUMERIC(14,3) NOT NULL,
+  currency TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'initiated' CHECK (status IN ('initiated','paid','failed','cancelled','refunded','partially_refunded','refunding')),
+  provider_status TEXT,
+  failure_message TEXT,
+  paid_at TIMESTAMPTZ,
+  period_end TIMESTAMPTZ,
+  receipt_sent_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX payments_charge_key ON payments (provider, charge_id) WHERE charge_id IS NOT NULL;
+CREATE INDEX payments_org_idx ON payments (org_id, created_at DESC);
+
+CREATE TABLE processed_webhook_events (
+  event_key TEXT PRIMARY KEY,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE webhook_events (
+  id BIGSERIAL PRIMARY KEY,
+  provider TEXT NOT NULL,
+  charge_id TEXT,
+  result TEXT NOT NULL,
+  detail TEXT,
+  ip TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX webhook_events_created_idx ON webhook_events (created_at);
+`
   }
 ]
 

@@ -30,6 +30,14 @@ const envSchema = z.object({
   // Set when running behind a proxy (Railway, Render, Nginx) so client IPs come from X-Forwarded-For.
   TRUST_PROXY: z.enum(['true', 'false']).optional(),
   MAX_UPLOAD_MB: z.coerce.number().positive().default(15),
+  // Tap Payments (https://api.tap.company). Enables self-serve plan checkout when TAP_SECRET_KEY is set.
+  TAP_SECRET_KEY: z.string().optional(),
+  TAP_WEBHOOK_SECRET: z.string().optional(),
+  TAP_API_URL: z.string().url().default('https://api.tap.company/v2'),
+  TAP_WEBHOOK_TOLERANCE_MS: z.coerce.number().int().positive().default(300_000),
+  WEBHOOK_AUDIT_RETENTION_DAYS: z.coerce.number().int().positive().default(90),
+  // VAT added to self-serve subscription charges (set to 5 once your company is VAT-registered in Oman).
+  PLATFORM_VAT_PERCENT: z.coerce.number().min(0).max(100).default(0),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info')
 })
 
@@ -49,6 +57,8 @@ export type Config = {
   platformAdminEmails: string[]
   trustProxy: boolean
   maxUploadBytes: number
+  tap: { secretKey?: string; webhookSecret?: string; apiUrl: string; toleranceMs: number; auditRetentionDays: number }
+  platformVatPercent: number
   logLevel: 'debug' | 'info' | 'warn' | 'error'
 }
 
@@ -86,6 +96,14 @@ export function loadConfig(source: Record<string, string | undefined> = process.
     platformAdminEmails: e.PLATFORM_ADMIN_EMAILS.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
     trustProxy: e.TRUST_PROXY ? e.TRUST_PROXY === 'true' : isProduction,
     maxUploadBytes: Math.round(e.MAX_UPLOAD_MB * 1024 * 1024),
+    tap: {
+      secretKey: e.TAP_SECRET_KEY || undefined,
+      webhookSecret: e.TAP_WEBHOOK_SECRET || undefined,
+      apiUrl: e.TAP_API_URL.replace(/\/$/, ''),
+      toleranceMs: e.TAP_WEBHOOK_TOLERANCE_MS,
+      auditRetentionDays: e.WEBHOOK_AUDIT_RETENTION_DAYS
+    },
+    platformVatPercent: e.PLATFORM_VAT_PERCENT,
     logLevel: e.LOG_LEVEL
   }
 }

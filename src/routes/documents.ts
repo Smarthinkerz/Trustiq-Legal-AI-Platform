@@ -5,8 +5,8 @@ import type { Queryable } from '../db'
 import { badRequest, HttpError, notFound } from '../lib/errors'
 import { buildUpdate, jsonBody, likePattern, optUuid, pageSchema, paged, queryParams, uuidParam } from '../lib/http'
 import { DOC_TYPE_IDS, JURISDICTION_CODES } from '../services/reference'
-import { assertCanCreateDocument } from '../services/usage'
-import { ACCEPTED_TYPES, cleanText, detectKind, extractText } from '../services/extract'
+import { assertCanCreateDocument, recordAiUsage } from '../services/usage'
+import { ACCEPTED_TYPES, detectKind, extractWithOcr } from '../services/extract'
 import { contentDisposition, renderDocx, safeFileName } from '../services/export'
 import { caseActivity } from './cases'
 
@@ -21,14 +21,16 @@ const docFields = {
   status: z.enum(STATUSES),
   content: z.string().max(MAX_CONTENT),
   case_id: optUuid,
-  client_id: optUuid
+  client_id: optUuid,
+  shared_with_client: z.boolean()
 }
 const createSchema = z.object({
   ...docFields,
   doc_type: docFields.doc_type.default('other'),
   language: docFields.language.default('en'),
   status: docFields.status.default('draft'),
-  content: docFields.content.default('')
+  content: docFields.content.default(''),
+  shared_with_client: docFields.shared_with_client.default(false)
 })
 const updateSchema = z.object(docFields).partial()
 
@@ -42,13 +44,17 @@ export async function insertDocument(db: Queryable, v: {
   orgId: string; userId: string; title: string; docType: string; language: string; jurisdiction: string | null; status?: string
   source: 'upload' | 'ai' | 'manual'; content: string; caseId: string | null; clientId: string | null
   file?: { name: string; mime: string; bytes: Uint8Array }
+  ocr?: boolean; uploadedByClient?: boolean; sharedWithClient?: boolean
 }) {
   const doc = await db.query(
-    `INSERT INTO documents (org_id, case_id, client_id, title, doc_type, language, jurisdiction, status, source, content, file_name, mime_type, file_size, file_data, created_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-     RETURNING id, org_id, case_id, client_id, title, doc_type, language, jurisdiction, status, source, content, version, file_name, mime_type, file_size, created_at, updated_at`,
+    `INSERT INTO documents (org_id, case_id, client_id, title, doc_type, language, jurisdiction, status, source, content, file_name, mime_type, file_size, file_data, created_by,
+                            ocr, uploaded_by_client, shared_with_client)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+     RETURNING id, org_id, case_id, client_id, title, doc_type, language, jurisdiction, status, source, content, version, file_name, mime_type, file_size,
+               ocr, uploaded_by_client, shared_with_client, created_at, updated_at`,
     [v.orgId, v.caseId, v.clientId, v.title, v.docType, v.language, v.jurisdiction, v.status ?? 'draft', v.source, v.content,
-     v.file?.name ?? null, v.file?.mime ?? null, v.file?.bytes.length ?? null, v.file ? Buffer.from(v.file.bytes) : null, v.userId])
+     v.file?.name ?? null, v.file?.mime ?? null, v.file?.bytes.length ?? null, v.file ? Buffer.from(v.file.bytes) : null, v.userId,
+     v.ocr ?? false, v.uploadedByClient ?? false, v.sharedWithClient ?? false])
   if (v.caseId) await caseActivity(db, v.orgId, v.caseId, v.userId, 'document', `Document added: ${v.title}`)
   return doc[0]
 }
@@ -75,6 +81,7 @@ documentsRoutes.get('/', queryParams(z.object({
   const [{ n }] = await db.query(`SELECT count(*)::int AS n FROM documents d WHERE ${where}`, params)
   const items = await db.query(
     `SELECT d.id, d.title, d.doc_type, d.language, d.jurisdiction, d.status, d.source, d.version, d.file_name, d.file_size, d.updated_at, d.created_at,
+            d.shared_with_client, d.uploaded_by_client,
             d.case_id, k.reference AS case_reference, k.title AS case_title, d.client_id, cl.name AS client_name, u.name AS created_by_name,
             (SELECT a.result->>'risk_score' FROM document_analyses a WHERE a.document_id = d.id ORDER BY a.created_at DESC LIMIT 1)::int AS last_risk_score
        FROM documents d LEFT JOIN cases k ON k.id = d.case_id LEFT JOIN clients cl ON cl.id = d.client_id LEFT JOIN users u ON u.id = d.created_by
@@ -89,6 +96,7 @@ documentsRoutes.get('/:id', async (c) => {
   const { db } = c.get('deps')
   const document = await db.one(
     `SELECT d.id, d.title, d.doc_type, d.language, d.jurisdiction, d.status, d.source, d.content, d.version, d.file_name, d.mime_type, d.file_size,
+            d.shared_with_client, d.uploaded_by_client, d.ocr,
             d.case_id, k.reference AS case_reference, k.title AS case_title, d.client_id, cl.name AS client_name,
             d.created_at, d.updated_at, u.name AS created_by_name
        FROM documents d LEFT JOIN cases k ON k.id = d.case_id LEFT JOIN clients cl ON cl.id = d.client_id LEFT JOIN users u ON u.id = d.created_by
@@ -112,7 +120,7 @@ documentsRoutes.post('/', jsonBody(createSchema), async (c) => {
   await assertDocRefs(db, org.id, b)
   const document = await insertDocument(db, {
     orgId: org.id, userId: user.id, title: b.title, docType: b.doc_type, language: b.language, jurisdiction: b.jurisdiction,
-    status: b.status, source: 'manual', content: b.content, caseId: b.case_id, clientId: b.client_id
+    status: b.status, source: 'manual', content: b.content, caseId: b.case_id, clientId: b.client_id, sharedWithClient: b.shared_with_client
   })
   await audit(c, 'document.created', 'document', document.id)
   return c.json({ document }, 201)
@@ -140,16 +148,18 @@ documentsRoutes.post('/upload', async (c) => {
   const bytes = new Uint8Array(await file.arrayBuffer())
   const kind = detectKind(bytes, file.name)
   if (!kind) throw new HttpError(415, 'unsupported_file', 'Upload a PDF, Word (.docx) or plain-text file.')
-  const text = cleanText(await extractText(bytes, kind)).slice(0, MAX_CONTENT)
+  const { ai, log } = c.get('deps')
+  const extracted = await extractWithOcr({ ai, log, onAiUsage: (r) => recordAiUsage(db, org.id, user.id, 'ocr', r) }, bytes, kind, file.name)
+  const text = extracted.text.slice(0, MAX_CONTENT)
   const document = await insertDocument(db, {
     orgId: org.id, userId: user.id,
     title: meta.data.title || file.name.replace(/\.[^.]+$/, '').slice(0, 300),
     docType: meta.data.doc_type, language: meta.data.language, jurisdiction: meta.data.jurisdiction ?? null,
     source: 'upload', content: text, caseId: meta.data.case_id, clientId: meta.data.client_id,
-    file: { name: file.name.slice(0, 255), mime: ACCEPTED_TYPES[kind], bytes }
+    file: { name: file.name.slice(0, 255), mime: ACCEPTED_TYPES[kind], bytes }, ocr: extracted.ocr
   })
   await audit(c, 'document.uploaded', 'document', document.id, { file_name: file.name, size: file.size })
-  return c.json({ document, extracted_characters: text.length, warning: text.length < 20 ? 'little_text' : undefined }, 201)
+  return c.json({ document, extracted_characters: text.length, ocr: extracted.ocr, warning: text.length < 20 ? 'little_text' : undefined }, 201)
 })
 
 documentsRoutes.patch('/:id', jsonBody(updateSchema), async (c) => {
@@ -161,7 +171,7 @@ documentsRoutes.patch('/:id', jsonBody(updateSchema), async (c) => {
   const document = await db.tx(async (q) => {
     const current = await q.one('SELECT id, title, content, version FROM documents WHERE id = $1 AND org_id = $2 FOR UPDATE', [id, org.id])
     if (!current) return null
-    const { sets, values } = buildUpdate(b, ['title', 'doc_type', 'language', 'jurisdiction', 'status', 'content', 'case_id', 'client_id'], 3)
+    const { sets, values } = buildUpdate(b, ['title', 'doc_type', 'language', 'jurisdiction', 'status', 'content', 'case_id', 'client_id', 'shared_with_client'], 3)
     // Every content change snapshots the previous text so edits are never lost.
     if (b.content !== undefined && b.content !== current.content) {
       await q.query('INSERT INTO document_versions (org_id, document_id, version, title, content, created_by) VALUES ($1, $2, $3, $4, $5, $6)',
@@ -170,7 +180,7 @@ documentsRoutes.patch('/:id', jsonBody(updateSchema), async (c) => {
     }
     return q.one(
       `UPDATE documents SET ${[...sets, 'updated_at = now()'].join(', ')} WHERE id = $1 AND org_id = $2
-       RETURNING id, title, doc_type, language, jurisdiction, status, source, content, version, case_id, client_id, updated_at`,
+       RETURNING id, title, doc_type, language, jurisdiction, status, source, content, version, case_id, client_id, shared_with_client, updated_at`,
       [id, org.id, ...values])
   })
   if (!document) throw notFound('Document')

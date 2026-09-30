@@ -1,4 +1,5 @@
-import { AlignmentType, BorderStyle, Document, Footer, Header, ImageRun, Packer, PageNumber, Paragraph, TextRun } from 'docx'
+import { AlignmentType, BorderStyle, Document, Footer, Header, ImageRun, Packer, PageNumber, Paragraph, Table, TableCell, TableRow, TextRun, WidthType } from 'docx'
+import { decimalsFor } from './billing'
 
 export type Letterhead = {
   firm_name?: string | null
@@ -19,12 +20,8 @@ const hasArabic = (s: string) => /[؀-ۿ]/.test(s)
 const isHeading = (line: string) =>
   line.length < 90 && (/^(\d+(\.\d+)*[.)]?|article|clause|المادة|البند)\s/i.test(line) || (line === line.toUpperCase() && /[A-Z]/.test(line)))
 
-export async function renderDocx(opts: { title: string; content: string; language: 'en' | 'ar'; letterhead?: Letterhead | null }): Promise<Buffer> {
-  const rtl = opts.language === 'ar'
-  const font = rtl ? 'Arial' : 'Calibri'
-  const color = (opts.letterhead?.primary_color ?? '#1a365d').replace('#', '')
-  const lh = opts.letterhead
 
+function letterheadParagraphs(lh: Letterhead | null | undefined, rtl: boolean, font: string, color: string): Paragraph[] {
   const headerChildren: Paragraph[] = []
   if (lh) {
     const logoType = lh.logo_mime === 'image/png' ? 'png' : lh.logo_mime === 'image/jpeg' ? 'jpg' : null
@@ -52,6 +49,17 @@ export async function renderDocx(opts: { title: string; content: string; languag
       }))
     }
   }
+
+  return headerChildren
+}
+
+export async function renderDocx(opts: { title: string; content: string; language: 'en' | 'ar'; letterhead?: Letterhead | null }): Promise<Buffer> {
+  const rtl = opts.language === 'ar'
+  const font = rtl ? 'Arial' : 'Calibri'
+  const color = (opts.letterhead?.primary_color ?? '#1a365d').replace('#', '')
+  const lh = opts.letterhead
+
+  const headerChildren = letterheadParagraphs(lh, rtl, font, color)
 
   const footerText = lh?.footer_text ?? ''
   const footer = new Footer({
@@ -105,4 +113,104 @@ export function safeFileName(name: string, ext: string) {
 export function contentDisposition(fileName: string) {
   const ascii = fileName.replace(/[^\x20-\x7e]/g, '_').replace(/"/g, '')
   return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(fileName)}`
+}
+
+// ---------------------------------------------------------------------------
+// Tax invoice (bilingual labels, as expected by GCC VAT rules).
+// ---------------------------------------------------------------------------
+
+type InvoiceData = {
+  invoice: Record<string, any>
+  lines: Record<string, any>[]
+  letterhead: Letterhead | null
+  billing: { vat_number?: string | null; bank_details?: string | null; invoice_footer?: string | null }
+  language: 'en' | 'ar'
+}
+
+const L = {
+  tax_invoice: ['Tax Invoice', 'فاتورة ضريبية'], draft: ['Draft invoice', 'مسودة فاتورة'], number: ['Invoice no.', 'رقم الفاتورة'],
+  issued: ['Issue date', 'تاريخ الإصدار'], due: ['Due date', 'تاريخ الاستحقاق'], bill_to: ['Bill to', 'إلى'],
+  matter: ['Matter', 'القضية'], vat_no: ['VAT registration no.', 'الرقم الضريبي'], description: ['Description', 'البيان'],
+  qty: ['Qty / hours', 'الكمية / الساعات'], price: ['Rate', 'السعر'], amount: ['Amount', 'المبلغ'],
+  subtotal: ['Subtotal', 'المجموع الفرعي'], vat: ['VAT', 'ضريبة القيمة المضافة'], total: ['Total', 'الإجمالي'],
+  paid: ['Paid', 'المدفوع'], balance: ['Balance due', 'الرصيد المستحق'], bank: ['Payment details', 'بيانات الدفع'], notes: ['Notes', 'ملاحظات'],
+  status_void: ['VOID', 'ملغاة']
+} as const
+
+export async function renderInvoiceDocx(d: InvoiceData): Promise<Buffer> {
+  const rtl = d.language === 'ar'
+  const font = rtl ? 'Arial' : 'Calibri'
+  const color = (d.letterhead?.primary_color ?? '#1a365d').replace('#', '')
+  const inv = d.invoice
+  const cur = inv.currency as string
+  const dp = decimalsFor(cur)
+  const money = (n: unknown) => `${Number(n).toLocaleString('en-US', { minimumFractionDigits: dp, maximumFractionDigits: dp })} ${cur}`
+  const lbl = (k: keyof typeof L) => `${L[k][0]} / ${L[k][1]}`
+  const align = rtl ? AlignmentType.RIGHT : AlignmentType.LEFT
+  const p = (text: string, o: { bold?: boolean; size?: number; alignment?: (typeof AlignmentType)[keyof typeof AlignmentType]; color?: string } = {}) =>
+    new Paragraph({ bidirectional: rtl, alignment: o.alignment ?? align, spacing: { after: 60 },
+      children: [new TextRun({ text, bold: o.bold, size: o.size ?? 20, font, color: o.color, rightToLeft: rtl || /[\u0600-\u06FF]/.test(text) })] })
+  const cell = (text: string, o: { bold?: boolean; right?: boolean; shade?: boolean; width?: number } = {}) => new TableCell({
+    width: o.width ? { size: o.width, type: WidthType.PERCENTAGE } : undefined,
+    shading: o.shade ? { fill: 'EEF2F7' } : undefined,
+    children: [p(text, { bold: o.bold, alignment: o.right ? AlignmentType.RIGHT : align })]
+  })
+
+  const title = inv.status === 'draft' ? lbl('draft') : lbl('tax_invoice')
+  const meta: Paragraph[] = [
+    p(title + (inv.status === 'void' ? `  –  ${lbl('status_void')}` : ''), { bold: true, size: 32, color }),
+    p(`${lbl('number')}: ${inv.number ?? '—'}`),
+    p(`${lbl('issued')}: ${inv.issue_date ? new Date(inv.issue_date).toISOString().slice(0, 10) : '—'}`),
+    p(`${lbl('due')}: ${inv.due_date ? new Date(inv.due_date).toISOString().slice(0, 10) : '—'}`),
+    ...(d.billing.vat_number ? [p(`${lbl('vat_no')}: ${d.billing.vat_number}`)] : []),
+    p(''),
+    p(lbl('bill_to'), { bold: true }),
+    p([inv.client_name, inv.client_name_ar].filter(Boolean).join(' – ')),
+    ...(inv.client_address ? [p(inv.client_address)] : []),
+    ...(inv.client_id_number ? [p(inv.client_id_number)] : []),
+    ...(inv.case_reference ? [p(`${lbl('matter')}: ${inv.case_reference} – ${inv.case_title ?? ''}`)] : []),
+    p('')
+  ]
+
+  const header = new TableRow({ tableHeader: true, children: [
+    cell(lbl('description'), { bold: true, shade: true, width: 52 }), cell(lbl('qty'), { bold: true, shade: true, right: true, width: 14 }),
+    cell(lbl('price'), { bold: true, shade: true, right: true, width: 16 }), cell(lbl('amount'), { bold: true, shade: true, right: true, width: 18 })
+  ] })
+  const rows = d.lines.map((l) => new TableRow({ children: [
+    cell(l.description), cell(Number(l.quantity).toLocaleString('en-US', { maximumFractionDigits: 3 }), { right: true }),
+    cell(money(l.unit_price), { right: true }), cell(money(l.amount), { right: true })
+  ] }))
+  const totalRow = (label: string, value: string, bold = false) => new TableRow({ children: [
+    cell(''), cell(''), cell(label, { bold, right: true, shade: bold }), cell(value, { bold, right: true, shade: bold })
+  ] })
+  const balance = Number(inv.total) - Number(inv.amount_paid)
+  const table = new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    visuallyRightToLeft: rtl,
+    rows: [
+      header, ...rows,
+      totalRow(lbl('subtotal'), money(inv.subtotal)),
+      totalRow(`${lbl('vat')} (${Number(inv.vat_rate)}%)`, money(inv.vat_amount)),
+      totalRow(lbl('total'), money(inv.total), true),
+      ...(Number(inv.amount_paid) > 0 ? [totalRow(lbl('paid'), money(inv.amount_paid)), totalRow(lbl('balance'), money(balance), true)] : [])
+    ]
+  })
+
+  const after: Paragraph[] = [p('')]
+  if (inv.notes) after.push(p(lbl('notes'), { bold: true }), ...String(inv.notes).split('\n').map((x) => p(x)))
+  if (d.billing.bank_details) after.push(p(''), p(lbl('bank'), { bold: true }), ...String(d.billing.bank_details).split('\n').map((x) => p(x)))
+  if (d.billing.invoice_footer) after.push(p(''), p(d.billing.invoice_footer, { size: 16, color: '666666' }))
+
+  const headerChildren = letterheadParagraphs(d.letterhead, rtl, font, color)
+  const doc = new Document({
+    creator: d.letterhead?.firm_name ?? 'TrustiqLegal',
+    title: inv.number ?? 'Invoice',
+    sections: [{
+      properties: { page: { margin: { top: 1300, bottom: 1100, left: 1100, right: 1100 } } },
+      headers: headerChildren.length ? { default: new Header({ children: headerChildren }) } : undefined,
+      footers: { default: new Footer({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ children: [PageNumber.CURRENT, ' / ', PageNumber.TOTAL_PAGES], size: 14, color: '777777', font })] })] }) },
+      children: [...meta, table, ...after]
+    }]
+  })
+  return Packer.toBuffer(doc)
 }
