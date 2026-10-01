@@ -9,6 +9,10 @@ export function head(opts: { title: string; description?: string; assetVersion: 
   ${opts.description ? `<meta name="description" content="${esc(opts.description)}" />` : ''}
   <meta name="theme-color" content="#1a365d" />
   <link rel="icon" href="/static/favicon.svg?v=${v}" type="image/svg+xml" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="TrustiqLegal" />
   <link rel="stylesheet" href="/static/app.css?v=${v}" />
   <link rel="stylesheet" href="/vendor/fa/css/all.min.css?v=${v}" />`
 }

@@ -2,9 +2,11 @@ import { api } from '../api.js'
 import { bind, html, render } from '../dom.js'
 import { fmtDate, fmtDateTime, fmtNumber, fmtRelative, t } from '../i18n.js'
 import { aiEnabled, readOnly, store } from '../store.js'
-import { eventBadge, statusBadge, priorityBadge } from '../ui.js'
+import { eventBadge, statusBadge, priorityBadge, toast } from '../ui.js'
 import { openCaseForm } from './cases.js'
 import { openUploadForm, openDraftForm } from './documents.js'
+import { openTaskForm, taskHandlers, taskRows } from './tasks.js'
+import { openTimeForm } from './billing.js'
 
 const kpi = (icon, color, label, value, href, alert) => html`
   <a href="${href}" class="card card-pad flex items-center gap-4 hover:shadow-md transition ${alert ? 'ring-1 ring-red-200' : ''}">
@@ -25,8 +27,8 @@ function usageBar(label, used, limit) {
   </div>`
 }
 
-export async function dashboardView(root, { isCurrent }) {
-  const d = await api.get('/api/dashboard')
+export async function dashboardView(root, { isCurrent, rerender }) {
+  const [d, tasks] = await Promise.all([api.get('/api/dashboard'), api.get('/api/tasks?scope=mine&status=active&pageSize=8')])
   if (!isCurrent()) return
   const { counts, usage } = d
   const plan = store.me.plan
@@ -42,6 +44,7 @@ export async function dashboardView(root, { isCurrent }) {
       </div>
       ${ro ? '' : html`<div class="flex flex-wrap gap-2">
         <button class="btn btn-primary" data-action="new-case"><i class="fas fa-folder-plus"></i>${t('cases.new')}</button>
+        <button class="btn btn-outline" data-action="log-time"><i class="fas fa-stopwatch"></i>${t('billing.log_time')}</button>
         <button class="btn btn-outline" data-action="upload"><i class="fas fa-upload"></i>${t('docs.upload')}</button>
         ${aiEnabled() ? html`<button class="btn btn-outline" data-action="draft"><i class="fas fa-pen-nib"></i>${t('docs.ai_draft')}</button>` : ''}
       </div>`}
@@ -93,6 +96,17 @@ export async function dashboardView(root, { isCurrent }) {
       </div>
 
       <div class="space-y-6">
+        <section class="card">
+          <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+            <h2 class="font-semibold">${t('dash.my_tasks')} <span class="text-slate-400 font-normal">(${tasks.total})</span></h2>
+            <div class="flex items-center gap-3">
+              ${ro ? '' : html`<button class="btn btn-ghost btn-sm" data-action="add-task" aria-label="${t('tasks.new')}"><i class="fas fa-plus"></i></button>`}
+              <a href="#/tasks" class="text-sm text-brand-600 hover:underline">${t('common.view_all')}</a>
+            </div>
+          </div>
+          ${tasks.items.length ? taskRows(tasks.items) : html`<p class="px-5 py-6 text-sm text-slate-500 text-center">${t('dash.no_tasks')}</p>`}
+        </section>
+
         <section class="card card-pad">
           <div class="flex items-center justify-between mb-4">
             <h2 class="font-semibold">${t('dash.usage')}</h2>
@@ -122,8 +136,13 @@ export async function dashboardView(root, { isCurrent }) {
       </div>
     </div>`)
 
+  const shared = taskHandlers(() => tasks.items, rerender)
   bind(root, {
+    changes: shared.changes,
     actions: {
+      ...shared.actions,
+      'add-task': () => openTaskForm({ onSaved: rerender }),
+      'log-time': () => openTimeForm({ onSaved: () => toast(t('billing.time_logged')) }),
       'new-case': () => openCaseForm({ onSaved: (k) => (location.hash = `#/cases/${k.id}`) }),
       upload: () => openUploadForm({ onSaved: (doc) => (location.hash = `#/documents/${doc.id}`) }),
       draft: () => openDraftForm({ onSaved: (doc) => (location.hash = `#/documents/${doc.id}`) })

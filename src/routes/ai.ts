@@ -7,6 +7,7 @@ import { jsonBody, optUuid, uuidParam } from '../lib/http'
 import { JURISDICTION_CODES, jurisdictionName, templateName, DOCUMENT_TEMPLATES } from '../services/reference'
 import { analysisMessages, chatSystemPrompt, draftMessages, normalizeAnalysis, parseJsonObject, type AnalysisType } from '../services/legal-prompts'
 import { assertCanCreateDocument, assertCanUseAi, recordAiUsage } from '../services/usage'
+import { citationLabel, citedRefs, searchLibrary } from '../services/library'
 import { insertDocument } from './documents'
 
 const HISTORY_MESSAGES = 20
@@ -60,7 +61,7 @@ aiRoutes.get('/conversations/:id', async (c) => {
   const { db } = c.get('deps')
   const conversation = await db.one('SELECT id, title, case_id, jurisdiction, created_at, updated_at FROM ai_conversations WHERE id = $1 AND org_id = $2 AND user_id = $3', [id, org.id, user.id])
   if (!conversation) throw notFound('Conversation')
-  const messages = await db.query('SELECT id, role, content, created_at FROM ai_messages WHERE conversation_id = $1 ORDER BY created_at, id', [id])
+  const messages = await db.query('SELECT id, role, content, sources, created_at FROM ai_messages WHERE conversation_id = $1 ORDER BY created_at, id', [id])
   return c.json({ conversation, messages })
 })
 
@@ -77,7 +78,8 @@ aiRoutes.post('/chat', jsonBody(z.object({
   conversation_id: optUuid,
   case_id: optUuid,
   jurisdiction: z.enum(JURISDICTION_CODES).nullish().transform((v) => v ?? undefined),
-  language: z.enum(['en', 'ar']).default('en')
+  language: z.enum(['en', 'ar']).default('en'),
+  library_only: z.boolean().default(false)
 })), async (c) => {
   const { user, org } = auth(c)
   const b = c.req.valid('json')
@@ -101,17 +103,26 @@ aiRoutes.post('/chat', jsonBody(z.object({
   const history = (await db.query(
     `SELECT role, content FROM (SELECT role, content, created_at, id FROM ai_messages WHERE conversation_id = $1 ORDER BY created_at DESC, id DESC LIMIT $2) h ORDER BY created_at, id`,
     [conv.id, HISTORY_MESSAGES])) as { role: 'user' | 'assistant'; content: string }[]
-  const system = chatSystemPrompt({ lang: b.language, jurisdiction: b.jurisdiction ?? conv.jurisdiction, caseContext: await caseContext(db, org.id, conv.case_id) })
+  const jurisdiction = b.jurisdiction ?? conv.jurisdiction ?? org.default_jurisdiction
+  // Retrieve from the jurisdiction's law plus GCC-wide instruments; include the previous question for follow-ups.
+  const lastUser = [...history].reverse().find((m) => m.role === 'user')?.content ?? ''
+  const passages = await searchLibrary(db, org.id, `${b.message} ${lastUser}`.slice(0, 1500), { jurisdictions: [jurisdiction, 'gcc'], limit: 6 })
+  const sources = passages.map((p, i) => ({ ref: `S${i + 1}`, chunk_id: p.id, source_id: p.source_id, citation: citationLabel(p), status: p.status, text: p.text }))
+  const system = chatSystemPrompt({ lang: b.language, jurisdiction, caseContext: await caseContext(db, org.id, conv.case_id), sources, libraryOnly: b.library_only })
 
-  const result = await ai.complete({ messages: [{ role: 'system', content: system }, ...history, { role: 'user', content: b.message }], maxTokens: 2500 })
+  const result = await ai.complete({ messages: [{ role: 'system', content: system }, ...history, { role: 'user', content: b.message }], maxTokens: 3000 })
+  // Keep only sources the answer actually cites.
+  const refs = citedRefs(result.text)
+  const cited = sources.filter((s) => refs.has(s.ref)).map(({ text: _t, ...rest }) => rest)
 
   await db.tx(async (q) => {
     await q.query(`INSERT INTO ai_messages (org_id, conversation_id, role, content) VALUES ($1, $2, 'user', $3)`, [org.id, conv.id, b.message])
-    await q.query(`INSERT INTO ai_messages (org_id, conversation_id, role, content, created_at) VALUES ($1, $2, 'assistant', $3, now() + interval '1 millisecond')`, [org.id, conv.id, result.text])
+    await q.query(`INSERT INTO ai_messages (org_id, conversation_id, role, content, sources, created_at) VALUES ($1, $2, 'assistant', $3, $4, now() + interval '1 millisecond')`,
+      [org.id, conv.id, result.text, cited.length ? JSON.stringify(cited) : null])
     await q.query('UPDATE ai_conversations SET updated_at = now() WHERE id = $1', [conv.id])
     await recordAiUsage(q, org.id, user.id, 'chat', result)
   })
-  return c.json({ conversation_id: conv.id, reply: result.text, model: result.model })
+  return c.json({ conversation_id: conv.id, reply: result.text, sources: cited, library_matches: sources.length, model: result.model })
 })
 
 aiRoutes.post('/draft', jsonBody(z.object({

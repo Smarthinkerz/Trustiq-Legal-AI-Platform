@@ -12,7 +12,7 @@ import { setLeaveGuard } from '../main.js'
 const DOC_STATUSES = ['draft', 'review', 'final']
 const OTHER_TYPES = ['contract', 'correspondence', 'evidence', 'court_filing', 'other']
 
-const docTypeOptions = () => [
+export const docTypeOptions = () => [
   ...refOptions('templates'),
   ...OTHER_TYPES.map((id) => ({ value: id, label: t(`doctype.${id}`) }))
 ]
@@ -54,7 +54,7 @@ export function openUploadForm({ caseId, caseLabel, clientId, onSaved } = {}) {
         try {
           const res = await api.upload('/api/documents/upload', fd)
           m.close()
-          toast(res.warning === 'little_text' ? t('docs.uploaded_no_text') : t('docs.uploaded'), res.warning ? 'info' : 'success')
+          toast(res.warning === 'little_text' ? t('docs.uploaded_no_text') : res.ocr ? t('docs.uploaded_ocr') : t('docs.uploaded'), res.warning ? 'info' : 'success')
           onSaved?.(res.document)
         } catch (err) { showError(err, form) }
       })
@@ -246,7 +246,11 @@ export async function documentDetailView(root, { params, isCurrent, rerender }) 
           <span>v${d.version}</span><span>·</span>
           <span>${t('common.updated')} ${fmtRelative(d.updated_at)}</span>
           ${d.client_id ? html`<span>·</span><a class="text-brand-600 hover:underline" href="#/clients/${d.client_id}">${d.client_name}</a>` : ''}
+          ${d.ocr ? html`<span>·</span><span title="${t('docs.ocr_help')}"><i class="fas fa-eye"></i> ${t('docs.ocr')}</span>` : ''}
+          ${d.uploaded_by_client ? html`<span class="badge bg-sky-100 text-sky-800">${t('docs.from_client')}</span>` : ''}
         </div>
+        ${d.client_id && !ro ? html`<label class="inline-flex items-center gap-2 text-sm mt-3 text-slate-700"><input type="checkbox" data-change="share" ${d.shared_with_client ? raw('checked') : ''} />
+          <i class="fas fa-door-open text-slate-400"></i>${t('docs.share_with_client')}</label>` : ''}
       </div>
       <div class="flex flex-wrap gap-2">
         ${ro ? '' : selectField({ name: 'status', options: DOC_STATUSES.map((s) => ({ value: s, label: t(`status.${s}`) })), value: d.status, cls: 'w-32', attrs: `data-change="status" aria-label="${t('common.status')}"` })}
@@ -384,6 +388,12 @@ export async function documentDetailView(root, { params, isCurrent, rerender }) 
       })
     },
     changes: {
+      share: async (el) => {
+        try {
+          await api.patch(`/api/documents/${d.id}`, { shared_with_client: el.checked })
+          toast(el.checked ? t('docs.shared_toast') : t('docs.unshared_toast'))
+        } catch (err) { el.checked = !el.checked; showError(err) }
+      },
       status: async (el) => {
         try {
           await api.patch(`/api/documents/${d.id}`, { status: el.value })

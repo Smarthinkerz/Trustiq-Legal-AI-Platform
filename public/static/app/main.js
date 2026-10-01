@@ -13,6 +13,12 @@ import { calendarView } from './views/calendar.js'
 import { settingsView } from './views/settings.js'
 import { adminView } from './views/admin.js'
 import { layout, updateNav } from './views/layout.js'
+import { tasksView } from './views/tasks.js'
+import { libraryView, librarySourceView } from './views/library.js'
+import { billingView, invoiceView } from './views/billing.js'
+import { templatesView, templateEditView } from './views/templates.js'
+import { reportsView } from './views/reports.js'
+import { portalHomeView, portalCaseView, portalMessagesView, portalSettingsView } from './views/portal.js'
 
 const routes = [
   { path: '/login', view: authViews.loginView, public: true },
@@ -31,8 +37,22 @@ const routes = [
   { path: '/assistant/:id', view: assistantView, nav: 'assistant' },
   { path: '/calendar', view: calendarView, nav: 'calendar' },
   { path: '/settings', view: settingsView, nav: 'settings' },
-  { path: '/admin', view: adminView, nav: 'admin' }
+  { path: '/admin', view: adminView, nav: 'admin' },
+  { path: '/tasks', view: tasksView, nav: 'tasks' },
+  { path: '/library', view: libraryView, nav: 'library' },
+  { path: '/library/:id', view: librarySourceView, nav: 'library' },
+  { path: '/billing', view: billingView, nav: 'billing' },
+  { path: '/billing/invoices/:id', view: invoiceView, nav: 'billing' },
+  { path: '/templates', view: templatesView, nav: 'templates' },
+  { path: '/templates/:id', view: templateEditView, nav: 'templates' },
+  { path: '/reports', view: reportsView, nav: 'reports' },
+  { path: '/portal', view: portalHomeView, nav: 'portal', portal: true },
+  { path: '/portal/cases/:id', view: portalCaseView, nav: 'portal', portal: true },
+  { path: '/portal/messages', view: portalMessagesView, nav: 'portal-messages', portal: true },
+  { path: '/portal/settings', view: portalSettingsView, nav: 'portal-settings', portal: true }
 ]
+
+const homePath = () => (store.me?.user.role === 'client' ? '/portal' : '/dashboard')
 
 function match(path) {
   for (const r of routes) {
@@ -79,13 +99,15 @@ export async function route() {
   const query = new URLSearchParams(rawQuery || '')
   const matched = match(path)
 
-  if (!matched) return navigate(store.me ? '/dashboard' : '/login', { replace: true })
+  if (!matched) return navigate(store.me ? homePath() : '/login', { replace: true })
   const { route: r, params } = matched
 
   if (!r.public && !store.me) {
     return navigate(`/login?next=${encodeURIComponent(path + (rawQuery ? '?' + rawQuery : ''))}`, { replace: true })
   }
-  if (r.public && store.me && !r.allowAuthed) return navigate('/dashboard', { replace: true })
+  if (r.public && store.me && !r.allowAuthed) return navigate(homePath(), { replace: true })
+  // Portal users only see the portal; firm users never see it.
+  if (!r.public && !!r.portal !== (store.me.user.role === 'client')) return navigate(homePath(), { replace: true })
 
   const root = document.getElementById('root')
   let container
@@ -113,7 +135,7 @@ export async function route() {
   } catch (err) {
     if (!ctx.isCurrent()) return
     if (err?.status === 404) {
-      render(container, html`<div class="card card-pad text-center py-16"><h2 class="text-lg font-semibold">${t('error.not_found')}</h2><a class="btn btn-outline mt-4" href="#/dashboard">${t('nav.dashboard')}</a></div>`)
+      render(container, html`<div class="card card-pad text-center py-16"><h2 class="text-lg font-semibold">${t('error.not_found')}</h2><a class="btn btn-outline mt-4" href="#${homePath()}">${t('common.back_home')}</a></div>`)
     } else {
       render(container, html`<div class="card card-pad text-center py-16"><p class="text-slate-600">${t('error.load_failed')}</p><button class="btn btn-outline mt-4" data-action="retry">${t('common.retry')}</button></div>`)
       bind(container, { actions: { retry: () => route() } })
@@ -142,7 +164,7 @@ export async function signedIn(me, next) {
   store.me = me
   if (me.user.locale && me.user.locale !== getLang()) setLang(me.user.locale)
   shellMounted = false
-  navigate(next && next.startsWith('/') && !next.startsWith('//') ? next : '/dashboard', { replace: true })
+  navigate(next && next.startsWith('/') && !next.startsWith('//') ? next : homePath(), { replace: true })
 }
 
 export async function signOut() {
@@ -183,3 +205,8 @@ async function boot() {
 }
 
 boot()
+
+// Installable app (PWA). The service worker only caches static assets, never API data.
+if ('serviceWorker' in navigator && location.protocol === 'https:') {
+  window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}))
+}

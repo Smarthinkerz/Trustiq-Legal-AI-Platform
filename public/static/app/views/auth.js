@@ -47,10 +47,37 @@ export async function loginView(root, { query }) {
         clearFieldErrors(form)
         try {
           const me = await api.post('/api/auth/login', formData(form))
+          if (me.mfa_required) return mfaStep(root, me.mfa_token, query.get('next'))
           await signedIn(me, query.get('next'))
         } catch (err) {
           showError(err, form)
           form.elements.password.value = ''
+        }
+      })
+    }
+  })
+}
+
+function mfaStep(root, mfaToken, next) {
+  render(root, shell(t('security.verify_title'), t('security.verify_subtitle'), html`
+    <form data-form="mfa" class="space-y-4" novalidate>
+      ${inputField({ name: 'code', label: t('security.code'), required: true, hint: t('security.recovery_hint'), attrs: 'autocomplete="one-time-code" inputmode="numeric" dir="ltr" autofocus' })}
+      <button type="submit" class="btn btn-primary w-full py-2.5">${t('security.verify')}</button>
+    </form>`,
+    html`<a href="#/login" data-action="restart" class="font-semibold text-brand-600 hover:underline">${t('auth.back_to_sign_in')}</a>`))
+  root.querySelector('input[name=code]').focus()
+  bind(root, {
+    actions: { ...langAction, restart: () => remount() },
+    forms: {
+      mfa: (form) => busy(submitButton(form), async () => {
+        clearFieldErrors(form)
+        try {
+          const me = await api.post('/api/auth/login/mfa', { mfa_token: mfaToken, code: form.elements.code.value.trim() })
+          await signedIn(me, next)
+        } catch (err) {
+          showError(err, form)
+          form.elements.code.value = ''
+          if (err.status === 401 && /expired/i.test(err.message)) remount()
         }
       })
     }

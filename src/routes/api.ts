@@ -1,7 +1,8 @@
 import { Hono } from 'hono'
 import type { AppEnv } from '../context'
 import { PLANS } from '../lib/plans'
-import { CURRENCIES, DOCUMENT_TEMPLATES, JURISDICTIONS, PRACTICE_AREAS } from '../services/reference'
+import { CHECKLISTS, CURRENCIES, DOCUMENT_TEMPLATES, JURISDICTIONS, PRACTICE_AREAS } from '../services/reference'
+import { LIBRARY_KINDS } from './library'
 
 // Public, static reference data used by forms.
 const referenceRoutes = new Hono<AppEnv>()
@@ -13,7 +14,9 @@ referenceRoutes.get('/', (c) => {
     practice_areas: PRACTICE_AREAS,
     templates: DOCUMENT_TEMPLATES,
     currencies: CURRENCIES,
-    plans: PLANS
+    plans: PLANS,
+    checklists: Object.keys(CHECKLISTS),
+    library_kinds: LIBRARY_KINDS
   })
 })
 

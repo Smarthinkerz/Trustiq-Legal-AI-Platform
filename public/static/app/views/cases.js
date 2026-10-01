@@ -9,6 +9,9 @@ import {
 import { loadMembers, memberSelect, searchPicker, wirePickers } from './pickers.js'
 import { openDraftForm, openUploadForm } from './documents.js'
 import { openEventForm } from './calendar.js'
+import { openChecklistForm, openTaskForm, taskHandlers, taskRows } from './tasks.js'
+import { fmtHours, openExpenseForm, openInvoiceWizard, openTimeForm } from './billing.js'
+import { openGenerateForm } from './templates.js'
 
 export const CASE_STATUSES = ['active', 'pending', 'under_review', 'on_hold', 'closed']
 export const PRIORITIES = ['low', 'medium', 'high', 'urgent']
@@ -128,7 +131,11 @@ export async function casesListView(root, { query, isCurrent }) {
 }
 
 export async function caseDetailView(root, { params, isCurrent, rerender }) {
-  const data = await api.get(`/api/cases/${params.id}`)
+  const [data, tasks, time] = await Promise.all([
+    api.get(`/api/cases/${params.id}`),
+    api.get(`/api/tasks?case_id=${params.id}&status=active&pageSize=100`),
+    api.get(`/api/billing/time?case_id=${params.id}&pageSize=10`)
+  ])
   if (!isCurrent()) return
   const k = data.case
   const ro = readOnly()
@@ -146,6 +153,7 @@ export async function caseDetailView(root, { params, isCurrent, rerender }) {
       ${ro ? '' : html`<div class="flex flex-wrap gap-2">
         ${selectField({ name: 'status', options: CASE_STATUSES.map((s) => ({ value: s, label: t(`status.${s}`) })), value: k.status, cls: 'w-40', attrs: `data-change="status" aria-label="${t('common.status')}"` })}
         <button class="btn btn-outline" data-action="edit"><i class="fas fa-pen"></i>${t('common.edit')}</button>
+        <button class="btn btn-outline" data-action="log-time"><i class="fas fa-stopwatch"></i>${t('billing.log_time')}</button>
         ${aiEnabled() ? html`<a class="btn btn-outline" href="#/assistant?case=${k.id}"><i class="fas fa-wand-magic-sparkles"></i>${t('cases.ask_ai')}</a>` : ''}
         ${canDelete() ? html`<button class="btn btn-danger-ghost" data-action="delete" aria-label="${t('common.delete')}"><i class="fas fa-trash"></i></button>` : ''}
       </div>`}
@@ -173,6 +181,7 @@ export async function caseDetailView(root, { params, isCurrent, rerender }) {
             <h2 class="font-semibold">${t('nav.documents')} <span class="text-slate-400 font-normal">(${data.documents.length})</span></h2>
             ${ro ? '' : html`<div class="flex gap-2">
               <button class="btn btn-outline btn-sm" data-action="upload"><i class="fas fa-upload"></i>${t('docs.upload')}</button>
+              <button class="btn btn-outline btn-sm" data-action="from-template"><i class="fas fa-file-signature"></i>${t('templates.use')}</button>
               ${aiEnabled() ? html`<button class="btn btn-outline btn-sm" data-action="draft"><i class="fas fa-pen-nib"></i>${t('docs.ai_draft')}</button>` : ''}
             </div>`}
           </div>
@@ -181,6 +190,17 @@ export async function caseDetailView(root, { params, isCurrent, rerender }) {
               <i class="fas fa-file-lines text-slate-400"></i><span class="flex-1 min-w-0 truncate text-sm font-medium">${d.title}</span>
               ${statusBadge(d.status)}<span class="text-xs text-slate-400">${fmtRelative(d.updated_at)}</span></a></li>`)}</ul>`
             : html`<p class="px-5 py-6 text-sm text-slate-500">${t('cases.no_documents')}</p>`}
+        </section>
+
+        <section class="card">
+          <div class="flex flex-wrap items-center justify-between gap-2 px-5 py-4 border-b border-slate-100">
+            <h2 class="font-semibold">${t('nav.tasks')} <span class="text-slate-400 font-normal">(${tasks.total})</span></h2>
+            ${ro ? '' : html`<div class="flex gap-2">
+              <button class="btn btn-outline btn-sm" data-action="checklist"><i class="fas fa-list-ol"></i>${t('tasks.apply_checklist')}</button>
+              <button class="btn btn-outline btn-sm" data-action="add-task"><i class="fas fa-plus"></i>${t('tasks.new')}</button>
+            </div>`}
+          </div>
+          ${tasks.items.length ? taskRows(tasks.items, { showCase: false }) : html`<p class="px-5 py-6 text-sm text-slate-500">${t('tasks.none_for_case')}</p>`}
         </section>
 
         <section class="card">
@@ -216,12 +236,43 @@ export async function caseDetailView(root, { params, isCurrent, rerender }) {
               </button></li>`)}</ul>`
             : html`<p class="px-5 py-6 text-sm text-slate-500">${t('cases.no_events')}</p>`}
         </section>
+        <section class="card">
+          <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+            <h2 class="font-semibold">${t('billing.time_and_billing')}</h2>
+            <a class="text-xs text-brand-600 hover:underline" href="#/billing?tab=time">${t('common.view_all')}</a>
+          </div>
+          <div class="px-5 py-4 grid grid-cols-2 gap-3 text-sm border-b border-slate-100">
+            <div><div class="text-xs text-slate-500">${t('billing.hours')}</div><div class="font-semibold font-mono">${fmtHours(time.summary.minutes)}</div></div>
+            <div><div class="text-xs text-slate-500">${t('reports.billable_value')}</div><div class="font-semibold">${fmtMoney(Math.round(time.summary.value * 1000) / 1000, k.currency)}</div></div>
+          </div>
+          ${time.items.length ? html`<ul class="divide-y divide-slate-100">${time.items.map((x) => html`<li class="px-5 py-2 text-sm flex justify-between gap-3">
+            <span class="truncate" dir="auto">${x.description}</span><span class="font-mono text-xs text-slate-500 whitespace-nowrap">${fmtHours(x.minutes)}</span></li>`)}</ul>` : ''}
+          ${ro ? '' : html`<div class="px-5 py-3 flex flex-wrap gap-2 border-t border-slate-100">
+            <button class="btn btn-outline btn-sm" data-action="add-expense"><i class="fas fa-receipt"></i>${t('billing.add_expense')}</button>
+            ${k.client_id ? html`<button class="btn btn-outline btn-sm" data-action="invoice"><i class="fas fa-file-invoice-dollar"></i>${t('billing.new_invoice')}</button>` : ''}
+          </div>`}
+        </section>
       </div>
     </div>`)
 
   const refresh = () => rerender()
+  const label = `${k.reference} · ${k.title}`
+  const taskShared = taskHandlers(() => tasks.items, refresh)
   bind(root, {
     actions: {
+      ...taskShared.actions,
+      'add-task': () => openTaskForm({ caseId: k.id, caseLabel: label, onSaved: refresh }),
+      checklist: () => openChecklistForm({ caseId: k.id, onSaved: refresh }),
+      'log-time': () => openTimeForm({ caseId: k.id, caseLabel: label, onSaved: refresh }),
+      'add-expense': () => openExpenseForm({ caseId: k.id, caseLabel: label, onSaved: refresh }),
+      invoice: () => openInvoiceWizard({ clientId: k.client_id, clientName: k.client_name, caseId: k.id }),
+      'from-template': async () => {
+        try {
+          const { items } = await api.get('/api/workspace/templates')
+          if (!items.length) return toast(t('templates.none_yet'), 'info')
+          openGenerateForm({ templates: items, caseId: k.id, caseLabel: label })
+        } catch (err) { showError(err) }
+      },
       edit: () => openCaseForm({ kase: k, onSaved: refresh }),
       delete: async () => {
         if (!(await confirmDialog(t('cases.confirm_delete', { ref: k.reference })))) return
@@ -248,6 +299,7 @@ export async function caseDetailView(root, { params, isCurrent, rerender }) {
       })
     },
     changes: {
+      ...taskShared.changes,
       status: async (el) => {
         try {
           await api.patch(`/api/cases/${k.id}`, { status: el.value })

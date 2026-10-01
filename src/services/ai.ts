@@ -2,13 +2,33 @@ import type { Config } from '../config'
 import { HttpError, unavailable } from '../lib/errors'
 import type { Logger } from '../lib/logger'
 
-export type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string }
+type ContentPart = { type: 'text'; text: string } | { type: 'file'; file: { filename: string; file_data: string } }
+export type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string | ContentPart[] }
 export type Completion = { text: string; model: string; promptTokens: number; completionTokens: number }
 
 export interface AiService {
   configured: boolean
   model: string
   complete(opts: { messages: ChatMessage[]; json?: boolean; maxTokens?: number; temperature?: number }): Promise<Completion>
+}
+
+const OCR_PROMPT = `Transcribe all text in this document exactly as written, in its original language (Arabic and/or English).
+Preserve article numbers, headings and paragraph breaks. Do not translate, summarise or add commentary.
+Output plain text only.`
+
+// Transcribes a scanned PDF using the model's document understanding (used when a PDF has no text layer).
+export async function transcribePdf(ai: AiService, bytes: Uint8Array, fileName: string): Promise<Completion> {
+  return ai.complete({
+    messages: [{
+      role: 'user',
+      content: [
+        { type: 'file', file: { filename: fileName, file_data: `data:application/pdf;base64,${Buffer.from(bytes).toString('base64')}` } },
+        { type: 'text', text: OCR_PROMPT }
+      ]
+    }],
+    maxTokens: 16000,
+    temperature: 0
+  })
 }
 
 // Talks to any OpenAI-compatible Chat Completions endpoint (OpenAI, Azure OpenAI proxy, etc.).

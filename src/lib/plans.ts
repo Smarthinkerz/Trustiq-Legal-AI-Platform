@@ -19,6 +19,12 @@ export const PLANS: Record<PlanId, PlanLimits> = {
 
 export const TRIAL_DAYS = 14
 
+// Self-serve prices (monthly, excluding VAT). Enterprise is sold by the sales team.
+export const PLAN_PRICES: Partial<Record<PlanId, { amount: number; currency: string }>> = {
+  starter: { amount: 199, currency: 'OMR' },
+  professional: { amount: 499, currency: 'OMR' }
+}
+
 export const isPlanId = (v: string): v is PlanId => v in PLANS
 
 export function planOf(org: { plan: string }): PlanLimits {
@@ -27,4 +33,9 @@ export function planOf(org: { plan: string }): PlanLimits {
 
 export function trialExpired(org: { plan: string; trial_ends_at: Date | string | null }): boolean {
   return org.plan === 'trial' && !!org.trial_ends_at && new Date(org.trial_ends_at).getTime() < Date.now()
+}
+
+// A paid plan with an end date that has passed (plans set manually without an end date never expire).
+export function subscriptionExpired(org: { plan: string; plan_expires_at?: Date | string | null }): boolean {
+  return org.plan !== 'trial' && !!org.plan_expires_at && new Date(org.plan_expires_at).getTime() < Date.now()
 }
