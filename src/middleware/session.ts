@@ -2,7 +2,7 @@ import type { MiddlewareHandler } from 'hono'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import { clientIp, type AppEnv, type Ctx } from '../context'
 import { hashToken, newToken } from '../lib/crypto'
-import { paymentRequired } from '../lib/errors'
+import { forbidden, paymentRequired, tooMany, unauthorized } from '../lib/errors'
 import { subscriptionExpired, trialExpired } from '../lib/plans'
 
 export const SESSION_COOKIE = 'tq_session'
@@ -56,6 +56,8 @@ export async function destroySession(c: Ctx) {
 
 // Resolves the session cookie into c.var.user / c.var.org. Never throws for anonymous requests.
 export const loadSession: MiddlewareHandler<AppEnv> = async (c, next) => {
+  // The public API (/api/v1) is authenticated only with API keys, never with browser cookies.
+  if (c.req.path.startsWith('/api/v1/') || c.req.path === '/api/v1') return next()
   const token = getCookie(c, SESSION_COOKIE)
   if (token) {
     const { db } = c.get('deps')
@@ -87,6 +89,48 @@ export const requireActiveSubscription: MiddlewareHandler<AppEnv> = async (c, ne
   if (org && c.req.method !== 'GET' && c.req.method !== 'HEAD') {
     if (trialExpired(org)) throw paymentRequired('trial_expired', 'Your free trial has ended. Choose a plan to continue making changes.')
     if (subscriptionExpired(org)) throw paymentRequired('subscription_expired', 'Your subscription has ended. Renew your plan to continue making changes.')
+  }
+  await next()
+}
+
+// ---------------------------------------------------------------------------
+// Public API keys: "Authorization: Bearer tq_live_…". A key acts with the permissions of the
+// team member who created it, restricted further to read-only when created as such.
+// ---------------------------------------------------------------------------
+
+export const API_KEY_PREFIX = 'tq_live_'
+const API_KEY_TOUCH_MS = 60_000
+
+const apiKeyError = (c: Ctx, message: string) => {
+  c.header('WWW-Authenticate', 'Bearer realm="TrustiqLegal API"')
+  return unauthorized(message)
+}
+
+export const apiKeyAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
+  const header = c.req.header('authorization') ?? ''
+  const m = header.match(/^Bearer\s+(tq_live_[A-Za-z0-9_-]{20,100})$/)
+  if (!m) throw apiKeyError(c, 'Send your API key as "Authorization: Bearer tq_live_…".')
+  const { db, limiters } = c.get('deps')
+  const keyHash = hashToken(m[1]!)
+  const row = await db.one(
+    `SELECT k.id AS key_id, k.name AS key_name, k.access, k.last_used_at, ${USER_COLUMNS}
+       FROM api_keys k
+       JOIN users u ON u.id = k.created_by
+       JOIN organizations o ON o.id = k.org_id
+      WHERE k.key_hash = $1 AND k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at > now())
+        AND u.deactivated_at IS NULL AND u.org_id = k.org_id AND u.role IN ('owner', 'admin', 'lawyer', 'staff')`, [keyHash])
+  if (!row) throw apiKeyError(c, 'This API key is invalid, expired or revoked.')
+  const r = limiters.apiKey.take(row.key_id)
+  c.header('X-RateLimit-Limit', '120')
+  if (!r.ok) {
+    c.header('Retry-After', String(r.retryAfterSec))
+    throw tooMany('API rate limit exceeded (120 requests per minute per key).')
+  }
+  if (row.access === 'read' && !['GET', 'HEAD'].includes(c.req.method)) throw forbidden('This API key is read-only.')
+  setUserContext(c, row)
+  c.set('apiKey', { id: row.key_id, name: row.key_name, access: row.access })
+  if (!row.last_used_at || Date.now() - new Date(row.last_used_at).getTime() > API_KEY_TOUCH_MS) {
+    await db.query('UPDATE api_keys SET last_used_at = now(), last_used_ip = $2 WHERE id = $1', [row.key_id, clientIp(c)])
   }
   await next()
 }

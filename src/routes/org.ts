@@ -6,6 +6,8 @@ import { badRequest, conflict, forbidden, notFound } from '../lib/errors'
 import { buildUpdate, jsonBody, optText, pageSchema, paged, queryParams, uuidParam } from '../lib/http'
 import { CURRENCIES, JURISDICTION_CODES } from '../services/reference'
 import { usageThisMonth } from '../services/usage'
+import { API_KEY_PREFIX } from '../middleware/session'
+import { randomBytes } from 'node:crypto'
 
 const INVITE_DAYS = 7
 const LOGO_MAX_BYTES = 1024 * 1024
@@ -253,6 +255,54 @@ orgRoutes.get('/export', async (c) => {
   await audit(c, 'org.exported', 'organization', org.id)
   c.header('content-disposition', `attachment; filename="trustiqlegal-export-${new Date().toISOString().slice(0, 10)}.json"`)
   return c.json(data)
+})
+
+// ---- API keys (public API at /api/v1) ----
+
+const MAX_ACTIVE_KEYS = 25
+
+orgRoutes.get('/api-keys', async (c) => {
+  requireRole(c, 'owner', 'admin')
+  const { org } = auth(c)
+  const items = await c.get('deps').db.query(
+    `SELECT k.id, k.name, k.prefix, k.access, k.expires_at, k.last_used_at, k.last_used_ip, k.revoked_at, k.created_at,
+            u.name AS created_by_name, (u.deactivated_at IS NOT NULL) AS creator_deactivated
+       FROM api_keys k JOIN users u ON u.id = k.created_by
+      WHERE k.org_id = $1 ORDER BY (k.revoked_at IS NOT NULL), k.created_at DESC LIMIT 200`, [org.id])
+  return c.json({ items })
+})
+
+orgRoutes.post('/api-keys', jsonBody(z.object({
+  name: z.string().trim().min(2).max(80),
+  access: z.enum(['read', 'read_write']).default('read'),
+  expires_in_days: z.number().int().min(1).max(730).nullish()
+})), async (c) => {
+  requireRole(c, 'owner', 'admin')
+  const { user, org } = auth(c)
+  const b = c.req.valid('json')
+  const { db } = c.get('deps')
+  const [{ n }] = await db.query('SELECT count(*)::int AS n FROM api_keys WHERE org_id = $1 AND revoked_at IS NULL', [org.id])
+  if (n >= MAX_ACTIVE_KEYS) throw conflict(`You can have at most ${MAX_ACTIVE_KEYS} active API keys. Revoke one you no longer use.`)
+  const key = API_KEY_PREFIX + randomBytes(32).toString('base64url')
+  const expires = b.expires_in_days ? new Date(Date.now() + b.expires_in_days * 86400_000) : null
+  const row = await db.one(
+    `INSERT INTO api_keys (org_id, created_by, name, prefix, key_hash, access, expires_at) VALUES ($1, $2, $3, $4, $5, $6, $7)
+     RETURNING id, name, prefix, access, expires_at, created_at`,
+    [org.id, user.id, b.name, key.slice(0, API_KEY_PREFIX.length + 6), hashToken(key), b.access, expires])
+  await audit(c, 'api_key.created', 'api_key', row!.id, { name: b.name, access: b.access })
+  // The full key is shown once; only its hash is stored.
+  return c.json({ api_key: row, key }, 201)
+})
+
+orgRoutes.delete('/api-keys/:id', async (c) => {
+  requireRole(c, 'owner', 'admin')
+  const { org } = auth(c)
+  const id = uuidParam(c.req.param('id'), 'API key')
+  const rows = await c.get('deps').db.query(
+    'UPDATE api_keys SET revoked_at = COALESCE(revoked_at, now()) WHERE id = $1 AND org_id = $2 RETURNING name', [id, org.id])
+  if (!rows.length) throw notFound('API key')
+  await audit(c, 'api_key.revoked', 'api_key', id, { name: rows[0].name })
+  return c.json({ ok: true })
 })
 
 export default orgRoutes

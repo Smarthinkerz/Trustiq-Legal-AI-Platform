@@ -29,7 +29,8 @@ async function main() {
       auth: new RateLimiter(20, 15 * 60_000),
       api: new RateLimiter(600, 60_000),
       ai: new RateLimiter(20, 60_000),
-      webhook: new RateLimiter(30, 60_000)
+      webhook: new RateLimiter(30, 60_000),
+      apiKey: new RateLimiter(120, 60_000)
     }
   })
 

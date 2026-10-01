@@ -71,7 +71,7 @@ describe('translations', () => {
       'docs.source': ['upload', 'ai', 'manual'],
       doctype: ['contract', 'correspondence', 'evidence', 'court_filing', 'other'],
       nav: ['dashboard', 'cases', 'clients', 'documents', 'assistant', 'calendar', 'settings', 'admin', 'tasks', 'templates', 'library', 'billing', 'reports'],
-      settings: ['profile', 'firm', 'team', 'branding', 'plan', 'audit']
+      settings: ['profile', 'firm', 'team', 'branding', 'plan', 'api', 'audit']
     }
     const missing: string[] = []
     for (const [prefix, values] of Object.entries(families)) {

@@ -2,7 +2,7 @@ import { api, download } from '../api.js'
 import { bind, formData, html, qs, raw, render } from '../dom.js'
 import { fmtDate, fmtDateTime, fmtNumber, fmtRelative, getLang, t } from '../i18n.js'
 import { applyLanguage, refreshMe, remount } from '../main.js'
-import { can, canManageTeam, refOptions, store } from '../store.js'
+import { can, canManageTeam, readOnly, refOptions, store } from '../store.js'
 import {
   busy, clearFieldErrors, confirmDialog, formActions, inputField, modal, pagination, selectField, showError, spinner,
   submitButton, textareaField, toast
@@ -15,6 +15,7 @@ const TABS = [
   ['team', 'fa-users', () => true],
   ['branding', 'fa-palette', () => canManageTeam()],
   ['plan', 'fa-credit-card', () => true],
+  ['api', 'fa-key', () => canManageTeam()],
   ['audit', 'fa-clipboard-list', () => canManageTeam()]
 ]
 
@@ -28,7 +29,7 @@ export async function settingsView(root, ctx) {
     </div>
     <div id="tab-body">${spinner()}</div>`)
   const body = root.querySelector('#tab-body')
-  await ({ profile, firm, team, branding, plan, audit })[active](body, ctx)
+  await ({ profile, firm, team, branding, plan, api: apiKeys, audit })[active](body, ctx)
 }
 
 // ---------------- Profile ----------------
@@ -476,6 +477,99 @@ async function plan(root, { isCurrent, query }) {
             })
           }
         })
+      }
+    }
+  })
+}
+
+// ---------------- API keys ----------------
+async function apiKeys(root, { isCurrent, rerender }) {
+  const { items } = await api.get('/api/org/api-keys')
+  if (!isCurrent()) return
+  const active = items.filter((k) => !k.revoked_at && !(k.expires_at && new Date(k.expires_at) < new Date()))
+  const inactive = items.filter((k) => !active.includes(k))
+  const status = (k) => k.revoked_at ? html`<span class="badge bg-slate-100 text-slate-500">${t('apikeys.revoked')}</span>`
+    : k.expires_at && new Date(k.expires_at) < new Date() ? html`<span class="badge bg-slate-100 text-slate-500">${t('apikeys.expired')}</span>`
+      : k.creator_deactivated ? html`<span class="badge bg-red-100 text-red-700" title="${t('apikeys.creator_removed_help')}">${t('apikeys.creator_removed')}</span>`
+        : html`<span class="badge bg-emerald-100 text-emerald-800">${t('apikeys.active')}</span>`
+  const row = (k) => html`<tr class="${k.revoked_at ? 'opacity-60' : ''}">
+    <td><div class="font-medium">${k.name}</div><div class="text-xs text-slate-400 font-mono" dir="ltr">${k.prefix}…</div></td>
+    <td>${k.access === 'read_write' ? t('apikeys.read_write') : t('apikeys.read')}</td>
+    <td class="text-xs">${k.created_by_name}<div class="text-slate-400">${fmtDate(k.created_at)}</div></td>
+    <td class="text-xs">${k.last_used_at ? html`${fmtRelative(k.last_used_at)}<div class="text-slate-400 font-mono">${k.last_used_ip || ''}</div>` : t('apikeys.never_used')}</td>
+    <td class="text-xs">${k.expires_at ? fmtDate(k.expires_at) : t('apikeys.no_expiry')}</td>
+    <td>${status(k)}</td>
+    <td class="text-end">${k.revoked_at ? '' : html`<button class="btn btn-danger-ghost btn-sm" data-action="revoke" data-id="${k.id}" data-name="${k.name}">${t('apikeys.revoke')}</button>`}</td>
+  </tr>`
+  const table = (list) => html`<div class="overflow-x-auto"><table class="table">
+    <thead><tr><th>${t('apikeys.name')}</th><th>${t('apikeys.access')}</th><th>${t('apikeys.created')}</th><th>${t('apikeys.last_used')}</th><th>${t('apikeys.expires')}</th><th>${t('common.status')}</th><th></th></tr></thead>
+    <tbody>${list.map(row)}</tbody></table></div>`
+  render(root, html`
+    <div class="space-y-6 max-w-5xl">
+      <section class="card">
+        <div class="flex flex-wrap items-start justify-between gap-3 px-5 py-4 border-b border-slate-100">
+          <div class="max-w-2xl">
+            <h2 class="font-semibold">${t('apikeys.title')}</h2>
+            <p class="text-sm text-slate-500 mt-1">${t('apikeys.help')}</p>
+            <a class="text-sm text-brand-600 hover:underline mt-1 inline-block" href="/developers" target="_blank" rel="noopener"><i class="fas fa-book"></i> ${t('apikeys.docs')}</a>
+          </div>
+          ${readOnly() ? '' : html`<button class="btn btn-primary" data-action="create"><i class="fas fa-plus"></i>${t('apikeys.create')}</button>`}
+        </div>
+        ${active.length ? table(active) : html`<p class="px-5 py-8 text-sm text-slate-500 text-center">${t('apikeys.none')}</p>`}
+      </section>
+      ${inactive.length ? html`<section class="card">
+        <div class="px-5 py-4 border-b border-slate-100"><h2 class="font-semibold">${t('apikeys.inactive')}</h2></div>
+        ${table(inactive)}
+      </section>` : ''}
+      <p class="text-xs text-slate-500"><i class="fas fa-shield-halved"></i> ${t('apikeys.security_note')}</p>
+    </div>`)
+  bind(root, {
+    actions: {
+      create: () => {
+        const m = modal({
+          title: t('apikeys.create'),
+          body: html`<form data-form="create" class="space-y-4" novalidate>
+            ${inputField({ name: 'name', label: t('apikeys.name'), required: true, placeholder: t('apikeys.name_placeholder') })}
+            <fieldset>
+              <legend class="label">${t('apikeys.access')}</legend>
+              <label class="flex items-start gap-2 text-sm mb-2"><input type="radio" name="access" value="read" checked class="mt-1" /><span><strong>${t('apikeys.read')}</strong><br /><span class="text-slate-500">${t('apikeys.read_help')}</span></span></label>
+              <label class="flex items-start gap-2 text-sm"><input type="radio" name="access" value="read_write" class="mt-1" /><span><strong>${t('apikeys.read_write')}</strong><br /><span class="text-slate-500">${t('apikeys.read_write_help')}</span></span></label>
+            </fieldset>
+            ${selectField({ name: 'expires_in_days', label: t('apikeys.expires'), options: [{ value: '90', label: t('apikeys.days', { n: 90 }) }, { value: '365', label: t('apikeys.days', { n: 365 }) }, { value: '', label: t('apikeys.no_expiry') }], value: '365' })}
+            <p class="hint">${t('apikeys.acts_as', { name: store.me.user.name })}</p>
+            ${formActions(t('apikeys.create'))}
+          </form>`,
+          forms: {
+            create: (form) => busy(submitButton(form), async () => {
+              clearFieldErrors(form)
+              const exp = form.elements.expires_in_days.value
+              try {
+                const res = await api.post('/api/org/api-keys', {
+                  name: form.elements.name.value.trim(),
+                  access: form.querySelector('input[name=access]:checked').value,
+                  expires_in_days: exp ? Number(exp) : null
+                })
+                render(form, html`<div class="space-y-4">
+                  <div class="rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-sm p-3"><i class="fas fa-triangle-exclamation"></i> ${t('apikeys.copy_now')}</div>
+                  <div class="flex gap-2"><input class="input font-mono text-xs" dir="ltr" readonly value="${res.key}" data-key /><button type="button" class="btn btn-outline" data-action="copy-key" aria-label="${t('common.copy')}"><i class="fas fa-copy"></i></button></div>
+                  <div class="flex justify-end"><button type="button" class="btn btn-primary" data-action="done">${t('apikeys.copied_done')}</button></div>
+                </div>`)
+                form.querySelector('[data-key]').select()
+              } catch (err) { showError(err, form) }
+            })
+          },
+          actions: {
+            'copy-key': async (el) => {
+              const input = el.closest('div').querySelector('[data-key]')
+              try { await navigator.clipboard.writeText(input.value); toast(t('common.copied')) } catch { input.select() }
+            },
+            done: () => { m.close(); rerender() }
+          }
+        })
+      },
+      revoke: async (el) => {
+        if (!(await confirmDialog(t('apikeys.confirm_revoke', { name: el.dataset.name }), { confirmLabel: t('apikeys.revoke') }))) return
+        try { await api.del(`/api/org/api-keys/${el.dataset.id}`); toast(t('apikeys.revoked_toast')); rerender() } catch (err) { showError(err) }
       }
     }
   })

@@ -479,6 +479,27 @@ CREATE TABLE webhook_events (
 );
 CREATE INDEX webhook_events_created_idx ON webhook_events (created_at);
 `
+  },
+  {
+    version: 4,
+    name: 'api_keys',
+    sql: `
+CREATE TABLE api_keys (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  created_by UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  prefix TEXT NOT NULL,
+  key_hash TEXT NOT NULL UNIQUE,
+  access TEXT NOT NULL DEFAULT 'read' CHECK (access IN ('read','read_write')),
+  expires_at TIMESTAMPTZ,
+  last_used_at TIMESTAMPTZ,
+  last_used_ip TEXT,
+  revoked_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX api_keys_org_idx ON api_keys (org_id, created_at DESC);
+`
   }
 ]
 
