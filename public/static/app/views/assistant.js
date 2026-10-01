@@ -46,7 +46,7 @@ export async function assistantView(root, { params, query, isCurrent }) {
               <div class="text-sm font-medium truncate" dir="auto">${c.title}</div>
               <div class="text-xs text-slate-400">${c.case_reference ? c.case_reference + ' · ' : ''}${fmtRelative(c.updated_at)}</div>
             </a>
-            <button class="btn btn-ghost btn-sm opacity-0 group-hover:opacity-100 focus:opacity-100 me-1" data-action="delete-conv" data-id="${c.id}" aria-label="${t('common.delete')}"><i class="fas fa-trash text-xs"></i></button>
+            <button class="btn btn-ghost btn-sm text-slate-400 hover:text-red-600 me-1" data-action="delete-conv" data-id="${c.id}" aria-label="${t('ai.delete_conversation')}" title="${t('ai.delete_conversation')}"><i class="fas fa-trash text-xs"></i></button>
           </li>`) : html`<li class="px-4 py-6 text-sm text-slate-500">${t('ai.no_conversations')}</li>`}
         </ul>
       </aside>
@@ -54,7 +54,10 @@ export async function assistantView(root, { params, query, isCurrent }) {
       <section class="card flex flex-col min-h-[70vh] lg:min-h-0 lg:col-span-3">
         <div class="px-5 py-3 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
           <h1 class="font-semibold truncate" dir="auto">${current ? current.conversation.title : t('ai.new_chat')}</h1>
-          ${current?.conversation.case_id ? html`<a href="#/cases/${current.conversation.case_id}" class="text-xs text-brand-600 hover:underline"><i class="fas fa-folder-open"></i> ${t('ai.linked_case')}</a>` : ''}
+          <div class="flex items-center gap-3">
+            ${current?.conversation.case_id ? html`<a href="#/cases/${current.conversation.case_id}" class="text-xs text-brand-600 hover:underline"><i class="fas fa-folder-open"></i> ${t('ai.linked_case')}</a>` : ''}
+            ${current ? html`<button class="btn btn-danger-ghost btn-sm" data-action="delete-conv" data-id="${current.conversation.id}"><i class="fas fa-trash"></i>${t('ai.delete_conversation')}</button>` : ''}
+          </div>
         </div>
         <div class="flex-1 overflow-y-auto p-5 space-y-4 bg-slate-50" data-messages aria-live="polite"></div>
         ${ro ? '' : html`<form data-form="send" class="p-4 border-t border-slate-100 space-y-3">
@@ -158,8 +161,14 @@ export async function assistantView(root, { params, query, isCurrent }) {
         if (!(await confirmDialog(t('ai.confirm_delete')))) return
         try {
           await api.del(`/api/ai/conversations/${el.dataset.id}`)
+          toast(t('ai.conversation_deleted'))
           if (el.dataset.id === state.conversationId) location.hash = '#/assistant'
-          else el.closest('li').remove()
+          else {
+            const item = root.querySelector(`li [data-action="delete-conv"][data-id="${el.dataset.id}"]`)?.closest('li')
+            const list = item?.parentElement
+            item?.remove()
+            if (list && !list.querySelector('li')) render(list, html`<li class="px-4 py-6 text-sm text-slate-500">${t('ai.no_conversations')}</li>`)
+          }
         } catch (err) { showError(err) }
       }
     },
