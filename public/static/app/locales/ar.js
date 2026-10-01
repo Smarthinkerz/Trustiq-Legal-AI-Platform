@@ -757,5 +757,7 @@ export default {
   'payment_status.partially_refunded': 'مسترد جزئيًا',
   'payment_status.refunding': 'جارٍ الاسترداد',
   'admin.paid_until': 'مدفوع حتى',
-  'admin.paid_until_help': 'اتركه فارغًا للباقات التي لا تنتهي (مثل المفوترة من المبيعات).'
+  'admin.paid_until_help': 'اتركه فارغًا للباقات التي لا تنتهي (مثل المفوترة من المبيعات).',
+  'ai.delete_conversation': 'حذف المحادثة',
+  'ai.conversation_deleted': 'تم حذف المحادثة.'
 }

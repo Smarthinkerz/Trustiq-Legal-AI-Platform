@@ -757,5 +757,7 @@ export default {
   'payment_status.partially_refunded': 'Partially refunded',
   'payment_status.refunding': 'Refund in progress',
   'admin.paid_until': 'Paid until',
-  'admin.paid_until_help': 'Leave blank for plans that never expire (e.g. invoiced by sales).'
+  'admin.paid_until_help': 'Leave blank for plans that never expire (e.g. invoiced by sales).',
+  'ai.delete_conversation': 'Delete conversation',
+  'ai.conversation_deleted': 'Conversation deleted.'
 }
