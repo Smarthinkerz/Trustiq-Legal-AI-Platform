@@ -41,7 +41,7 @@ export type Deps = {
   mailer: Mailer
   ai: AiService
   tap: TapClient
-  limiters: { auth: RateLimiter; api: RateLimiter; ai: RateLimiter; webhook: RateLimiter }
+  limiters: { auth: RateLimiter; api: RateLimiter; ai: RateLimiter; webhook: RateLimiter; apiKey: RateLimiter }
 }
 
 export type AppEnv = {
@@ -51,6 +51,8 @@ export type AppEnv = {
     user?: AuthUser
     org?: Org
     sessionId?: string
+    // Set when the request is authenticated with a public API key instead of a session.
+    apiKey?: { id: string; name: string; access: 'read' | 'read_write' }
   }
 }
 
@@ -84,10 +86,12 @@ export function clientIp(c: Ctx): string {
 export async function audit(c: Ctx, action: string, entityType?: string, entityId?: string, meta?: Record<string, unknown>) {
   const { db, log } = c.get('deps')
   const user = c.get('user')
+  const apiKey = c.get('apiKey')
+  const fullMeta = apiKey ? { ...meta, via_api_key: { id: apiKey.id, name: apiKey.name } } : meta
   try {
     await db.query(
       'INSERT INTO audit_log (org_id, user_id, action, entity_type, entity_id, meta, ip) VALUES ($1, $2, $3, $4, $5, $6, $7)',
-      [user?.org_id ?? null, user?.id ?? null, action, entityType ?? null, entityId ?? null, meta ? JSON.stringify(meta) : null, clientIp(c)]
+      [user?.org_id ?? null, user?.id ?? null, action, entityType ?? null, entityId ?? null, fullMeta ? JSON.stringify(fullMeta) : null, clientIp(c)]
     )
   } catch (err) {
     // Auditing must never break the user's request, but failures must be visible.

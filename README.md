@@ -13,6 +13,7 @@ Bilingual (English/Arabic), AI-assisted practice-management platform for law fir
 - **Reports**: hours by lawyer and matter, billable value, invoicing, receivables aging, case intake, AI usage
 - **Security**: TOTP two-step verification with recovery codes, roles (owner/admin/lawyer/staff/client), audit log
 - **Subscriptions**: free trial, Starter, Professional and Enterprise limits; self-serve monthly payment via **Tap Payments**, renewal reminders, platform admin console
+- **Public REST API** (`/api/v1`): owners and admins create read-only or read-write API keys in Settings → API keys for clients, cases, documents, time, expenses, invoices, tasks and calendar events; docs at `/developers`
 - **Installable** as an app (PWA) on phones and desktops
 
 ## Architecture
@@ -105,6 +106,7 @@ Rate limiting is in-memory and per instance. Run one instance, or move the limit
 - Cross-origin state-changing requests rejected; request body size limits; uploads validated by content signature, not file extension
 - Every query is scoped to the caller's organization, and tenant isolation is covered by tests
 - AI prompts fence user documents and library passages as data and instruct the model not to invent citations; only sources the answer actually cites are shown; output is marked as requiring lawyer review
+- API keys are shown once and stored as SHA-256 hashes; they act as their creator (capped to read-only when chosen), stop working if the creator is removed, are limited to 120 requests/min each, never accept browser cookies, and every change made with one is audit-logged with the key name
 - Optional TOTP two-step verification (recovery codes stored hashed); enabling it signs out other sessions
 - Client-portal users can only reach `/api/portal`, `/api/auth` and `/api/reference`, enforced centrally and covered by tests
 - Payments: amounts are never taken from the browser; the charge is verified with Tap (amount, currency, organization) before a plan is extended

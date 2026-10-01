@@ -9,7 +9,7 @@ import { join } from 'node:path'
 import type { AppEnv, Deps } from './context'
 import { clientIp } from './context'
 import { forbidden, HttpError, tooMany, unauthorized } from './lib/errors'
-import { loadSession, requireActiveSubscription } from './middleware/session'
+import { apiKeyAuth, loadSession, requireActiveSubscription } from './middleware/session'
 import authRoutes from './routes/auth'
 import orgRoutes from './routes/org'
 import clientsRoutes from './routes/clients'
@@ -31,6 +31,7 @@ import { buildIcs } from './services/jobs'
 import { landingPage } from './landing'
 import { appShell } from './pages/app-shell'
 import { legalPage } from './pages/legal'
+import { apiDocsPage } from './pages/api-docs'
 
 // Endpoints reachable without a session.
 const PUBLIC_API = new Set([
@@ -118,11 +119,13 @@ export function createApp(deps: Deps) {
   const jsonLimit = bodyLimit({ maxSize: 3 * 1024 * 1024 })
   app.use('/api/*', async (c, next) => {
     const p = c.req.path
-    const isUpload = p === '/api/documents/upload' || p === '/api/org/branding/logo' || p === '/api/library/sources' || p === '/api/portal/documents'
+    const isUpload = p === '/api/documents/upload' || p === '/api/v1/documents/upload' || p === '/api/org/branding/logo' || p === '/api/library/sources' || p === '/api/portal/documents'
     return (isUpload ? uploadLimit : jsonLimit)(c, next)
   })
 
   app.use('/api/*', loadSession)
+  app.use('/api/v1/*', apiKeyAuth)
+  app.use('/api/v1', apiKeyAuth)
   app.use('/api/*', async (c, next) => {
     const user = c.get('user')
     if (!user && !isPublicApi(c.req.method, c.req.path)) throw unauthorized()
@@ -140,6 +143,21 @@ export function createApp(deps: Deps) {
     ['/api/documents', documentsRoutes], ['/api/events', eventsRoutes], ['/api/ai', aiRoutes],
     ['/api/library', libraryRoutes], ['/api/billing', billingRoutes], ['/api/reports', reportsRoutes],
     ['/api/tasks', tasksRoutes], ['/api/workspace', workspaceRoutes], ['/api/portal', portalRoutes]
+  ] as const) {
+    app.use(`${path}/*`, requireActiveSubscription)
+    app.use(path, requireActiveSubscription)
+    app.route(path, routes)
+  }
+  // ---------- Public API v1 (API keys; same handlers and rules as the app) ----------
+  const whoAmI = (c: any) => {
+    const { user, org } = c.var
+    return c.json({ organization: { id: org.id, name: org.name, plan: org.plan }, acting_as: { id: user.id, name: user.name, role: user.role }, api_key: c.var.apiKey })
+  }
+  app.get('/api/v1', whoAmI)
+  app.get('/api/v1/me', whoAmI)
+  for (const [path, routes] of [
+    ['/api/v1/clients', clientsRoutes], ['/api/v1/cases', casesRoutes], ['/api/v1/documents', documentsRoutes],
+    ['/api/v1/billing', billingRoutes], ['/api/v1/tasks', tasksRoutes], ['/api/v1/events', eventsRoutes]
   ] as const) {
     app.use(`${path}/*`, requireActiveSubscription)
     app.use(path, requireActiveSubscription)
@@ -211,6 +229,7 @@ export function createApp(deps: Deps) {
   app.get('/ar', html(landingPage({ assetVersion, salesEmail: config.salesEmail, supportEmail: config.supportEmail, lang: 'ar' })))
   app.get('/app', html(appShell({ assetVersion })))
   app.get('/app/', (c) => c.redirect('/app'))
+  app.get('/developers', html(apiDocsPage({ assetVersion, appUrl: config.appUrl })))
   app.get('/terms', html(legalPage('terms', { assetVersion, supportEmail: config.supportEmail })))
   app.get('/privacy', html(legalPage('privacy', { assetVersion, supportEmail: config.supportEmail })))
 

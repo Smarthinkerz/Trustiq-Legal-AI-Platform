@@ -67,7 +67,7 @@ export async function setup(env: Record<string, string> = {}) {
   const app = createApp({
     config, db, ai, mailer, tap,
     log: createLogger('error', true),
-    limiters: { auth: new RateLimiter(1000, 60_000), api: new RateLimiter(10_000, 60_000), ai: new RateLimiter(1000, 60_000), webhook: new RateLimiter(1000, 60_000) }
+    limiters: { auth: new RateLimiter(1000, 60_000), api: new RateLimiter(10_000, 60_000), ai: new RateLimiter(1000, 60_000), webhook: new RateLimiter(1000, 60_000), apiKey: new RateLimiter(1000, 60_000) }
   })
   return { app, db, ai, mails, config, tap }
 }
