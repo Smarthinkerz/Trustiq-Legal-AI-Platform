@@ -7,7 +7,7 @@ import { jsonBody, optUuid, uuidParam } from '../lib/http'
 import { JURISDICTION_CODES, jurisdictionName, templateName, DOCUMENT_TEMPLATES } from '../services/reference'
 import { analysisMessages, chatSystemPrompt, draftMessages, normalizeAnalysis, parseJsonObject, type AnalysisType } from '../services/legal-prompts'
 import { assertCanCreateDocument, assertCanUseAi, recordAiUsage } from '../services/usage'
-import { citationLabel, citedRefs, searchLibrary } from '../services/library'
+import { type Passage, citationLabel, citedRefs, findReferencedSources, lawReferences, referencedPassages, searchLibrary } from '../services/library'
 import { insertDocument } from './documents'
 
 const HISTORY_MESSAGES = 20
@@ -106,7 +106,17 @@ aiRoutes.post('/chat', jsonBody(z.object({
   const jurisdiction = b.jurisdiction ?? conv.jurisdiction ?? org.default_jurisdiction
   // Retrieve from the jurisdiction's law plus GCC-wide instruments; include the previous question for follow-ups.
   const lastUser = [...history].reverse().find((m) => m.role === 'user')?.content ?? ''
-  const passages = await searchLibrary(db, org.id, `${b.message} ${lastUser}`.slice(0, 1500), { jurisdictions: [jurisdiction, 'gcc'], limit: 6 })
+  const query = `${b.message} ${lastUser}`.slice(0, 1500)
+  // A law named by number (e.g. "Royal Decree 48/2009") is looked up directly, in any jurisdiction,
+  // and its own text comes first; general retrieval fills the rest.
+  const named = await findReferencedSources(db, org.id, lawReferences(b.message).length ? lawReferences(b.message) : lawReferences(lastUser))
+  const passages: Passage[] = []
+  for (const s of named) passages.push(...await referencedPassages(db, org.id, s.id, query, named.length > 1 ? 5 : 10))
+  const seen = new Set(passages.map((p) => p.id))
+  for (const p of await searchLibrary(db, org.id, query, { jurisdictions: [jurisdiction, 'gcc'], limit: 6 })) {
+    if (passages.length >= 14) break
+    if (!seen.has(p.id)) { seen.add(p.id); passages.push(p) }
+  }
   const sources = passages.map((p, i) => ({ ref: `S${i + 1}`, chunk_id: p.id, source_id: p.source_id, citation: citationLabel(p), status: p.status, text: p.text }))
   const system = chatSystemPrompt({ lang: b.language, jurisdiction, caseContext: await caseContext(db, org.id, conv.case_id), sources, libraryOnly: b.library_only })
 

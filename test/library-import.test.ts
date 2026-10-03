@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { allowedUrl, DEFAULT_IMPORT_DOMAINS, describeFailure, failureCode, guessMeta, htmlToText, pageUrls, parseCertificates } from '../src/services/library-import'
 import { looksGarbled } from '../src/services/extract'
+import { lawReferences } from '../src/services/library'
 import { registered, setup } from './helpers'
 
 let ctx: Awaited<ReturnType<typeof setup>>
@@ -55,6 +56,15 @@ describe('connection failures', () => {
     expect(looksGarbled('��ستناد� �إ¶ قانون �إلإجر�ء�ت �جلز�ئية �ل�سادر باملر�سوم �ل�سلطاÁ رقم '.repeat(5))).toBe(true)
     expect(looksGarbled('المادة 1 تسري أحكام هذا القانون على جميع أصحاب العمل والعمال في القطاع الخاص. '.repeat(5))).toBe(false)
     expect(looksGarbled('Article 1. This Law applies to all employers and workers in the private sector – including café staff. '.repeat(4))).toBe(false)
+  })
+
+  it('recognises law numbers however they are written', () => {
+    expect(lawReferences('لخص المرسوم السلطاني رقم ٤٨ / ٢٠٠٩')).toEqual([{ number: '48', years: ['2009', '09'] }])
+    expect(lawReferences('Royal Decree 2019/35 and the law No. 6 of 2022')).toEqual([{ number: '35', years: ['2019', '19'] }, { number: '6', years: ['2022', '22'] }])
+    expect(lawReferences('قانون الأحوال الشخصية 32/97')).toEqual([{ number: '32', years: ['1997', '97'] }])
+    expect(lawReferences('القانون رقم 35 لسنة 2003')).toEqual([{ number: '35', years: ['2003', '03'] }])
+    expect(lawReferences('the meeting is on 12/10/2024 at 3/4 of the way')).toEqual([])
+    expect(guessMeta('مرسوم سلطاني رقم ٣٢ / ٩٧ بإصدار قانون الأحوال الشخصية', '')).toMatchObject({ number: '32/1997', year: 1997 })
   })
 
   it('explains why a site could not be reached, with the underlying code', () => {
@@ -269,6 +279,40 @@ describe('import from link', () => {
     const item = (await c.get('/api/library/imports')).data.items[0]
     expect(item.status).toBe('failed')
     expect(item.detail).toMatch(/old font encoding/)
+  })
+
+  it('lets the assistant find a law named by number, in Arabic-Indic or Latin digits, whatever the chat jurisdiction', async () => {
+    const { c } = await registered(ctx.app)
+    const Q = 'https://qanoon.om'
+    const law = (title: string, body: string) => `<html><body><main><article><h1>${title}</h1>${body}</article></main></body></html>`
+    ctx.web.pages.set(`${Q}/p/2009/rd2009048/`, { body: law('مرسوم سلطاني رقم ٤٨ / ٢٠٠٩ بإصدار قانون تنظيم الأرشيف الوطني',
+      '<p>مادة (١)</p><p>تسري أحكام هذا القانون على الوثائق والمحفوظات العامة لدى وحدات الجهاز الإداري للدولة.</p><p>مادة (٢)</p><p>تنشأ هيئة عامة تسمى هيئة الوثائق والمحفوظات الوطنية تتمتع بالشخصية الاعتبارية.</p>') })
+    // Other laws that mention royal decrees, years and numbers everywhere.
+    for (let i = 1; i <= 4; i++) {
+      ctx.web.pages.set(`${Q}/p/2010/rd201000${i}/`, { body: law(`مرسوم سلطاني رقم ${i} / 2010 بتعديل بعض أحكام قانون ${i}`,
+        `<p>مادة (١)</p><p>يستبدل بنص المادة الأولى من المرسوم السلطاني رقم ${i}٨ / ٢٠٠٩ والمرسوم السلطاني رقم ٤٨٠ / ٢٠٠٨ النص الآتي في سنة ٢٠٠٩ رقم ٤٨.</p>`) })
+    }
+    await c.post('/api/library/imports', { jurisdiction: 'oman', items: [`${Q}/p/2009/rd2009048/`, ...[1, 2, 3, 4].map((i) => `${Q}/p/2010/rd201000${i}/`)].map((url) => ({ url })) })
+    await ctx.runImports()
+    const lawItem = (await c.get('/api/library/imports')).data.items.find((i: any) => i.url === `${Q}/p/2009/rd2009048/`)
+    expect(lawItem.status).toBe('done')
+    const src = await c.get(`/api/library/sources/${lawItem.source_id}`)
+    expect(src.data.source).toMatchObject({ number: '48/2009', year: 2009, kind: 'royal_decree' })
+
+    for (const message of ['لخص المرسوم السلطاني رقم ٤٨ / ٢٠٠٩', 'Summarise Royal Decree 48/2009', 'ما هو القانون رقم 48 لسنة 2009؟']) {
+      ctx.ai.calls.length = 0
+      // A UAE conversation still finds the Omani decree it names.
+      const res = await c.post('/api/ai/chat', { message, jurisdiction: 'uae' })
+      expect(res.status).toBe(200)
+      const system = String(ctx.ai.calls[0]![0]!.content)
+      expect(system, message).toContain('هيئة الوثائق والمحفوظات الوطنية')
+    }
+    // In an Oman conversation the named decree still comes before other matches.
+    ctx.ai.calls.length = 0
+    await c.post('/api/ai/chat', { message: 'لخص المرسوم السلطاني رقم ٤٨ / ٢٠٠٩', jurisdiction: 'oman' })
+    const omanSystem = String(ctx.ai.calls[0]![0]!.content)
+    expect(omanSystem).toContain('بتعديل بعض أحكام')
+    expect(omanSystem.indexOf('تنظيم الأرشيف الوطني')).toBeLessThan(omanSystem.indexOf('بتعديل بعض أحكام'))
   })
 
   it('reports unreachable or empty pages clearly and keeps firms separate', async () => {
