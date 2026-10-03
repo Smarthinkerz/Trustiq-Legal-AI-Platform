@@ -235,6 +235,17 @@ https://www.uaelegislation.gov.ae/..."></textarea>
           ? [...m.el.querySelectorAll('input[name=link]:checked')].map((c) => ({ url: c.value, title: state.links.find((l) => l.url === c.value)?.text || null }))
           : m.el.querySelector('[name=urls]').value.split(/\s+/).map((u) => u.trim()).filter((u) => /^https?:\/\//i.test(u)).map((url) => ({ url }))
         if (!items.length) return toast(state.mode === 'find' ? t('import.pick_some') : t('import.paste_some'), 'error')
+        // List pages (…/page/2) are not laws: offer to search them instead.
+        const listPages = state.mode === 'paste' ? items.filter((i) => /\/page\/\d+\/?$|[?&]page=\d+/i.test(i.url)) : []
+        if (listPages.length) {
+          const findTab = m.el.querySelector('[data-action=mode][data-mode=find]')
+          findTab.click()
+          const form = m.el.querySelector('form[data-form=find]')
+          form.elements.url.value = listPages.map((i) => i.url).sort()[0]
+          form.elements.pages.value = String(Math.min(50, Math.max(listPages.length, 1)))
+          toast(t('import.list_pages_detected'), 'info')
+          return
+        }
         const f = (n) => m.el.querySelector(`[data-meta] [name=${n}]`)?.value || null
         try {
           let queued = 0

@@ -827,5 +827,6 @@ export default {
   'import.status_done': 'Imported',
   'import.status_skipped': 'Already added',
   'import.status_failed': 'Failed',
-  'import.law_language': 'Language of the laws'
+  'import.law_language': 'Language of the laws',
+  'import.list_pages_detected': 'Those links are pages that list laws, not laws themselves. We switched to "Find laws on a page" — click Find laws to see the laws they contain.'
 }

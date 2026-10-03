@@ -827,5 +827,6 @@ export default {
   'import.status_done': 'تم',
   'import.status_skipped': 'موجود',
   'import.status_failed': 'فشل',
-  'import.law_language': 'لغة القوانين'
+  'import.law_language': 'لغة القوانين',
+  'import.list_pages_detected': 'هذه الروابط صفحات تعرض قوائم القوانين وليست قوانين. انتقلنا إلى "البحث عن القوانين في صفحة" — اضغط "ابحث" لعرض القوانين التي تحتويها.'
 }
