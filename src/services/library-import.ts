@@ -1,4 +1,7 @@
+import { X509Certificate } from 'node:crypto'
 import { lookup } from 'node:dns/promises'
+import tls from 'node:tls'
+import { Agent, fetch as undiciFetch } from 'undici'
 import { isIP } from 'node:net'
 import type { Config } from '../config'
 import type { Db } from '../db'
@@ -31,7 +34,7 @@ const MAX_REDIRECTS = 5
 const FETCH_TIMEOUT_MS = 60_000
 const MAX_HTML_BYTES = 5 * 1024 * 1024
 const MAX_TEXT = 3_000_000
-const USER_AGENT = 'TrustiqLegal-LibraryImporter/1.0 (+legal research; contact via website)'
+const USER_AGENT = 'Mozilla/5.0 (compatible; TrustiqLegal-LibraryImporter/1.1; legal research)'
 
 export function importDomains(config: Config): string[] {
   return [...DEFAULT_IMPORT_DOMAINS, ...config.libraryImportDomains]
@@ -63,12 +66,104 @@ function isPrivateAddress(ip: string): boolean {
     (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) || a >= 224
 }
 
+// Finds the low-level reason a request failed (Node wraps it in "fetch failed").
+export function failureCode(err: unknown): string {
+  let e: any = err
+  for (let i = 0; i < 4 && e; i++) {
+    if (typeof e.code === 'string' && e.code !== 'ERR_INVALID_ARG_TYPE') return e.code
+    if (e.name === 'TimeoutError' || e.name === 'AbortError') return 'TIMEOUT'
+    e = e.cause
+  }
+  return 'UNKNOWN'
+}
+
+const TLS_CHAIN_CODES = new Set(['UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'UNABLE_TO_GET_ISSUER_CERT_LOCALLY', 'UNABLE_TO_GET_ISSUER_CERT'])
+
+// Plain-language explanation of a connection failure, including the code for support.
+export function describeFailure(code: string, host: string): string {
+  if (code === 'TIMEOUT' || code === 'UND_ERR_CONNECT_TIMEOUT' || code === 'ETIMEDOUT' || code === 'UND_ERR_HEADERS_TIMEOUT')
+    return `${host} did not answer in time (${code}). Government websites sometimes block or slow down visitors from outside their country.`
+  if (code === 'ECONNREFUSED' || code === 'ECONNRESET' || code === 'UND_ERR_SOCKET' || code === 'EPIPE')
+    return `${host} refused or dropped the connection from our server (${code}). Government websites sometimes block visitors from outside their country.`
+  if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') return `The website ${host} could not be found (${code}).`
+  if (TLS_CHAIN_CODES.has(code) || code.startsWith('CERT_') || code.includes('SELF_SIGNED') || code === 'ERR_TLS_CERT_ALTNAME_INVALID')
+    return `The security certificate of ${host} could not be verified (${code}).`
+  return `${host} could not be reached (${code}).`
+}
+
+async function assertPublicHost(host: string) {
+  const addrs = await lookup(host, { all: true }).catch((err) => { throw new ImportError(describeFailure(failureCode(err) === 'UNKNOWN' ? 'ENOTFOUND' : failureCode(err), host)) })
+  if (!addrs.length || addrs.some((a) => isPrivateAddress(a.address))) throw new ImportError(`The website ${host} is not reachable.`)
+}
+
+// Some government sites send an incomplete certificate chain. Browsers repair this by downloading the
+// missing intermediate certificate named in the site's certificate ("AIA"); we do the same, then verify
+// the connection fully against the system's trusted roots. Verification is never switched off.
+const repairedAgents = new Map<string, Agent | null>()
+
+async function peerCertificate(host: string): Promise<X509Certificate> {
+  return new Promise((resolve, reject) => {
+    // Only reads the certificate the site presents; no request is sent on this connection.
+    const socket = tls.connect({ host, port: 443, servername: host, rejectUnauthorized: false, timeout: 15_000 }, () => {
+      const raw = socket.getPeerCertificate(false)?.raw
+      socket.end()
+      raw ? resolve(new X509Certificate(raw)) : reject(new Error('no certificate'))
+    })
+    socket.on('timeout', () => { socket.destroy(); reject(new Error('timeout')) })
+    socket.on('error', reject)
+  })
+}
+
+async function downloadIssuer(cert: X509Certificate): Promise<X509Certificate | null> {
+  const uri = cert.infoAccess?.match(/CA Issuers - URI:(\S+)/)?.[1]
+  if (!uri || !/^https?:\/\//i.test(uri)) return null
+  await assertPublicHost(new URL(uri).hostname)
+  const res = await fetch(uri, { signal: AbortSignal.timeout(15_000), redirect: 'follow' })
+  if (!res.ok) return null
+  const bytes = Buffer.from(await readCapped(res as any, 64 * 1024))
+  const issuer = new X509Certificate(bytes)
+  return issuer.ca && cert.checkIssued(issuer) ? issuer : null
+}
+
+async function repairedAgent(host: string): Promise<Agent | null> {
+  if (repairedAgents.has(host)) return repairedAgents.get(host)!
+  let agent: Agent | null = null
+  try {
+    const chain: string[] = []
+    let cert = await peerCertificate(host)
+    for (let i = 0; i < 3; i++) {
+      const issuer = await downloadIssuer(cert)
+      if (!issuer) break
+      chain.push(issuer.toString())
+      if (issuer.checkIssued(issuer)) break // Reached a self-signed root.
+      cert = issuer
+    }
+    if (chain.length) agent = new Agent({ connect: { ca: [...tls.rootCertificates, ...chain] } })
+  } catch { agent = null }
+  repairedAgents.set(host, agent)
+  return agent
+}
+
 // Default fetcher: refuses hosts that resolve to private or internal addresses.
 export const safeWebFetch: WebFetcher = async (url, init) => {
   const host = new URL(url).hostname
-  const addrs = await lookup(host, { all: true }).catch(() => { throw new ImportError(`The website ${host} could not be found.`) })
-  if (!addrs.length || addrs.some((a) => isPrivateAddress(a.address))) throw new ImportError(`The website ${host} is not reachable.`)
-  return fetch(url, { ...init, redirect: 'manual' })
+  await assertPublicHost(host)
+  try {
+    return await fetch(url, { ...init, redirect: 'manual' })
+  } catch (err) {
+    const code = failureCode(err)
+    if (TLS_CHAIN_CODES.has(code)) {
+      const agent = await repairedAgent(host)
+      if (agent) {
+        try {
+          return (await undiciFetch(url, { ...init, redirect: 'manual', dispatcher: agent })) as unknown as Response
+        } catch (retryErr) {
+          throw new ImportError(describeFailure(failureCode(retryErr), host))
+        }
+      }
+    }
+    throw new ImportError(describeFailure(code, host))
+  }
 }
 
 async function readCapped(res: Response, max: number): Promise<Uint8Array> {
@@ -106,7 +201,7 @@ export async function fetchAllowed(deps: ImportDeps, raw: string, maxBytes: numb
       res = await fetcher(current.toString(), { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS), headers: { 'user-agent': USER_AGENT, accept: 'text/html,application/pdf,*/*;q=0.8' } })
     } catch (err) {
       if (err instanceof ImportError) throw err
-      throw new ImportError(`The website did not respond (${(err as Error).name === 'TimeoutError' ? 'timed out' : 'connection failed'}).`)
+      throw new ImportError(describeFailure(failureCode(err), current.hostname))
     }
     if (res.status >= 300 && res.status < 400) {
       const location = res.headers.get('location')

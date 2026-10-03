@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest'
-import { allowedUrl, DEFAULT_IMPORT_DOMAINS, guessMeta, htmlToText, pageUrls } from '../src/services/library-import'
+import { allowedUrl, DEFAULT_IMPORT_DOMAINS, describeFailure, failureCode, guessMeta, htmlToText, pageUrls } from '../src/services/library-import'
 import { registered, setup } from './helpers'
 
 let ctx: Awaited<ReturnType<typeof setup>>
@@ -41,6 +41,31 @@ describe('law import safety', () => {
     expect(pageUrls('https://mjla.gov.om/laws/1/page/1', 3)).toEqual([
       'https://mjla.gov.om/laws/1/page/1', 'https://mjla.gov.om/laws/1/page/2', 'https://mjla.gov.om/laws/1/page/3'])
     expect(pageUrls('https://example.gov.ae/laws?page=4', 2)).toEqual(['https://example.gov.ae/laws?page=4', 'https://example.gov.ae/laws?page=5'])
+  })
+})
+
+describe('connection failures', () => {
+  it('explains why a site could not be reached, with the underlying code', () => {
+    const wrapped = (code: string) => Object.assign(new TypeError('fetch failed'), { cause: Object.assign(new Error('x'), { code }) })
+    expect(failureCode(wrapped('UND_ERR_CONNECT_TIMEOUT'))).toBe('UND_ERR_CONNECT_TIMEOUT')
+    expect(failureCode(Object.assign(new TypeError('fetch failed'), { cause: { cause: { code: 'ECONNRESET' } } }))).toBe('ECONNRESET')
+    expect(failureCode(Object.assign(new Error('t'), { name: 'TimeoutError' }))).toBe('TIMEOUT')
+    expect(describeFailure('UND_ERR_CONNECT_TIMEOUT', 'mjla.gov.om')).toMatch(/did not answer in time.*outside their country/)
+    expect(describeFailure('ECONNRESET', 'mjla.gov.om')).toMatch(/refused or dropped/)
+    expect(describeFailure('UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'mjla.gov.om')).toMatch(/security certificate/)
+    expect(describeFailure('ENOTFOUND', 'mjla.gov.om')).toMatch(/could not be found/)
+  })
+
+  it('records the reason when the importer cannot connect', async () => {
+    const { c } = await registered(ctx.app)
+    const url = `${BASE}/law/unreachable`
+    // Simulate a site that drops connections from our server.
+    ctx.web.pages.set(url, { throw: 'ECONNRESET' })
+    await c.post('/api/library/imports', { jurisdiction: 'oman', items: [{ url }] })
+    await ctx.runImports()
+    const item = (await c.get('/api/library/imports')).data.items.find((i: any) => i.url === url)
+    expect(item.status).toBe('failed')
+    expect(item.detail).toMatch(/refused or dropped the connection.*ECONNRESET/)
   })
 })
 

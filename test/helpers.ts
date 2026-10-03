@@ -10,12 +10,13 @@ import { runLibraryImports, type WebFetcher } from '../src/services/library-impo
 
 // A fake web for the law-library importer: register URL -> response, everything else 404s.
 export function fakeWeb() {
-  const pages = new Map<string, { status?: number; type?: string; body?: string | Uint8Array; location?: string }>()
+  const pages = new Map<string, { status?: number; type?: string; body?: string | Uint8Array; location?: string; throw?: string }>()
   const requested: string[] = []
   const fetch: WebFetcher = async (url) => {
     requested.push(url)
     const p = pages.get(url)
     if (!p) return new Response('not found', { status: 404 })
+    if (p.throw) throw Object.assign(new TypeError('fetch failed'), { cause: Object.assign(new Error('socket'), { code: p.throw }) })
     const headers: Record<string, string> = { 'content-type': p.type ?? 'text/html; charset=utf-8' }
     if (p.location) headers.location = p.location
     return new Response(p.body as any ?? '', { status: p.status ?? 200, headers })
