@@ -21,7 +21,9 @@ import { recordAiUsage } from './usage'
 // Government domains across the GCC, plus official free-zone and legal portals.
 export const DEFAULT_IMPORT_DOMAINS = [
   'gov.om', 'gov.ae', 'gov.sa', 'gov.qa', 'gov.bh', 'gov.kw',
-  'almeezan.qa', 'difc.ae', 'adgm.com', 'qcb.gov.qa'
+  'almeezan.qa', 'difc.ae', 'adgm.com', 'qcb.gov.qa',
+  // Qanoon.om hosts the Omani Official Gazette PDFs that legislation pages link to.
+  'qanoon.om'
 ]
 
 export type WebFetcher = (url: string, init: { signal: AbortSignal; headers: Record<string, string> }) => Promise<Response>
@@ -325,23 +327,35 @@ export function htmlToText(html: string): string {
   return stripTags(body)
 }
 
-export type FoundLink = { url: string; text: string; pdf: boolean }
+// pdf: the address names a document file. download: a download button or embedded viewer whose
+// address does not show the file type (e.g. "تحميل" on mjla.gov.om law pages).
+export type FoundLink = { url: string; text: string; pdf: boolean; download?: boolean }
+
+const DOWNLOAD_TEXT = /تحميل|تنزيل|النص الكامل|ملف|download|full text|\bpdf\b/i
+const DOWNLOAD_PATH = /\/(download|downloads|storage|uploads|files?|attachments?|media|docs?)\/|[?&](download|file)=/i
 
 export function extractLinks(html: string, base: string, domains: string[]): FoundLink[] {
   const out = new Map<string, FoundLink>()
-  for (const m of html.matchAll(/<a\b[^>]*href\s*=\s*["']([^"'#][^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
-    const href = decodeEntities(m[1]!.trim())
-    if (/^(mailto|tel|javascript|data):/i.test(href)) continue
+  const add = (rawHref: string, text: string, tag: string, embedded: boolean) => {
+    const href = decodeEntities(rawHref.trim())
+    if (/^(mailto|tel|javascript|data):/i.test(href)) return
     let abs: string
-    try { abs = new URL(href, base).toString() } catch { continue }
+    try { abs = new URL(href, base).toString() } catch { return }
     const url = allowedUrl(abs, domains)
-    if (!url) continue
+    if (!url) return
     const key = url.toString()
-    const text = stripTags(m[2]!).replace(/\s+/g, ' ').trim()
     // A link to a document file (official PDFs, Word files or plain text).
     const pdf = /\.(pdf|docx|txt)(\?|$)/i.test(url.pathname + url.search)
+    const download = !pdf && (embedded || /\sdownload\b/i.test(tag) || DOWNLOAD_TEXT.test(text) || DOWNLOAD_PATH.test(url.pathname + url.search))
     const prev = out.get(key)
-    if (!prev || text.length > prev.text.length) out.set(key, { url: key, text: text.slice(0, 300), pdf })
+    if (!prev || text.length > prev.text.length) out.set(key, { url: key, text: text.slice(0, 300), pdf, ...(download ? { download } : {}) })
+  }
+  for (const m of html.matchAll(/(<a\b[^>]*href\s*=\s*["']([^"'#][^"']*)["'][^>]*>)([\s\S]*?)<\/a>/gi)) {
+    add(m[2]!, stripTags(m[3]!).replace(/\s+/g, ' ').trim(), m[1]!, false)
+  }
+  // PDFs shown in an embedded viewer.
+  for (const m of html.matchAll(/<(?:iframe|embed|object|source)\b[^>]*?\b(?:src|data)\s*=\s*["']([^"'#][^"']*)["']/gi)) {
+    add(m[1]!, '', '', true)
   }
   return [...out.values()]
 }
@@ -420,9 +434,14 @@ async function processImport(deps: ImportDeps, row: ImportRow): Promise<{ status
   const { db, config, ai, log } = deps
   const ownerOrg = row.scope === 'platform' ? null : row.org_id
   const dup = await db.one(
-    `SELECT id FROM library_sources WHERE source_url = $1 AND ${ownerOrg ? 'org_id = $2' : 'org_id IS NULL'} LIMIT 1`,
+    `SELECT s.id, s.file_name, s.notes, (SELECT coalesce(sum(length(k.text)), 0) FROM library_chunks k WHERE k.source_id = s.id)::int AS chars,
+            (SELECT count(*) FROM library_chunks k WHERE k.source_id = s.id)::int AS chunks
+       FROM library_sources s WHERE s.source_url = $1 AND ${ownerOrg ? 's.org_id = $2' : 's.org_id IS NULL'} LIMIT 1`,
     ownerOrg ? [row.url, ownerOrg] : [row.url])
-  if (dup) return { status: 'skipped', sourceId: dup.id, detail: 'Already in the library' }
+  // An earlier automatic import that kept only the page title (before download buttons were followed)
+  // is replaced; anything else already in the library is left alone.
+  const replaces: string | null = dup && !dup.file_name && /^Imported automatically/.test(dup.notes ?? '') && dup.chunks <= 1 && dup.chars < 1500 ? dup.id : null
+  if (dup && !replaces) return { status: 'skipped', sourceId: dup.id, detail: 'Already in the library' }
 
   const maxFile = Math.max(config.maxUploadBytes, 25 * 1024 * 1024)
   let page = await fetchAllowed(deps, row.url, maxFile)
@@ -431,13 +450,18 @@ async function processImport(deps: ImportDeps, row: ImportRow): Promise<{ status
   let file: { name: string; mime: string; bytes: Uint8Array } | null = null
   let ocr = false
   const onAiUsage = row.created_by ? (r: any) => recordAiUsage(db, row.org_id, row.created_by!, 'ocr', r) : undefined
+  // Long scans are read in batches; keep the row fresh so crash recovery does not restart it.
+  const onProgress = async () => { await db.query(`UPDATE library_imports SET started_at = now() WHERE id = $1`, [row.id]) }
 
   const asFile = async (p: Fetched): Promise<boolean> => {
     const name = decodeURIComponent(new URL(p.url).pathname.split('/').pop() || 'law') || 'law'
-    const guessName = /\.(pdf|docx|txt)$/i.test(name) ? name : `${name}.${p.contentType.includes('pdf') ? 'pdf' : p.contentType.includes('word') ? 'docx' : 'txt'}`
+    // Download buttons often serve files as application/octet-stream without an extension: sniff the bytes.
+    const isPdf = p.bytes[0] === 0x25 && p.bytes[1] === 0x50 && p.bytes[2] === 0x44 && p.bytes[3] === 0x46
+    const ext = isPdf || p.contentType.includes('pdf') ? 'pdf' : p.contentType.includes('word') ? 'docx' : 'txt'
+    const guessName = /\.(pdf|docx|txt)$/i.test(name) ? name : `${name}.${ext}`
     const kind: FileKind | null = detectKind(p.bytes, guessName)
     if (!kind || (kind === 'txt' && p.contentType.includes('html'))) return false
-    const extracted = await extractWithOcr({ ai, log, onAiUsage }, p.bytes, kind, guessName)
+    const extracted = await extractWithOcr({ ai, log, onAiUsage, onProgress }, p.bytes, kind, guessName)
     text = extracted.text
     ocr = extracted.ocr
     file = { name: guessName.slice(0, 255), mime: ACCEPTED_TYPES[kind], bytes: p.bytes }
@@ -449,15 +473,26 @@ async function processImport(deps: ImportDeps, row: ImportRow): Promise<{ status
     const html = decodeHtml(page.bytes, page.contentType)
     title = title || htmlTitle(html)
     text = page.contentType.includes('html') ? htmlToText(html) : cleanText(html)
-    // Many legislation pages show a summary and link to the official PDF or Word file; prefer that file.
-    const pdfs = extractLinks(html, page.url, importDomains(config)).filter((l) => l.pdf)
-    if (pdfs.length && text.replace(/\s/g, '').length < 3000) {
-      try {
-        page = await fetchAllowed(deps, pdfs[0]!.url, maxFile)
-        const htmlText = text
-        if (!(await asFile(page))) text = htmlText
-      } catch (err) {
-        log.warn('linked pdf download failed', { err, url: pdfs[0]!.url })
+    // Many legislation pages show only a title or summary and link to the official PDF or Word file
+    // (sometimes through a "download" button whose address has no file extension); prefer that file.
+    const candidates = extractLinks(html, page.url, importDomains(config))
+      .filter((l) => (l.pdf || l.download) && l.url !== page.url && l.url !== row.url)
+      .sort((a, b) => Number(b.pdf) - Number(a.pdf))
+      .slice(0, 4)
+    if (candidates.length && text.replace(/\s/g, '').length < 6000) {
+      const htmlText = text
+      for (const link of candidates) {
+        try {
+          const linked = await fetchAllowed(deps, link.url, maxFile)
+          if (await asFile(linked)) {
+            if (text.replace(/\s/g, '').length >= 200 || text.length > htmlText.length) break
+            file = null
+          }
+        } catch (err) {
+          log.warn('linked law file download failed', { err, url: link.url })
+        }
+        text = htmlText
+        ocr = false
       }
     }
   }
@@ -466,6 +501,7 @@ async function processImport(deps: ImportDeps, row: ImportRow): Promise<{ status
   title = (title || new URL(row.url).pathname.split('/').filter(Boolean).pop() || 'Imported law').replace(/\s+/g, ' ').trim().slice(0, 400)
   const meta = guessMeta(title, text)
   const sourceId = await db.tx(async (q) => {
+    if (replaces) await q.query('DELETE FROM library_sources WHERE id = $1', [replaces])
     const src = await q.one(
       `INSERT INTO library_sources (org_id, jurisdiction, kind, title, number, year, status, language, source_url, notes, file_name, mime_type, file_data, created_by)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id`,
@@ -475,7 +511,7 @@ async function processImport(deps: ImportDeps, row: ImportRow): Promise<{ status
     await indexSource(q, src!.id, ownerOrg, text)
     return src!.id as string
   })
-  return { status: 'done', sourceId, detail: ocr ? 'Read with OCR' : null }
+  return { status: 'done', sourceId, detail: [replaces ? 'Replaced the earlier title-only copy' : null, ocr ? 'Read with OCR' : null].filter(Boolean).join('; ') || null }
 }
 
 // Processes queued imports one at a time; safe with several app instances.
