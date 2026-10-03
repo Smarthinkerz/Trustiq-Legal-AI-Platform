@@ -44,6 +44,8 @@ describe('law import safety', () => {
     expect(pageUrls('https://mjla.gov.om/laws/1/page/1', 3)).toEqual([
       'https://mjla.gov.om/laws/1/page/1', 'https://mjla.gov.om/laws/1/page/2', 'https://mjla.gov.om/laws/1/page/3'])
     expect(pageUrls('https://example.gov.ae/laws?page=4', 2)).toEqual(['https://example.gov.ae/laws?page=4', 'https://example.gov.ae/laws?page=5'])
+    expect(pageUrls('https://mjla.gov.om/laws/1', 3)).toEqual(['https://mjla.gov.om/laws/1', 'https://mjla.gov.om/laws/1/page/2', 'https://mjla.gov.om/laws/1/page/3'])
+    expect(pageUrls('https://qanoon.om/p/category/x/', 2)).toEqual(['https://qanoon.om/p/category/x/', 'https://qanoon.om/p/category/x/page/2/'])
   })
 })
 
@@ -211,6 +213,62 @@ describe('import from link', () => {
     expect(src.data.source).toMatchObject({ title: 'مرسوم سلطاني رقم 29 / 2013 بإصدار قانون المعاملات المدنية', number: '29/2013', file_name: 'abc123.pdf' })
     expect(src.data.chunks.map((x: any) => x.label).filter(Boolean)).toEqual(['المادة 1', 'المادة 2', 'المادة 3'])
     expect(JSON.stringify(src.data.chunks)).not.toContain('QGRh')
+  })
+
+  it('reads blog-style law sites such as qanoon.om: posts only, no sidebars or archive links', async () => {
+    const { c } = await registered(ctx.app)
+    const Q = 'https://qanoon.om'
+    const cat = `${Q}/p/category/%D9%82%D8%A7%D9%86%D9%88%D9%86-%D9%85%D8%B9%D8%AF%D9%84/`
+    const post = (slug: string, title: string) => `<article><h2><a href="${Q}/p/${slug}/">${title}</a></h2><p>نص مختصر</p>
+      <a href="${Q}/p/${slug}/">متابعة القراءة “${title}”</a> <a href="${Q}/p/category/%D9%82%D8%A7%D9%86%D9%88%D9%86-%D9%85%D8%B9%D8%AF%D9%84/">قانون معدل</a> <a href="${Q}/p/author/admin/">كاتب المقالة بواسطة admin</a></article>`
+    const aside = `<aside><h3>أحدث المقالات</h3><ul><li><a href="${Q}/p/2026/og1667/">الجريدة الرسمية العدد ١٦٦٧</a></li></ul></aside>`
+    ctx.web.pages.set(cat, { body: `<html><body><header><a href="${Q}/">Qanoon.om</a></header><main>${post('1997/rd1997032', 'قانون الأحوال الشخصية (معدل)')}${post('2023/rd2023053', 'قانون العمل (معدل)')}
+      <a href="${cat}page/2/">الصفحة التالية</a></main>${aside}</body></html>` })
+    ctx.web.pages.set(`${cat}page/2/`, { body: `<html><body><main>${post('2018/rd2018007', 'قانون الجزاء (معدل)')}</main>${aside}</body></html>` })
+    ctx.web.pages.set(`${cat}page/3/`, { status: 404, body: 'not found' })
+    const found = await c.post('/api/library/imports/discover', { url: cat, pages: 5 })
+    expect(found.status).toBe(200)
+    expect(found.data.links.map((l: any) => l.url)).toEqual([`${Q}/p/1997/rd1997032/`, `${Q}/p/2023/rd2023053/`, `${Q}/p/2018/rd2018007/`])
+    expect(found.data.links[0].text).toContain('قانون الأحوال الشخصية')
+
+    // A consolidated law page: articles numbered with Arabic-Indic digits.
+    ctx.web.pages.set(`${Q}/p/1997/rd1997032/`, { body: `<html><head><title>قانون الأحوال الشخصية – Qanoon.om</title></head><body>${aside}<main><article><h1>مرسوم سلطاني رقم ٣٢ / ٩٧ بإصدار قانون الأحوال الشخصية</h1>
+      <p>مادة (١)</p><p>الخطبة طلب التزوج والوعد به.</p><p>مادة (٢)</p><p>تمنع خطبة المرأة المحرمة ولو كان التحريم مؤقتا ويجوز التعريض بخطبة معتدة الوفاة.</p>
+      <p>مادة (٣)</p><p>لكل من الخاطبين العدول عن الخطبة.</p></article></main></body></html>` })
+    await c.post('/api/library/imports', { jurisdiction: 'oman', items: [{ url: `${Q}/p/1997/rd1997032/`, title: found.data.links[0].text }] })
+    await ctx.runImports()
+    const item = (await c.get('/api/library/imports')).data.items[0]
+    expect(item.status).toBe('done')
+    const src = await c.get(`/api/library/sources/${item.source_id}`)
+    expect(src.data.chunks.map((x: any) => x.label).filter(Boolean)).toEqual(['مادة (١)', 'مادة (٢)', 'مادة (٣)'])
+    expect(JSON.stringify(src.data.chunks)).not.toContain('الجريدة الرسمية العدد')
+  })
+
+  it('resolves relative links against <base href> and refuses to store unreadable PDF text', async () => {
+    const { c } = await registered(ctx.app)
+    ctx.web.pages.set(`${BASE}/legislation/list`, { body: `<html><head><base href="${BASE}/"></head><body><main>
+      <a href="laws/ar/1/show/36">مرسوم سلطاني رقم 32 / 97 بإصدار قانون الأحوال الشخصية</a></main></body></html>` })
+    const found = await c.post('/api/library/imports/discover', { url: `${BASE}/legislation/list` })
+    expect(found.data.links.map((l: any) => l.url)).toEqual([`${BASE}/laws/ar/1/show/36`])
+
+    // A legacy-encoded PDF whose OCR fails is reported, not stored as gibberish.
+    const { PDFDocument, StandardFonts } = await import('pdf-lib')
+    const pdf = await PDFDocument.create()
+    const font = await pdf.embedFont(StandardFonts.Helvetica)
+    const page = pdf.addPage()
+    for (let line = 0; line < 8; line++) page.drawText('á`«fƒfÉdG ¿hDƒ`°ûdGh ó`©dG IQGRh …QGRh QGô`b º``bQ ºbQ …QGRƒdG', { x: 20, y: 700 - line * 20, size: 10, font })
+    ctx.web.pages.set(`${BASE}/files/old.pdf`, { type: 'application/pdf', body: await pdf.save() })
+    const original = ctx.ai.complete
+    ctx.ai.complete = async () => { throw new Error('model unavailable') }
+    try {
+      await c.post('/api/library/imports', { jurisdiction: 'oman', items: [{ url: `${BASE}/files/old.pdf` }] })
+      await ctx.runImports()
+    } finally {
+      ctx.ai.complete = original
+    }
+    const item = (await c.get('/api/library/imports')).data.items[0]
+    expect(item.status).toBe('failed')
+    expect(item.detail).toMatch(/old font encoding/)
   })
 
   it('reports unreachable or empty pages clearly and keeps firms separate', async () => {

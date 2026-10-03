@@ -330,6 +330,7 @@ function importsPanel(box, { isCurrent, onFinished }) {
         <div class="flex-1 min-w-0">
           ${i.source_id ? html`<a class="truncate block hover:underline text-brand-700" dir="auto" href="#/library/${i.source_id}">${i.source_title || i.title || i.url}</a>` : html`<div class="truncate" dir="auto">${i.title || i.url}</div>`}
           ${i.detail ? html`<div class="text-xs ${i.status === 'failed' ? 'text-red-600' : 'text-slate-400'}">${i.detail}</div>` : ''}
+          ${i.status === 'failed' ? html`<a class="text-xs text-slate-400 hover:underline truncate block" dir="ltr" href="${i.url}" target="_blank" rel="noopener noreferrer">${i.url}</a>` : ''}
         </div>
         ${i.articles ? html`<span class="text-xs text-slate-400 whitespace-nowrap">${t('import.articles_n', { n: i.articles })}</span>` : ''}
       </li>`)}</ul>

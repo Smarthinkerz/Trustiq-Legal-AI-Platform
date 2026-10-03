@@ -98,16 +98,19 @@ export async function extractWithOcr(
   try {
     const batches = await pdfBatches(bytes)
     const parts: string[] = []
+    let read = 0
     if (!batches) {
       const result = await transcribePdf(opts.ai, bytes, fileName)
       await opts.onAiUsage?.(result)
       parts.push(result.text)
+      read++
     } else {
       for (const b of batches) {
         try {
           const result = await transcribePdf(opts.ai, b.bytes, `${fileName} (pages ${b.from}-${b.to})`)
           await opts.onAiUsage?.(result)
           parts.push(result.text)
+          read++
         } catch (err) {
           opts.log.warn('ocr batch failed', { err, fileName, from: b.from, to: b.to })
           parts.push(`[Pages ${b.from}–${b.to} could not be read]`)
@@ -116,8 +119,8 @@ export async function extractWithOcr(
       }
     }
     const ocrText = cleanText(parts.join('\n\n'))
-    const useful = ocrText.replace(/\s/g, '').length >= 200
-    return (garbled ? useful : ocrText.length > text.length) ? { text: ocrText, ocr: true } : { text, ocr: false }
+    const useful = read > 0 && ocrText.replace(/\s/g, '').length >= 200
+    return read > 0 && (garbled ? useful : ocrText.length > text.length) ? { text: ocrText, ocr: true } : { text, ocr: false }
   } catch (err) {
     // OCR is best-effort; the upload still succeeds with whatever text was found.
     opts.log.warn('ocr failed', { err, fileName })
