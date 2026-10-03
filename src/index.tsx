@@ -37,7 +37,7 @@ async function main() {
   })
 
   const server = serve({ fetch: app.fetch, port: config.port, hostname: '0.0.0.0' }, (info) => {
-    log.info('TrustiqLegal listening', { port: info.port, env: config.env, db: db.kind })
+    log.info('TrustiqLegal listening', { port: info.port, env: config.env, db: db.kind, node: process.version })
   })
 
   // Periodic cleanup of expired sessions and tokens.
