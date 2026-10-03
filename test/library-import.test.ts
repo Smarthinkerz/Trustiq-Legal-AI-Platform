@@ -1,5 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest'
-import { allowedUrl, DEFAULT_IMPORT_DOMAINS, describeFailure, failureCode, guessMeta, htmlToText, pageUrls } from '../src/services/library-import'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { allowedUrl, DEFAULT_IMPORT_DOMAINS, describeFailure, failureCode, guessMeta, htmlToText, pageUrls, parseCertificates } from '../src/services/library-import'
 import { registered, setup } from './helpers'
 
 let ctx: Awaited<ReturnType<typeof setup>>
@@ -66,6 +68,22 @@ describe('connection failures', () => {
     const item = (await c.get('/api/library/imports')).data.items.find((i: any) => i.url === url)
     expect(item.status).toBe('failed')
     expect(item.detail).toMatch(/refused or dropped the connection.*ECONNRESET/)
+  })
+})
+
+describe('certificate files', () => {
+  const cert = (f: string) => new Uint8Array(readFileSync(join(__dirname, 'fixtures/certs', f)))
+  it('reads issuer certificates published as PEM, DER or PKCS#7 bundles', () => {
+    const pem = parseCertificates(cert('int.pem'))
+    const der = parseCertificates(cert('int.der'))
+    const p7c = parseCertificates(cert('bundle.p7c'))
+    expect(pem.map((c) => c.subject)).toEqual(['CN=Test Intermediate CA'])
+    expect(der.map((c) => c.subject)).toEqual(['CN=Test Intermediate CA'])
+    expect(p7c.map((c) => c.subject).sort()).toEqual(['CN=Test Intermediate CA', 'CN=Test Root CA'])
+    const [root] = parseCertificates(cert('root.pem'))
+    expect(der[0]!.checkIssued(root!)).toBe(true)
+    expect(der[0]!.infoAccess).toContain('CA Issuers - URI:http://pki.example.gov.om/root.crt')
+    expect(parseCertificates(new TextEncoder().encode('not a certificate'))).toEqual([])
   })
 })
 

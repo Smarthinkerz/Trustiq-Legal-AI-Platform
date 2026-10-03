@@ -98,8 +98,10 @@ async function assertPublicHost(host: string) {
 
 // Some government sites send an incomplete certificate chain. Browsers repair this by downloading the
 // missing intermediate certificate named in the site's certificate ("AIA"); we do the same, then verify
-// the connection fully against the system's trusted roots. Verification is never switched off.
-const repairedAgents = new Map<string, Agent | null>()
+// the connection fully against trusted roots. Verification is never switched off. Operators can also
+// trust extra CA certificates for imports only (LIBRARY_IMPORT_EXTRA_CA), e.g. a national PKI root.
+type Repair = { agent: Agent | null; note: string }
+const repairs = new Map<string, Repair>()
 
 async function peerCertificate(host: string): Promise<X509Certificate> {
   return new Promise((resolve, reject) => {
@@ -114,57 +116,119 @@ async function peerCertificate(host: string): Promise<X509Certificate> {
   })
 }
 
-async function downloadIssuer(cert: X509Certificate): Promise<X509Certificate | null> {
+const subjectCN = (c: X509Certificate) => c.subject.match(/CN=([^\n]+)/)?.[1]?.trim() ?? c.subject.split('\n')[0] ?? 'unknown'
+const issuerCN = (c: X509Certificate) => c.issuer.match(/CN=([^\n]+)/)?.[1]?.trim() ?? c.issuer.split('\n')[0] ?? 'unknown'
+
+// Parses a certificate file in any common format: PEM, DER, or a PKCS#7 bundle (.p7c/.p7b).
+export function parseCertificates(bytes: Uint8Array): X509Certificate[] {
+  const text = new TextDecoder('latin1').decode(bytes)
+  if (text.includes('-----BEGIN CERTIFICATE-----')) {
+    return [...text.matchAll(/-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/g)].flatMap((m) => {
+      try { return [new X509Certificate(m[0])] } catch { return [] }
+    })
+  }
+  try { return [new X509Certificate(Buffer.from(bytes))] } catch { /* not a single DER certificate */ }
+  // PKCS#7 holds certificates as embedded DER SEQUENCEs; find each one that parses.
+  const out: X509Certificate[] = []
+  for (let i = 0; i + 4 < bytes.length; i++) {
+    if (bytes[i] !== 0x30 || bytes[i + 1] !== 0x82) continue
+    const len = (bytes[i + 2]! << 8) | bytes[i + 3]!
+    if (len < 200 || i + 4 + len > bytes.length) continue
+    try {
+      const cert = new X509Certificate(Buffer.from(bytes.subarray(i, i + 4 + len)))
+      out.push(cert)
+      i += 3 + len
+    } catch { /* not a certificate at this offset */ }
+  }
+  return out
+}
+
+async function downloadIssuer(cert: X509Certificate): Promise<{ issuer: X509Certificate | null; note: string }> {
   const uri = cert.infoAccess?.match(/CA Issuers - URI:(\S+)/)?.[1]
-  if (!uri || !/^https?:\/\//i.test(uri)) return null
-  await assertPublicHost(new URL(uri).hostname)
-  const res = await fetch(uri, { signal: AbortSignal.timeout(15_000), redirect: 'follow' })
-  if (!res.ok) return null
-  const bytes = Buffer.from(await readCapped(res as any, 64 * 1024))
-  const issuer = new X509Certificate(bytes)
-  return issuer.ca && cert.checkIssued(issuer) ? issuer : null
-}
-
-async function repairedAgent(host: string): Promise<Agent | null> {
-  if (repairedAgents.has(host)) return repairedAgents.get(host)!
-  let agent: Agent | null = null
+  if (!uri || !/^https?:\/\//i.test(uri)) return { issuer: null, note: `certificate issued by "${issuerCN(cert)}" names no download address for its issuer` }
   try {
-    const chain: string[] = []
-    let cert = await peerCertificate(host)
-    for (let i = 0; i < 3; i++) {
-      const issuer = await downloadIssuer(cert)
-      if (!issuer) break
-      chain.push(issuer.toString())
-      if (issuer.checkIssued(issuer)) break // Reached a self-signed root.
-      cert = issuer
-    }
-    if (chain.length) agent = new Agent({ connect: { ca: [...tls.rootCertificates, ...chain] } })
-  } catch { agent = null }
-  repairedAgents.set(host, agent)
-  return agent
-}
-
-// Default fetcher: refuses hosts that resolve to private or internal addresses.
-export const safeWebFetch: WebFetcher = async (url, init) => {
-  const host = new URL(url).hostname
-  await assertPublicHost(host)
-  try {
-    return await fetch(url, { ...init, redirect: 'manual' })
+    await assertPublicHost(new URL(uri).hostname)
+    const res = await fetch(uri, { signal: AbortSignal.timeout(15_000), redirect: 'follow' })
+    if (!res.ok) return { issuer: null, note: `issuer download from ${uri} returned HTTP ${res.status}` }
+    const certs = parseCertificates(await readCapped(res as any, 256 * 1024))
+    const issuer = certs.find((c) => c.ca && cert.checkIssued(c)) ?? null
+    return issuer ? { issuer, note: '' } : { issuer: null, note: `file at ${uri} did not contain the issuer "${issuerCN(cert)}" (${certs.length} certificate(s) found)` }
   } catch (err) {
-    const code = failureCode(err)
-    if (TLS_CHAIN_CODES.has(code)) {
-      const agent = await repairedAgent(host)
-      if (agent) {
-        try {
-          return (await undiciFetch(url, { ...init, redirect: 'manual', dispatcher: agent })) as unknown as Response
-        } catch (retryErr) {
-          throw new ImportError(describeFailure(failureCode(retryErr), host))
-        }
-      }
-    }
-    throw new ImportError(describeFailure(code, host))
+    return { issuer: null, note: `issuer download from ${uri} failed (${err instanceof ImportError ? err.message : failureCode(err)})` }
   }
 }
+
+async function repairChain(host: string, extraCa: string[]): Promise<Repair> {
+  const key = `${host}|${extraCa.length}`
+  if (repairs.has(key)) return repairs.get(key)!
+  let result: Repair
+  try {
+    const chain: X509Certificate[] = []
+    let cert = await peerCertificate(host)
+    let note = ''
+    for (let i = 0; i < 4; i++) {
+      if (cert.checkIssued(cert)) break // Reached a self-signed root.
+      const step = await downloadIssuer(cert)
+      if (!step.issuer) { note = step.note; break }
+      chain.push(step.issuer)
+      cert = step.issuer
+    }
+    if (!chain.length) result = { agent: null, note: note || 'no intermediate certificate could be found' }
+    else {
+      const top = chain[chain.length - 1]!
+      result = {
+        agent: new Agent({ connect: { ca: [...tls.rootCertificates, ...extraCa, ...chain.map((c) => c.toString())] } }),
+        note: `downloaded ${chain.map(subjectCN).join(' → ')}; top issuer "${issuerCN(top)}"${note ? `; ${note}` : ''}`
+      }
+    }
+  } catch (err) {
+    result = { agent: null, note: `could not read the site's certificate (${failureCode(err)})` }
+  }
+  // Keep successful repairs; retry failed ones next time (the cause may be temporary).
+  if (result.agent) repairs.set(key, result)
+  return result
+}
+
+const extraCaCache = new Map<string, string[]>()
+function extraCaList(pem: string): string[] {
+  if (!pem) return []
+  if (!extraCaCache.has(pem)) extraCaCache.set(pem, parseCertificates(new TextEncoder().encode(pem.replace(/\\n/g, '\n'))).map((c) => c.toString()))
+  return extraCaCache.get(pem)!
+}
+const extraAgents = new Map<string, Agent>()
+
+// Default fetcher: refuses hosts that resolve to private or internal addresses.
+export function createSafeWebFetch(config: Pick<Config, 'libraryImportExtraCa'>): WebFetcher {
+  const extraCa = extraCaList(config.libraryImportExtraCa)
+  return async (url, init) => {
+    const host = new URL(url).hostname
+    await assertPublicHost(host)
+    const go = (dispatcher?: Agent) => dispatcher
+      ? undiciFetch(url, { ...init, redirect: 'manual', dispatcher }) as unknown as Promise<Response>
+      : fetch(url, { ...init, redirect: 'manual' })
+    let base: Agent | undefined
+    if (extraCa.length) {
+      const k = extraCa.join('')
+      if (!extraAgents.has(k)) extraAgents.set(k, new Agent({ connect: { ca: [...tls.rootCertificates, ...extraCa] } }))
+      base = extraAgents.get(k)
+    }
+    try {
+      return await go(base)
+    } catch (err) {
+      const code = failureCode(err)
+      if (!TLS_CHAIN_CODES.has(code)) throw new ImportError(describeFailure(code, host))
+      const repair = await repairChain(host, extraCa)
+      if (!repair.agent) throw new ImportError(`${describeFailure(code, host)} Repair attempt: ${repair.note}.`)
+      try {
+        return await go(repair.agent)
+      } catch (retryErr) {
+        throw new ImportError(`${describeFailure(failureCode(retryErr), host)} Repair attempt: ${repair.note} — still not trusted. An administrator can add the top issuer's certificate in LIBRARY_IMPORT_EXTRA_CA.`)
+      }
+    }
+  }
+}
+
+export const safeWebFetch = createSafeWebFetch({ libraryImportExtraCa: '' })
 
 async function readCapped(res: Response, max: number): Promise<Uint8Array> {
   const declared = Number(res.headers.get('content-length') ?? 0)
@@ -191,7 +255,7 @@ export type Fetched = { url: string; contentType: string; bytes: Uint8Array }
 // Fetches an allowed URL, following redirects only to other allowed URLs.
 export async function fetchAllowed(deps: ImportDeps, raw: string, maxBytes: number): Promise<Fetched> {
   const domains = importDomains(deps.config)
-  const fetcher = deps.webFetch ?? safeWebFetch
+  const fetcher = deps.webFetch ?? createSafeWebFetch(deps.config)
   const start = allowedUrl(raw, domains)
   if (!start) throw new ImportError('Only links to official government legislation websites can be imported.')
   let current: URL = start
