@@ -7,7 +7,7 @@ import type { Config } from '../config'
 import type { Db } from '../db'
 import type { Logger } from '../lib/logger'
 import type { AiService } from './ai'
-import { ACCEPTED_TYPES, cleanText, detectKind, extractWithOcr, type FileKind } from './extract'
+import { ACCEPTED_TYPES, cleanText, detectKind, extractWithOcr, looksGarbled, type FileKind } from './extract'
 import { indexSource } from './library'
 import { recordAiUsage } from './usage'
 
@@ -334,8 +334,12 @@ export type FoundLink = { url: string; text: string; pdf: boolean; download?: bo
 const DOWNLOAD_TEXT = /تحميل|تنزيل|النص الكامل|ملف|download|full text|\bpdf\b/i
 const DOWNLOAD_PATH = /\/(download|downloads|storage|uploads|files?|attachments?|media|docs?)\/|[?&](download|file)=/i
 
-export function extractLinks(html: string, base: string, domains: string[]): FoundLink[] {
+export function extractLinks(html: string, pageUrl: string, domains: string[]): FoundLink[] {
   const out = new Map<string, FoundLink>()
+  // Relative links resolve against <base href> when the page sets one, as in a browser.
+  let base = pageUrl
+  const baseHref = html.match(/<base\b[^>]*href\s*=\s*["']([^"']+)["']/i)?.[1]
+  if (baseHref) { try { base = new URL(decodeEntities(baseHref.trim()), pageUrl).toString() } catch { /* keep the page address */ } }
   const add = (rawHref: string, text: string, tag: string, embedded: boolean) => {
     const href = decodeEntities(rawHref.trim())
     if (/^(mailto|tel|javascript|data):/i.test(href)) return
@@ -384,11 +388,20 @@ export function guessMeta(title: string, text: string) {
 // ---------------- Discovering law links on a listing page ----------------
 
 const NAV_WORDS = /^(home|login|log in|sign in|register|contact|about|search|privacy|terms|sitemap|faq|english|arabic|عربي|english version|الرئيسية|تسجيل|دخول|اتصل|اتصل بنا|تواصل معنا|من نحن|بحث|الخصوصية|الشروط|خريطة الموقع|next|previous|التالي|السابق|more|المزيد)$/i
+// Blog-style archive pages (categories, tags, authors, feeds) list laws; they are not laws themselves.
+const ARCHIVE_PATH = /\/(category|tag|author|feed|search|wp-admin|wp-login\.php)(\/|$)/i
 const PAGINATION = /([/?&](?:page|p)[/=])(\d{1,4})/i
 
 export function pageUrls(start: string, pages: number): string[] {
+  if (pages <= 1) return [start]
   const m = start.match(PAGINATION)
-  if (!m || pages <= 1) return [start]
+  if (!m) {
+    // The first page of a listing often has no page number (e.g. WordPress categories): later pages are …/page/2/.
+    const u = new URL(start)
+    if (u.search) return [start]
+    const dir = u.pathname.endsWith('/') ? u.pathname : `${u.pathname}/`
+    return [start, ...Array.from({ length: pages - 1 }, (_, i) => `${u.origin}${dir}page/${i + 2}${u.pathname.endsWith('/') ? '/' : ''}`)]
+  }
   const first = Number(m[2])
   return Array.from({ length: pages }, (_, i) => start.replace(PAGINATION, `${m[1]}${first + i}`))
 }
@@ -408,11 +421,11 @@ export async function discoverLinks(deps: ImportDeps, startUrl: string, pages: n
     pagesRead++
     if (!page.contentType.includes('html')) continue
     // Menus, headers and footers hold site navigation, not laws.
-    const html = decodeHtml(page.bytes, page.contentType).replace(/<(nav|header|footer)\b[\s\S]*?<\/\1>/gi, '')
+    const html = decodeHtml(page.bytes, page.contentType).replace(/<(nav|header|footer|aside)\b[\s\S]*?<\/\1>/gi, '')
     let added = 0
     for (const link of extractLinks(html, page.url, domains)) {
       if (scanned.has(link.url) || PAGINATION.test(new URL(link.url).pathname + new URL(link.url).search) && sameListing(link.url, startUrl)) continue
-      if (!link.pdf && (link.text.length < 6 || NAV_WORDS.test(link.text))) continue
+      if (!link.pdf && (link.text.length < 6 || NAV_WORDS.test(link.text) || ARCHIVE_PATH.test(new URL(link.url).pathname))) continue
       if (!found.has(link.url)) { found.set(link.url, link); added++ }
     }
     // A page with nothing new means we have passed the end of the list.
@@ -428,6 +441,14 @@ const sameListing = (a: string, b: string) => a.replace(PAGINATION, '$1') === b.
 type ImportRow = {
   id: string; org_id: string; scope: 'org' | 'platform'; created_by: string | null; url: string; title: string | null
   jurisdiction: string; kind: string | null; language: string | null; status_hint: string | null
+}
+
+// Government sites publish the official text; other portals (e.g. qanoon.om) are convenience copies.
+function importNote(url: string, ocr: boolean): string {
+  const host = new URL(url).hostname.replace(/^www\./, '')
+  const official = /(^|\.)gov\.[a-z]{2}$/i.test(host)
+  const from = official ? 'Imported automatically from the official source.' : `Imported automatically from ${host} (not an official source; check against the Official Gazette).`
+  return ocr ? `${from} Text read from a scan (OCR) – please spot-check.` : from
 }
 
 async function processImport(deps: ImportDeps, row: ImportRow): Promise<{ status: 'done' | 'skipped'; sourceId: string | null; detail: string | null }> {
@@ -497,6 +518,11 @@ async function processImport(deps: ImportDeps, row: ImportRow): Promise<{ status
     }
   }
   text = cleanText(text).slice(0, MAX_TEXT)
+  if (looksGarbled(text)) {
+    throw new ImportError(ai.configured
+      ? 'The PDF uses an old font encoding and the AI could not read it. Try again later.'
+      : 'The PDF uses an old font encoding; set OPENAI_API_KEY so it can be read with OCR.')
+  }
   if (text.replace(/\s/g, '').length < 100) throw new ImportError('No law text was found at this link. Try the link to the law itself or its PDF.')
   title = (title || new URL(row.url).pathname.split('/').filter(Boolean).pop() || 'Imported law').replace(/\s+/g, ' ').trim().slice(0, 400)
   const meta = guessMeta(title, text)
@@ -506,7 +532,7 @@ async function processImport(deps: ImportDeps, row: ImportRow): Promise<{ status
       `INSERT INTO library_sources (org_id, jurisdiction, kind, title, number, year, status, language, source_url, notes, file_name, mime_type, file_data, created_by)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id`,
       [ownerOrg, row.jurisdiction, row.kind || meta.kind, title, meta.number, meta.year, row.status_hint || 'in_force', row.language || meta.language,
-       row.url, ocr ? 'Imported automatically; text read from a scan (OCR) – please spot-check.' : 'Imported automatically from the official source.',
+       row.url, importNote(row.url, ocr),
        file?.name ?? null, file?.mime ?? null, file ? Buffer.from(file.bytes) : null, row.created_by])
     await indexSource(q, src!.id, ownerOrg, text)
     return src!.id as string
