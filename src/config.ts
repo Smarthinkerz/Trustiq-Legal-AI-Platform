@@ -38,6 +38,8 @@ const envSchema = z.object({
   WEBHOOK_AUDIT_RETENTION_DAYS: z.coerce.number().int().positive().default(90),
   // VAT added to self-serve subscription charges (set to 5 once your company is VAT-registered in Oman).
   PLATFORM_VAT_PERCENT: z.coerce.number().min(0).max(100).default(0),
+  // Extra domains (comma-separated) the law-library importer may fetch from, beyond the built-in GCC government sites.
+  LIBRARY_IMPORT_DOMAINS: z.string().default(''),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info')
 })
 
@@ -59,6 +61,7 @@ export type Config = {
   maxUploadBytes: number
   tap: { secretKey?: string; webhookSecret?: string; apiUrl: string; toleranceMs: number; auditRetentionDays: number }
   platformVatPercent: number
+  libraryImportDomains: string[]
   logLevel: 'debug' | 'info' | 'warn' | 'error'
 }
 
@@ -104,6 +107,7 @@ export function loadConfig(source: Record<string, string | undefined> = process.
       auditRetentionDays: e.WEBHOOK_AUDIT_RETENTION_DAYS
     },
     platformVatPercent: e.PLATFORM_VAT_PERCENT,
+    libraryImportDomains: e.LIBRARY_IMPORT_DOMAINS.split(',').map((d) => d.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/^\*\./, '')).filter(Boolean),
     logLevel: e.LOG_LEVEL
   }
 }

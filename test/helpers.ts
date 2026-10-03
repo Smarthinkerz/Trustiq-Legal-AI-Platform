@@ -6,6 +6,22 @@ import type { Mail, Mailer } from '../src/lib/mailer'
 import { RateLimiter } from '../src/lib/rate-limit'
 import type { AiService, ChatMessage } from '../src/services/ai'
 import type { TapCharge, TapClient } from '../src/services/tap'
+import { runLibraryImports, type WebFetcher } from '../src/services/library-import'
+
+// A fake web for the law-library importer: register URL -> response, everything else 404s.
+export function fakeWeb() {
+  const pages = new Map<string, { status?: number; type?: string; body?: string | Uint8Array; location?: string }>()
+  const requested: string[] = []
+  const fetch: WebFetcher = async (url) => {
+    requested.push(url)
+    const p = pages.get(url)
+    if (!p) return new Response('not found', { status: 404 })
+    const headers: Record<string, string> = { 'content-type': p.type ?? 'text/html; charset=utf-8' }
+    if (p.location) headers.location = p.location
+    return new Response(p.body as any ?? '', { status: p.status ?? 200, headers })
+  }
+  return { pages, requested, fetch }
+}
 
 export type FakeAi = AiService & { calls: ChatMessage[][]; nextReply: string | null }
 
@@ -64,12 +80,14 @@ export async function setup(env: Record<string, string> = {}) {
   const mailer: Mailer = { configured: true, async send(m) { mails.push(m) } }
   const ai = fakeAi()
   const tap = fakeTap()
+  const web = fakeWeb()
+  const log = createLogger('error', true)
   const app = createApp({
-    config, db, ai, mailer, tap,
-    log: createLogger('error', true),
+    config, db, ai, mailer, tap, webFetch: web.fetch,
+    log,
     limiters: { auth: new RateLimiter(1000, 60_000), api: new RateLimiter(10_000, 60_000), ai: new RateLimiter(1000, 60_000), webhook: new RateLimiter(1000, 60_000), apiKey: new RateLimiter(1000, 60_000) }
   })
-  return { app, db, ai, mails, config, tap }
+  return { app, db, ai, mails, config, tap, web, runImports: () => runLibraryImports({ db, config, ai, log, webFetch: web.fetch }) }
 }
 
 type App = Awaited<ReturnType<typeof setup>>['app']

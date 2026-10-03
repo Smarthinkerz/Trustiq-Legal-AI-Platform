@@ -4,7 +4,7 @@ Bilingual (English/Arabic), AI-assisted practice-management platform for law fir
 
 - **Matters & clients**: automatic case references, status and priority, responsible lawyer, notes timeline, conflict-of-interest check when adding clients, global search
 - **Documents**: PDF/DOCX/TXT upload with text extraction and **Arabic OCR** for scanned PDFs, editor with version history and restore, branded Word export (RTL-aware), firm **templates** with merge fields
-- **GCC law library**: upload laws, royal decrees and judgments (file or pasted text); split into articles and indexed for Arabic and English full-text search; firm-private or platform-shared
+- **GCC law library**: upload laws, royal decrees and judgments (file or pasted text), or **import from links** — paste many law URLs, or point it at a list page (e.g. mjla.gov.om) and it finds the laws across pages and imports them in the background, preferring the official PDF; only government legislation sites are fetched (`LIBRARY_IMPORT_DOMAINS` adds more); split into articles and indexed for Arabic and English full-text search; firm-private or platform-shared
 - **AI** (OpenAI-compatible): research chat grounded in the law library with **article-level citations** ([S1]…), optional "library only" mode; drafting of 12 GCC document types; structured contract review with risk scoring
 - **Tasks & checklists**: personal and matter tasks, bilingual checklists (litigation, arbitration, employment, corporate, real estate, commercial, family)
 - **Time & billing**: time entries and expenses, per-lawyer rates, invoices with jurisdiction VAT (OM/UAE 5%, KSA 15%, BH 10%) and 3-decimal currencies, numbering, payments, bilingual tax-invoice Word export
