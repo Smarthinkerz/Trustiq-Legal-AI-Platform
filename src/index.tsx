@@ -8,6 +8,7 @@ import { RateLimiter } from './lib/rate-limit'
 import { createAiService } from './services/ai'
 import { runDailyDigest, runRenewalReminders } from './services/jobs'
 import { createTapClient } from './services/tap'
+import { runLibraryImports } from './services/library-import'
 
 async function main() {
   const config = loadConfig()
@@ -18,12 +19,13 @@ async function main() {
   if (!config.smtp) log.warn('SMTP is not configured; invitation and password-reset emails will not be delivered')
 
   const mailer = createMailer(config, log)
+  const ai = createAiService(config, log)
   const app = createApp({
     config,
     db,
     log,
     mailer,
-    ai: createAiService(config, log),
+    ai,
     tap: createTapClient(config, log),
     limiters: {
       auth: new RateLimiter(20, 15 * 60_000),
@@ -55,10 +57,22 @@ async function main() {
   }, 15 * 60_000)
   jobs.unref()
 
+  // Law-library imports run in the background, one document at a time.
+  let importing = false
+  const importer = setInterval(() => {
+    if (importing) return
+    importing = true
+    runLibraryImports({ db, config, ai, log }, { max: 20 })
+      .catch((err) => log.error('library import worker failed', { err }))
+      .finally(() => { importing = false })
+  }, 5_000)
+  importer.unref()
+
   const shutdown = (signal: string) => {
     log.info('shutting down', { signal })
     clearInterval(sweeper)
     clearInterval(jobs)
+    clearInterval(importer)
     server.close(async () => {
       await db.close().catch(() => {})
       process.exit(0)

@@ -65,6 +65,7 @@ describe('translations', () => {
       payment_status: ['initiated', 'paid', 'failed', 'cancelled'],
       ai_feature: ['chat', 'draft', 'analysis', 'ocr'],
       'billing.tab': ['invoices', 'time', 'expenses', 'settings'],
+      'import.status': ['queued', 'running', 'done', 'skipped', 'failed'],
       event: ['hearing', 'deadline', 'filing', 'meeting', 'reminder'],
       plan: ['trial', 'starter', 'professional', 'enterprise'],
       'analysis.type': ['summary', 'risk', 'compliance', 'review'],

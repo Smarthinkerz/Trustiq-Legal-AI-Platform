@@ -8,6 +8,7 @@ import { ACCEPTED_TYPES, cleanText, detectKind, extractWithOcr } from '../servic
 import { citationLabel, indexSource, searchLibrary } from '../services/library'
 import { contentDisposition } from '../services/export'
 import { recordAiUsage } from '../services/usage'
+import { allowedUrl, discoverLinks, ImportError, importDomains } from '../services/library-import'
 
 export const LIBRARY_KINDS = ['law', 'royal_decree', 'regulation', 'ministerial_decision', 'judgment', 'circular', 'treaty', 'other'] as const
 const STATUSES = ['in_force', 'amended', 'repealed'] as const
@@ -186,6 +187,112 @@ libraryRoutes.delete('/sources/:id', async (c) => {
   await db.query('DELETE FROM library_sources WHERE id = $1', [id])
   await audit(c, 'library.source_deleted', 'library_source', id, { title: src.title })
   return c.json({ ok: true })
+})
+
+// ---------------- Import from official websites ----------------
+
+const MAX_QUEUED_PER_ORG = 2000
+
+function assertCanImport(c: Ctx, scope: 'org' | 'platform') {
+  if (scope === 'platform') {
+    if (!isPlatformAdmin(c)) throw forbidden('Only platform administrators can add to the shared library.')
+  } else requireRole(c, 'owner', 'admin', 'lawyer')
+}
+
+libraryRoutes.post('/imports/discover', jsonBody(z.object({
+  url: z.string().trim().min(8).max(2000),
+  pages: z.number().int().min(1).max(50).default(1)
+})), async (c) => {
+  requireRole(c, 'owner', 'admin', 'lawyer')
+  const { url, pages } = c.req.valid('json')
+  const deps = c.get('deps')
+  if (!allowedUrl(url, importDomains(deps.config))) throw badRequest('Only links to official government legislation websites can be used.')
+  try {
+    const result = await discoverLinks(deps, url, pages)
+    return c.json(result)
+  } catch (err) {
+    if (err instanceof ImportError) throw badRequest(err.message)
+    throw err
+  }
+})
+
+libraryRoutes.post('/imports', jsonBody(z.object({
+  items: z.array(z.object({ url: z.string().trim().min(8).max(2000), title: z.string().trim().max(400).nullish() })).min(1).max(500),
+  jurisdiction: z.enum(JURISDICTION_CODES),
+  kind: z.enum(LIBRARY_KINDS).nullish(),
+  language: z.enum(['en', 'ar']).nullish(),
+  status: z.enum(STATUSES).nullish(),
+  scope: z.enum(['org', 'platform']).default('org')
+})), async (c) => {
+  const b = c.req.valid('json')
+  assertCanImport(c, b.scope)
+  const { user, org } = auth(c)
+  const { db, config } = c.get('deps')
+  const domains = importDomains(config)
+  const [{ n }] = await db.query(`SELECT count(*)::int AS n FROM library_imports WHERE org_id = $1 AND status IN ('queued', 'running')`, [org.id])
+  if (n + b.items.length > MAX_QUEUED_PER_ORG) throw badRequest(`At most ${MAX_QUEUED_PER_ORG} imports can be waiting at once. Wait for the current ones to finish.`)
+  const skipped: { url: string; reason: string }[] = []
+  const seen = new Set<string>()
+  let queued = 0
+  for (const item of b.items) {
+    const url = allowedUrl(item.url, domains)
+    if (!url) { skipped.push({ url: item.url, reason: 'not_allowed' }); continue }
+    const key = url.toString()
+    if (seen.has(key)) continue
+    seen.add(key)
+    const pending = await db.one(`SELECT 1 FROM library_imports WHERE org_id = $1 AND url = $2 AND scope = $3 AND status IN ('queued', 'running')`, [org.id, key, b.scope])
+    if (pending) { skipped.push({ url: key, reason: 'already_queued' }); continue }
+    await db.query(
+      `INSERT INTO library_imports (org_id, scope, created_by, url, title, jurisdiction, kind, language, status_hint) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [org.id, b.scope, user.id, key, item.title || null, b.jurisdiction, b.kind ?? null, b.language ?? null, b.status ?? null])
+    queued++
+  }
+  await audit(c, 'library.import_queued', 'library_import', undefined, { queued, skipped: skipped.length, scope: b.scope, jurisdiction: b.jurisdiction })
+  return c.json({ queued, skipped }, 201)
+})
+
+libraryRoutes.get('/imports', async (c) => {
+  const { org } = auth(c)
+  const { db } = c.get('deps')
+  const [items, [summary]] = await Promise.all([
+    db.query(
+      `SELECT i.id, i.url, i.title, i.scope, i.jurisdiction, i.status, i.detail, i.source_id, i.created_at, i.finished_at, s.title AS source_title, s.articles
+         FROM library_imports i LEFT JOIN library_sources s ON s.id = i.source_id
+        WHERE i.org_id = $1 ORDER BY (i.status IN ('queued', 'running')) DESC, i.created_at DESC LIMIT 300`, [org.id]),
+    db.query(
+      `SELECT count(*) FILTER (WHERE status = 'queued')::int AS queued, count(*) FILTER (WHERE status = 'running')::int AS running,
+              count(*) FILTER (WHERE status = 'done')::int AS done, count(*) FILTER (WHERE status = 'skipped')::int AS skipped,
+              count(*) FILTER (WHERE status = 'failed')::int AS failed
+         FROM library_imports WHERE org_id = $1`, [org.id])
+  ])
+  return c.json({ items, summary })
+})
+
+libraryRoutes.post('/imports/:id/retry', async (c) => {
+  requireRole(c, 'owner', 'admin', 'lawyer')
+  const { org } = auth(c)
+  const rows = await c.get('deps').db.query(
+    `UPDATE library_imports SET status = 'queued', detail = NULL, attempts = 0, started_at = NULL, finished_at = NULL
+      WHERE id = $1 AND org_id = $2 AND status = 'failed' RETURNING id`, [uuidParam(c.req.param('id'), 'Import'), org.id])
+  if (!rows.length) throw notFound('Import')
+  return c.json({ ok: true })
+})
+
+libraryRoutes.post('/imports/retry-failed', async (c) => {
+  requireRole(c, 'owner', 'admin', 'lawyer')
+  const { org } = auth(c)
+  const rows = await c.get('deps').db.query(
+    `UPDATE library_imports SET status = 'queued', detail = NULL, attempts = 0, started_at = NULL, finished_at = NULL
+      WHERE org_id = $1 AND status = 'failed' RETURNING id`, [org.id])
+  return c.json({ requeued: rows.length })
+})
+
+libraryRoutes.delete('/imports', async (c) => {
+  requireRole(c, 'owner', 'admin', 'lawyer')
+  const { org } = auth(c)
+  const which = c.req.query('which') === 'queued' ? `status = 'queued'` : `status IN ('done', 'skipped', 'failed')`
+  const rows = await c.get('deps').db.query(`DELETE FROM library_imports WHERE org_id = $1 AND ${which} RETURNING id`, [org.id])
+  return c.json({ removed: rows.length })
 })
 
 export default libraryRoutes

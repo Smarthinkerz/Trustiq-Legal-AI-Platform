@@ -500,6 +500,34 @@ CREATE TABLE api_keys (
 );
 CREATE INDEX api_keys_org_idx ON api_keys (org_id, created_at DESC);
 `
+  },
+  {
+    version: 5,
+    name: 'library_imports',
+    sql: `
+CREATE TABLE library_imports (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  scope TEXT NOT NULL DEFAULT 'org' CHECK (scope IN ('org','platform')),
+  created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  url TEXT NOT NULL,
+  title TEXT,
+  jurisdiction TEXT NOT NULL,
+  kind TEXT,
+  language TEXT,
+  status_hint TEXT,
+  status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued','running','done','skipped','failed')),
+  detail TEXT,
+  source_id UUID REFERENCES library_sources(id) ON DELETE SET NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  started_at TIMESTAMPTZ,
+  finished_at TIMESTAMPTZ
+);
+CREATE INDEX library_imports_queue_idx ON library_imports (status, created_at);
+CREATE INDEX library_imports_org_idx ON library_imports (org_id, created_at DESC);
+CREATE INDEX library_sources_url_idx ON library_sources (source_url);
+`
   }
 ]
 

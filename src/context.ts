@@ -6,6 +6,7 @@ import type { Logger } from './lib/logger'
 import type { Mailer } from './lib/mailer'
 import type { AiService } from './services/ai'
 import type { TapClient } from './services/tap'
+import type { WebFetcher } from './services/library-import'
 import type { RateLimiter } from './lib/rate-limit'
 import { forbidden, unauthorized } from './lib/errors'
 
@@ -41,6 +42,8 @@ export type Deps = {
   mailer: Mailer
   ai: AiService
   tap: TapClient
+  // Overridable in tests; defaults to a fetcher that refuses private network addresses.
+  webFetch?: WebFetcher
   limiters: { auth: RateLimiter; api: RateLimiter; ai: RateLimiter; webhook: RateLimiter; apiKey: RateLimiter }
 }
 
