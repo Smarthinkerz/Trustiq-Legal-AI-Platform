@@ -5,7 +5,7 @@
   "description": "TrustiqLegal – bilingual, AI-assisted legal practice platform for GCC law firms",
   "type": "module",
   "engines": {
-    "node": ">=20.11"
+    "node": "22.x"
   },
   "scripts": {
     "build": "tailwindcss -i src/styles/app.css -o public/static/app.css --minify",
