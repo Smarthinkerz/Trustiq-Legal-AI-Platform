@@ -55,17 +55,69 @@ export function cleanText(text: string): string {
 // A PDF without a text layer is a scan: fall back to AI transcription when available.
 const looksScanned = (text: string) => text.replace(/\s/g, '').length < 200
 
+// Older Arabic PDFs (e.g. Official Gazette issues) use legacy font encodings: their text layer
+// comes out as Latin-1 symbols or replacement characters instead of Arabic letters.
+export function looksGarbled(text: string): boolean {
+  const chars = text.replace(/\s/g, '')
+  if (chars.length < 200) return false
+  const odd = chars.match(/[\u0080-\u00ff\u0192\u02c6\u02dc\u2013-\u203a\u2122\ufffd]/g)?.length ?? 0
+  return odd / chars.length > 0.08
+}
+
+const OCR_PAGES_PER_CALL = 8
+const MAX_OCR_PAGES = 400
+
+// Splits a PDF into small page batches so long laws are transcribed in full.
+async function pdfBatches(bytes: Uint8Array): Promise<{ from: number; to: number; bytes: Uint8Array }[] | null> {
+  try {
+    const { PDFDocument } = await import('pdf-lib')
+    const src = await PDFDocument.load(bytes, { ignoreEncryption: true })
+    const total = Math.min(src.getPageCount(), MAX_OCR_PAGES)
+    if (total <= OCR_PAGES_PER_CALL) return null
+    const out: { from: number; to: number; bytes: Uint8Array }[] = []
+    for (let from = 0; from < total; from += OCR_PAGES_PER_CALL) {
+      const to = Math.min(from + OCR_PAGES_PER_CALL, total)
+      const part = await PDFDocument.create()
+      const pages = await part.copyPages(src, Array.from({ length: to - from }, (_, i) => from + i))
+      for (const pg of pages) part.addPage(pg)
+      out.push({ from: from + 1, to, bytes: await part.save() })
+    }
+    return out
+  } catch {
+    return null
+  }
+}
+
 export async function extractWithOcr(
-  opts: { ai: AiService; log: Logger; onAiUsage?: (c: Completion) => Promise<void> },
+  opts: { ai: AiService; log: Logger; onAiUsage?: (c: Completion) => Promise<void>; onProgress?: () => Promise<void> },
   bytes: Uint8Array, kind: FileKind, fileName: string
 ): Promise<{ text: string; ocr: boolean }> {
   const text = cleanText(await extractText(bytes, kind))
-  if (kind !== 'pdf' || !looksScanned(text) || !opts.ai.configured) return { text, ocr: false }
+  const garbled = kind === 'pdf' && looksGarbled(text)
+  if (kind !== 'pdf' || !(looksScanned(text) || garbled) || !opts.ai.configured) return { text, ocr: false }
   try {
-    const result = await transcribePdf(opts.ai, bytes, fileName)
-    await opts.onAiUsage?.(result)
-    const ocrText = cleanText(result.text)
-    return ocrText.length > text.length ? { text: ocrText, ocr: true } : { text, ocr: false }
+    const batches = await pdfBatches(bytes)
+    const parts: string[] = []
+    if (!batches) {
+      const result = await transcribePdf(opts.ai, bytes, fileName)
+      await opts.onAiUsage?.(result)
+      parts.push(result.text)
+    } else {
+      for (const b of batches) {
+        try {
+          const result = await transcribePdf(opts.ai, b.bytes, `${fileName} (pages ${b.from}-${b.to})`)
+          await opts.onAiUsage?.(result)
+          parts.push(result.text)
+        } catch (err) {
+          opts.log.warn('ocr batch failed', { err, fileName, from: b.from, to: b.to })
+          parts.push(`[Pages ${b.from}–${b.to} could not be read]`)
+        }
+        await opts.onProgress?.()
+      }
+    }
+    const ocrText = cleanText(parts.join('\n\n'))
+    const useful = ocrText.replace(/\s/g, '').length >= 200
+    return (garbled ? useful : ocrText.length > text.length) ? { text: ocrText, ocr: true } : { text, ocr: false }
   } catch (err) {
     // OCR is best-effort; the upload still succeeds with whatever text was found.
     opts.log.warn('ocr failed', { err, fileName })

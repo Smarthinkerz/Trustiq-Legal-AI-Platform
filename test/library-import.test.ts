@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { allowedUrl, DEFAULT_IMPORT_DOMAINS, describeFailure, failureCode, guessMeta, htmlToText, pageUrls, parseCertificates } from '../src/services/library-import'
+import { looksGarbled } from '../src/services/extract'
 import { registered, setup } from './helpers'
 
 let ctx: Awaited<ReturnType<typeof setup>>
@@ -47,6 +48,13 @@ describe('law import safety', () => {
 })
 
 describe('connection failures', () => {
+  it('recognises legacy-encoded Arabic PDF text that needs OCR', () => {
+    expect(looksGarbled('á`«fƒfÉ≤dG ¿hDƒ`°ûdGh ∫ó`©dG IQGRh …QGRh QGô`b 2024/33 º``bQ 2021/53 ºbQ …QGRƒdG QGô≤dG ΩÉµMCG '.repeat(4))).toBe(true)
+    expect(looksGarbled('��ستناد� �إ¶ قانون �إلإجر�ء�ت �جلز�ئية �ل�سادر باملر�سوم �ل�سلطاÁ رقم '.repeat(5))).toBe(true)
+    expect(looksGarbled('المادة 1 تسري أحكام هذا القانون على جميع أصحاب العمل والعمال في القطاع الخاص. '.repeat(5))).toBe(false)
+    expect(looksGarbled('Article 1. This Law applies to all employers and workers in the private sector – including café staff. '.repeat(4))).toBe(false)
+  })
+
   it('explains why a site could not be reached, with the underlying code', () => {
     const wrapped = (code: string) => Object.assign(new TypeError('fetch failed'), { cause: Object.assign(new Error('x'), { code }) })
     expect(failureCode(wrapped('UND_ERR_CONNECT_TIMEOUT'))).toBe('UND_ERR_CONNECT_TIMEOUT')
@@ -152,6 +160,57 @@ describe('import from link', () => {
     await ctx.runImports()
     expect((await c.get('/api/library/imports')).data.summary.failed).toBe(0)
     expect((await c.del('/api/library/imports')).data.removed).toBeGreaterThan(0)
+  })
+
+  it('follows a law page\'s download button to the PDF and reads garbled Gazette text with OCR, page batch by batch', async () => {
+    const { c } = await registered(ctx.app)
+    const { PDFDocument, StandardFonts } = await import('pdf-lib')
+    // A legacy-encoded Gazette PDF: its text layer is Latin-1 symbols instead of Arabic.
+    const pdf = await PDFDocument.create()
+    const font = await pdf.embedFont(StandardFonts.Helvetica)
+    for (let i = 0; i < 10; i++) pdf.addPage().drawText('á`«fƒfÉdG ¿hDƒ`°ûdGh ó`©dG IQGRh …QGRh QGô`b º``bQ ºbQ …QGRƒdG QGôdG ÉµMCG ¢†©H Ójó©àH', { x: 40, y: 700, size: 10, font })
+    const pdfBytes = await pdf.save()
+    // Like mjla.gov.om: the page has only the title, menus and a "تحميل" button without a file extension.
+    const lawUrl = `${BASE}/laws/ar/1/show/128`
+    const mjlaPage = (button: string) => `<html><body><aside><ul><li><a href="/guides/1">الدليل الاسترشادي</a></li></ul></aside>
+      <main><h5>مرسوم سلطاني رقم 29 / 2013 بإصدار قانون المعاملات المدنية</h5><span>القوانين - تاريخ النشر - عدد المشاهدات 2290 - وزارة العدل والشؤون القانونية</span>
+      ${button}</main></body></html>`
+    const item = { url: lawUrl, title: 'مرسوم سلطاني رقم 29 / 2013 بإصدار قانون المعاملات المدنية' }
+    // An earlier import (before download buttons were followed) kept only the page's title text.
+    ctx.web.pages.set(lawUrl, { body: mjlaPage('') })
+    await c.post('/api/library/imports', { jurisdiction: 'oman', items: [item] })
+    await ctx.runImports()
+    const thin = (await c.get('/api/library/imports')).data.items[0]
+    expect(thin.status).toBe('done')
+    expect((await c.get(`/api/library/sources/${thin.source_id}`)).data.chunks).toHaveLength(1)
+
+    ctx.web.pages.set(lawUrl, { body: mjlaPage('<a href="/storage/laws/abc123">تحميل مرسوم سلطاني رقم 29 / 2013 بإصدار قانون المعاملات المدنية</a>') })
+    ctx.web.pages.set(`${BASE}/storage/laws/abc123`, { type: 'application/octet-stream', body: pdfBytes })
+
+    const original = ctx.ai.complete
+    const batches: string[] = []
+    ctx.ai.complete = async ({ messages }) => {
+      const name = (messages[0]!.content as any[])[0].file.filename as string
+      batches.push(name)
+      const text = name.includes('pages 1-8')
+        ? 'المادة 1\nتسري أحكام هذا القانون على المعاملات المدنية في سلطنة عمان.\n\nالمادة 2\nالعقد شريعة المتعاقدين فلا يجوز نقضه ولا تعديله إلا باتفاق الطرفين أو للأسباب التي يقررها القانون.'
+        : 'المادة 3\nيلتزم المتعاقد بتنفيذ العقد طبقا لما اشتمل عليه وبطريقة تتفق مع ما يوجبه حسن النية.'
+      return { text, model: 'test-model', promptTokens: 10, completionTokens: 20 }
+    }
+    try {
+      await c.post('/api/library/imports', { jurisdiction: 'oman', items: [item] })
+      await ctx.runImports()
+    } finally {
+      ctx.ai.complete = original
+    }
+    expect(batches).toEqual(['abc123.pdf (pages 1-8)', 'abc123.pdf (pages 9-10)'])
+    const redone = (await c.get('/api/library/imports')).data.items.find((i: any) => i.id !== thin.id)
+    expect(redone).toMatchObject({ status: 'done', detail: 'Replaced the earlier title-only copy; Read with OCR' })
+    expect((await c.get(`/api/library/sources/${thin.source_id}`)).status).toBe(404)
+    const src = await c.get(`/api/library/sources/${redone.source_id}`)
+    expect(src.data.source).toMatchObject({ title: 'مرسوم سلطاني رقم 29 / 2013 بإصدار قانون المعاملات المدنية', number: '29/2013', file_name: 'abc123.pdf' })
+    expect(src.data.chunks.map((x: any) => x.label).filter(Boolean)).toEqual(['المادة 1', 'المادة 2', 'المادة 3'])
+    expect(JSON.stringify(src.data.chunks)).not.toContain('QGRh')
   })
 
   it('reports unreachable or empty pages clearly and keeps firms separate', async () => {
