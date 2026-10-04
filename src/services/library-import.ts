@@ -8,7 +8,7 @@ import type { Db } from '../db'
 import type { Logger } from '../lib/logger'
 import type { AiService } from './ai'
 import { ACCEPTED_TYPES, cleanText, detectKind, extractWithOcr, looksGarbled, type FileKind } from './extract'
-import { indexSource } from './library'
+import { indexSource, lawReferences } from './library'
 import { recordAiUsage } from './usage'
 
 // ---------------------------------------------------------------------------
@@ -371,9 +371,14 @@ const arabicShare = (s: string) => {
   return letters ? (letters.match(/[؀-ۿ]/g)?.length ?? 0) / letters.length : 0
 }
 
-export function guessMeta(title: string, text: string) {
-  const sample = `${title} ${text.slice(0, 1500)}`
-  const nm = title.match(/(?:رقم|No\.?|Number)?\s*\(?\s*(\d{1,4})\s*\)?\s*[/\\]\s*(\d{4})/i) ?? sample.match(/(\d{1,4})\s*[/\\]\s*((?:19|20)\d{2})/)
+const asciiDigits = (s: string) => s.replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660)).replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06f0))
+
+export function guessMeta(rawTitle: string, rawText: string) {
+  // Omani sources often write numbers in Arabic-Indic digits (٤٨ / ٢٠٠٩) and older years with two digits (32/97).
+  const title = asciiDigits(rawTitle)
+  const sample = `${title} ${asciiDigits(rawText.slice(0, 1500))}`
+  const ref = lawReferences(title)[0]
+  const nm = ref ? [ref.number, ref.number, ref.years[0]] : sample.match(/(\d{1,4})\s*[/\\]\s*((?:19|20)\d{2})/)
   const year = nm ? Number(nm[2]) : Number(sample.match(/\b(19[5-9]\d|20[0-4]\d)\b/)?.[1] ?? 0) || null
   const t = title.toLowerCase()
   const kind = /مرسوم|royal decree|sultani decree/.test(t) ? 'royal_decree'
