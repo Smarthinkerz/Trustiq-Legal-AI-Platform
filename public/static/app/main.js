@@ -18,6 +18,7 @@ import { libraryView, librarySourceView } from './views/library.js'
 import { billingView, invoiceView } from './views/billing.js'
 import { templatesView, templateEditView } from './views/templates.js'
 import { reportsView } from './views/reports.js'
+import { deadlinesView } from './views/deadlines.js'
 import { portalHomeView, portalCaseView, portalMessagesView, portalSettingsView } from './views/portal.js'
 
 const routes = [
@@ -36,6 +37,7 @@ const routes = [
   { path: '/assistant', view: assistantView, nav: 'assistant' },
   { path: '/assistant/:id', view: assistantView, nav: 'assistant' },
   { path: '/calendar', view: calendarView, nav: 'calendar' },
+  { path: '/deadlines', view: deadlinesView, nav: 'deadlines' },
   { path: '/settings', view: settingsView, nav: 'settings' },
   { path: '/admin', view: adminView, nav: 'admin' },
   { path: '/tasks', view: tasksView, nav: 'tasks' },

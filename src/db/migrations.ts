@@ -528,6 +528,23 @@ CREATE INDEX library_imports_queue_idx ON library_imports (status, created_at);
 CREATE INDEX library_imports_org_idx ON library_imports (org_id, created_at DESC);
 CREATE INDEX library_sources_url_idx ON library_sources (source_url);
 `
+  },
+  {
+    version: 6,
+    name: 'org_holidays',
+    sql: `
+CREATE TABLE org_holidays (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  date DATE NOT NULL,
+  name TEXT NOT NULL,
+  jurisdiction TEXT,
+  created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX org_holidays_unique_idx ON org_holidays (org_id, date, coalesce(jurisdiction, ''));
+CREATE INDEX org_holidays_org_idx ON org_holidays (org_id, date);
+`
   }
 ]
 

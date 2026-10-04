@@ -11,6 +11,7 @@ const NAV = [
   ['clients', 'fa-address-book', '/clients'],
   ['tasks', 'fa-list-check', '/tasks'],
   ['calendar', 'fa-calendar-days', '/calendar'],
+  ['deadlines', 'fa-hourglass-half', '/deadlines'],
   ['documents', 'fa-file-lines', '/documents'],
   ['templates', 'fa-file-signature', '/templates'],
   ['assistant', 'fa-wand-magic-sparkles', '/assistant'],
