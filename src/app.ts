@@ -16,6 +16,7 @@ import clientsRoutes from './routes/clients'
 import casesRoutes from './routes/cases'
 import documentsRoutes from './routes/documents'
 import eventsRoutes from './routes/events'
+import deadlinesRoutes from './routes/deadlines'
 import aiRoutes from './routes/ai'
 import dashboardRoutes from './routes/dashboard'
 import referenceRoutes from './routes/api'
@@ -142,7 +143,8 @@ export function createApp(deps: Deps) {
     ['/api/dashboard', dashboardRoutes], ['/api/clients', clientsRoutes], ['/api/cases', casesRoutes],
     ['/api/documents', documentsRoutes], ['/api/events', eventsRoutes], ['/api/ai', aiRoutes],
     ['/api/library', libraryRoutes], ['/api/billing', billingRoutes], ['/api/reports', reportsRoutes],
-    ['/api/tasks', tasksRoutes], ['/api/workspace', workspaceRoutes], ['/api/portal', portalRoutes]
+    ['/api/tasks', tasksRoutes], ['/api/workspace', workspaceRoutes], ['/api/portal', portalRoutes],
+    ['/api/deadlines', deadlinesRoutes]
   ] as const) {
     app.use(`${path}/*`, requireActiveSubscription)
     app.use(path, requireActiveSubscription)

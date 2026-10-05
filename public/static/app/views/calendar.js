@@ -14,8 +14,8 @@ const localDate = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.ge
 const localTime = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}`
 const isOverdue = (e) => !e.completed_at && ['deadline', 'filing'].includes(e.kind) && new Date(e.starts_at) < new Date()
 
-export function openEventForm({ event, date, caseId, caseLabel, onSaved } = {}) {
-  const e = event || {}
+export function openEventForm({ event, date, caseId, caseLabel, defaults, onSaved } = {}) {
+  const e = event || { ...defaults }
   const start = e.starts_at ? new Date(e.starts_at) : date ? new Date(`${date}T09:00`) : new Date(Math.ceil(Date.now() / 3600000) * 3600000)
   const end = e.ends_at ? new Date(e.ends_at) : null
   const m = modal({

@@ -38,6 +38,18 @@ export function fmtDate(v) {
   return new Intl.DateTimeFormat(locale(), { day: 'numeric', month: 'short', year: 'numeric' }).format(d)
 }
 
+// A 'YYYY-MM-DD' date in the Hijri (Umm al-Qura) calendar.
+export function fmtHijri(v) {
+  if (!v) return ''
+  return new Intl.DateTimeFormat(`${lang === 'ar' ? 'ar' : 'en'}-u-ca-islamic-umalqura-nu-latn`, { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(v + 'T00:00:00Z'))
+}
+
+// A 'YYYY-MM-DD' date with its weekday, e.g. "Tuesday, 3 November 2026".
+export function fmtDateLong(v) {
+  if (!v) return ''
+  return new Intl.DateTimeFormat(locale(), { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(v + 'T00:00:00Z'))
+}
+
 export function fmtDateTime(v) {
   if (!v) return ''
   return new Intl.DateTimeFormat(locale(), { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(v))
@@ -51,9 +63,9 @@ export function fmtMonth(d) {
   return new Intl.DateTimeFormat(locale(), { month: 'long', year: 'numeric' }).format(d)
 }
 
-export function weekdayNames() {
+export function weekdayNames(style = 'short') {
   const base = new Date(2024, 0, 7) // a Sunday
-  return Array.from({ length: 7 }, (_, i) => new Intl.DateTimeFormat(locale(), { weekday: 'short' }).format(new Date(base.getTime() + i * 86400000)))
+  return Array.from({ length: 7 }, (_, i) => new Intl.DateTimeFormat(locale(), { weekday: style }).format(new Date(base.getTime() + i * 86400000)))
 }
 
 export function fmtNumber(n) {
