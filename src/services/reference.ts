@@ -1,14 +1,23 @@
+// region: 'gcc' members share GCC-wide instruments (retrieved alongside local law); 'mena' are the wider Arab jurisdictions.
 export const JURISDICTIONS = [
-  { code: 'oman', name: 'Sultanate of Oman', name_ar: 'سلطنة عُمان', currency: 'OMR' },
-  { code: 'uae', name: 'United Arab Emirates', name_ar: 'الإمارات العربية المتحدة', currency: 'AED' },
-  { code: 'ksa', name: 'Kingdom of Saudi Arabia', name_ar: 'المملكة العربية السعودية', currency: 'SAR' },
-  { code: 'qatar', name: 'State of Qatar', name_ar: 'دولة قطر', currency: 'QAR' },
-  { code: 'kuwait', name: 'State of Kuwait', name_ar: 'دولة الكويت', currency: 'KWD' },
-  { code: 'bahrain', name: 'Kingdom of Bahrain', name_ar: 'مملكة البحرين', currency: 'BHD' },
-  { code: 'difc', name: 'DIFC (Dubai International Financial Centre)', name_ar: 'مركز دبي المالي العالمي', currency: 'USD' },
-  { code: 'adgm', name: 'ADGM (Abu Dhabi Global Market)', name_ar: 'سوق أبوظبي العالمي', currency: 'USD' },
-  { code: 'gcc', name: 'GCC (multi-jurisdiction)', name_ar: 'دول مجلس التعاون الخليجي', currency: 'USD' },
-  { code: 'international', name: 'International', name_ar: 'دولي', currency: 'USD' }
+  { code: 'oman', name: 'Sultanate of Oman', name_ar: 'سلطنة عُمان', currency: 'OMR', region: 'gcc' },
+  { code: 'uae', name: 'United Arab Emirates', name_ar: 'الإمارات العربية المتحدة', currency: 'AED', region: 'gcc' },
+  { code: 'ksa', name: 'Kingdom of Saudi Arabia', name_ar: 'المملكة العربية السعودية', currency: 'SAR', region: 'gcc' },
+  { code: 'qatar', name: 'State of Qatar', name_ar: 'دولة قطر', currency: 'QAR', region: 'gcc' },
+  { code: 'kuwait', name: 'State of Kuwait', name_ar: 'دولة الكويت', currency: 'KWD', region: 'gcc' },
+  { code: 'bahrain', name: 'Kingdom of Bahrain', name_ar: 'مملكة البحرين', currency: 'BHD', region: 'gcc' },
+  { code: 'difc', name: 'DIFC (Dubai International Financial Centre)', name_ar: 'مركز دبي المالي العالمي', currency: 'USD', region: 'gcc' },
+  { code: 'adgm', name: 'ADGM (Abu Dhabi Global Market)', name_ar: 'سوق أبوظبي العالمي', currency: 'USD', region: 'gcc' },
+  { code: 'gcc', name: 'GCC (multi-jurisdiction)', name_ar: 'دول مجلس التعاون الخليجي', currency: 'USD', region: 'gcc' },
+  { code: 'egypt', name: 'Arab Republic of Egypt', name_ar: 'جمهورية مصر العربية', currency: 'EGP', region: 'mena' },
+  { code: 'jordan', name: 'Hashemite Kingdom of Jordan', name_ar: 'المملكة الأردنية الهاشمية', currency: 'JOD', region: 'mena' },
+  { code: 'lebanon', name: 'Lebanese Republic', name_ar: 'الجمهورية اللبنانية', currency: 'USD', region: 'mena' },
+  { code: 'iraq', name: 'Republic of Iraq', name_ar: 'جمهورية العراق', currency: 'IQD', region: 'mena' },
+  { code: 'morocco', name: 'Kingdom of Morocco', name_ar: 'المملكة المغربية', currency: 'MAD', region: 'mena' },
+  { code: 'tunisia', name: 'Republic of Tunisia', name_ar: 'الجمهورية التونسية', currency: 'TND', region: 'mena' },
+  { code: 'algeria', name: 'People\'s Democratic Republic of Algeria', name_ar: 'الجمهورية الجزائرية الديمقراطية الشعبية', currency: 'DZD', region: 'mena' },
+  { code: 'libya', name: 'State of Libya', name_ar: 'دولة ليبيا', currency: 'LYD', region: 'mena' },
+  { code: 'international', name: 'International', name_ar: 'دولي', currency: 'USD', region: 'international' }
 ] as const
 
 export const JURISDICTION_CODES = JURISDICTIONS.map((j) => j.code) as unknown as [string, ...string[]]
@@ -16,7 +25,10 @@ export const JURISDICTION_CODES = JURISDICTIONS.map((j) => j.code) as unknown as
 export const jurisdictionName = (code?: string | null) =>
   JURISDICTIONS.find((j) => j.code === code)?.name ?? 'GCC (multi-jurisdiction)'
 
-export const CURRENCIES = ['OMR', 'AED', 'SAR', 'QAR', 'KWD', 'BHD', 'USD', 'EUR', 'GBP'] as const
+export const CURRENCIES = ['OMR', 'AED', 'SAR', 'QAR', 'KWD', 'BHD', 'EGP', 'JOD', 'LBP', 'IQD', 'MAD', 'TND', 'DZD', 'LYD', 'USD', 'EUR', 'GBP'] as const
+
+// Jurisdictions whose search also draws on GCC-wide instruments.
+export const isGcc = (code?: string | null) => JURISDICTIONS.some((j) => j.code === code && j.region === 'gcc')
 
 export const PRACTICE_AREAS = [
   { id: 'commercial', name: 'Commercial', name_ar: 'تجاري' },

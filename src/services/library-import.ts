@@ -18,9 +18,12 @@ import { recordAiUsage } from './usage'
 // are refused, and downloads are size- and time-limited.
 // ---------------------------------------------------------------------------
 
-// Government domains across the GCC, plus official free-zone and legal portals.
+// Government domains across the GCC and wider Arab region, plus official free-zone and legal portals.
 export const DEFAULT_IMPORT_DOMAINS = [
   'gov.om', 'gov.ae', 'gov.sa', 'gov.qa', 'gov.bh', 'gov.kw',
+  'gov.eg', 'gov.jo', 'gov.lb', 'gov.iq', 'gov.ma', 'gov.tn', 'gov.dz', 'gov.ly',
+  // Algeria's Official Gazette (Journal officiel) is published on joradp.dz.
+  'joradp.dz',
   'almeezan.qa', 'difc.ae', 'adgm.com', 'qcb.gov.qa',
   // Qanoon.om hosts the Omani Official Gazette PDFs that legislation pages link to.
   'qanoon.om'

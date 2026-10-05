@@ -24,7 +24,7 @@ const SECTIONS: { title: string; intro?: string; endpoints: Endpoint[] }[] = [
     endpoints: [
       ['GET', '/cases', 'List cases. Query: q, status (active|pending|under_review|on_hold|closed|open), priority, client_id, assigned_to, page, pageSize.'],
       ['GET', '/cases/{id}', 'A case with documents, events and activity.'],
-      ['POST', '/cases', 'Create a case. Body: title, jurisdiction (required: oman, uae, ksa, qatar, kuwait, bahrain, difc, adgm, gcc, international), client_id, title_ar, practice_area, status, priority, court, opposing_party, assigned_to, estimated_value, currency, opened_on, description.'],
+      ['POST', '/cases', 'Create a case. Body: title, jurisdiction (required: oman, uae, ksa, qatar, kuwait, bahrain, difc, adgm, gcc, egypt, jordan, lebanon, iraq, morocco, tunisia, algeria, libya, international), client_id, title_ar, practice_area, status, priority, court, opposing_party, assigned_to, estimated_value, currency, opened_on, description.'],
       ['PATCH', '/cases/{id}', 'Update any of the fields above.'],
       ['POST', '/cases/{id}/notes', 'Add a note to the case timeline. Body: body.'],
       ['DELETE', '/cases/{id}', 'Delete a case.']
