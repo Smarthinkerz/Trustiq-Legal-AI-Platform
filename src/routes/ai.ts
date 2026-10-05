@@ -4,7 +4,7 @@ import { audit, auth, type AppEnv, type Ctx } from '../context'
 import type { Queryable } from '../db'
 import { badRequest, HttpError, notFound, tooMany } from '../lib/errors'
 import { jsonBody, optUuid, uuidParam } from '../lib/http'
-import { JURISDICTION_CODES, jurisdictionName, templateName, DOCUMENT_TEMPLATES } from '../services/reference'
+import { JURISDICTION_CODES, isGcc, jurisdictionName, templateName, DOCUMENT_TEMPLATES } from '../services/reference'
 import { analysisMessages, chatSystemPrompt, draftMessages, normalizeAnalysis, parseJsonObject, type AnalysisType } from '../services/legal-prompts'
 import { assertCanCreateDocument, assertCanUseAi, recordAiUsage } from '../services/usage'
 import { type Passage, citationLabel, citedRefs, findReferencedSources, lawReferences, referencedPassages, searchLibrary } from '../services/library'
@@ -113,7 +113,7 @@ aiRoutes.post('/chat', jsonBody(z.object({
   const passages: Passage[] = []
   for (const s of named) passages.push(...await referencedPassages(db, org.id, s.id, query, named.length > 1 ? 5 : 10))
   const seen = new Set(passages.map((p) => p.id))
-  for (const p of await searchLibrary(db, org.id, query, { jurisdictions: [jurisdiction, 'gcc'], limit: 6 })) {
+  for (const p of await searchLibrary(db, org.id, query, { jurisdictions: isGcc(jurisdiction) ? [jurisdiction, 'gcc'] : [jurisdiction], limit: 6 })) {
     if (passages.length >= 14) break
     if (!seen.has(p.id)) { seen.add(p.id); passages.push(p) }
   }

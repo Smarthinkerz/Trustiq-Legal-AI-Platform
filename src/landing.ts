@@ -8,23 +8,23 @@ const fmt = (n: number | null, lang: Lang, unlimited: string) =>
 
 const copy = {
   en: {
-    title: 'TrustiqLegal – AI-powered legal practice platform for GCC law firms',
-    description: 'Matter management, document drafting and AI contract review for law firms in Oman and the GCC, in English and Arabic.',
+    title: 'TrustiqLegal – AI-powered legal practice platform for Middle East law firms',
+    description: 'Matter management, document drafting and AI contract review for law firms across the GCC and the Middle East, in English and Arabic.',
     nav: { features: 'Features', pricing: 'Pricing', security: 'Security', signin: 'Sign in', start: 'Start free trial', other: 'العربية', otherHref: '/ar' },
     hero: {
-      eyebrow: 'Built for GCC legal practice',
+      eyebrow: 'Built for Middle East legal practice',
       h1: 'Run your law firm in one bilingual, AI-assisted workspace',
       p: 'Manage matters and clients, keep every document versioned, draft agreements in English or Arabic, and get structured AI contract reviews grounded in the jurisdiction you practise in.',
       cta: 'Start your 14-day free trial', cta2: 'See pricing', note: 'No credit card required.'
     },
     heroCard: ['Case reference, status, priority and owner on every matter', 'Documents with version history and branded Word export', 'AI review with risk score, issues and missing clauses', 'Hearings, filings and deadlines with overdue alerts'],
-    featuresTitle: 'Everything a modern GCC practice needs', featuresSub: 'Designed for the way firms in Oman, the UAE, Saudi Arabia, Qatar, Kuwait and Bahrain actually work.',
+    featuresTitle: 'Everything a modern Middle East practice needs', featuresSub: 'Designed for the way firms in the GCC, Egypt, Jordan, Lebanon, Iraq and North Africa actually work.',
     features: [
       ['fa-folder-open', 'Matters & clients', 'Automatic case references, status and priority, responsible lawyer and a notes timeline, with bilingual client records and ID/CR numbers.'],
       ['fa-file-lines', 'Documents with Arabic OCR', 'Upload PDF and Word files – scanned Arabic papers are read automatically – edit with full version history and export on your letterhead.'],
       ['fa-pen-nib', 'AI drafting', 'Generate first drafts of 12 common instruments – from NDAs and employment contracts to statements of claim – in English or Arabic.'],
       ['fa-magnifying-glass-chart', 'AI contract review', 'Summaries, risk scoring, compliance checks and clause-by-clause reviews, with every issue rated by severity and a recommended fix.'],
-      ['fa-book-open', 'GCC law library with citations', 'Search laws, royal decrees and judgments article by article in Arabic or English. The AI answers from your library and cites the exact article.'],
+      ['fa-book-open', 'Arab law library with citations', 'Search laws, royal decrees and judgments article by article in Arabic or English. The AI answers from your library and cites the exact article.'],
       ['fa-comments', 'Legal research assistant', 'Jurisdiction-aware answers that can draw on a matter\'s facts, with saved conversations and a verification checklist on every answer.'],
       ['fa-file-invoice-dollar', 'Time, billing & VAT invoices', 'Log time and expenses, then issue bilingual tax invoices with the right VAT for Oman, the UAE, KSA and Bahrain, and track what is outstanding.'],
       ['fa-door-open', 'Secure client portal', 'Clients follow their matters, download shared documents and invoices, send files and message their lawyer – without email attachments.'],
@@ -41,7 +41,7 @@ const copy = {
       ['fa-file-export', 'Your data stays yours', 'Export your workspace at any time. Your documents are never used to train AI models.']
     ],
     disclaimer: 'TrustiqLegal is a tool for legal professionals and does not provide legal advice. AI output must be reviewed by a qualified lawyer.',
-    pricingTitle: 'Simple, transparent pricing', pricingSub: 'Every plan includes the bilingual workspace, all GCC jurisdictions, version history and the audit log. Prices exclude VAT.',
+    pricingTitle: 'Simple, transparent pricing', pricingSub: 'Every plan includes the bilingual workspace, all GCC and Arab jurisdictions, version history and the audit log. Prices exclude VAT.',
     perMonth: '/month', custom: 'Custom', unlimited: 'Unlimited', popular: 'Most popular',
     plans: {
       starter: { name: 'Starter', desc: 'For solo practitioners and boutique firms', price: 'OMR 199' },
@@ -58,23 +58,23 @@ const copy = {
     footer: { product: 'Product', legal: 'Legal', contact: 'Contact', terms: 'Terms of Service', privacy: 'Privacy Policy', rights: 'All rights reserved.' }
   },
   ar: {
-    title: 'TrustiqLegal – منصة ذكية لإدارة الممارسة القانونية لمكاتب المحاماة في الخليج',
-    description: 'إدارة القضايا وصياغة المستندات ومراجعة العقود بالذكاء الاصطناعي لمكاتب المحاماة في عُمان ودول الخليج، بالعربية والإنجليزية.',
+    title: 'TrustiqLegal – منصة ذكية لإدارة الممارسة القانونية لمكاتب المحاماة في الشرق الأوسط',
+    description: 'إدارة القضايا وصياغة المستندات ومراجعة العقود بالذكاء الاصطناعي لمكاتب المحاماة في دول الخليج والشرق الأوسط، بالعربية والإنجليزية.',
     nav: { features: 'المزايا', pricing: 'الأسعار', security: 'الأمان', signin: 'تسجيل الدخول', start: 'ابدأ التجربة المجانية', other: 'English', otherHref: '/' },
     hero: {
-      eyebrow: 'مصممة للممارسة القانونية في الخليج',
+      eyebrow: 'مصممة للممارسة القانونية في الشرق الأوسط',
       h1: 'أدِر مكتب المحاماة من مساحة عمل واحدة ثنائية اللغة ومدعومة بالذكاء الاصطناعي',
       p: 'نظّم القضايا والموكلين، واحتفظ بسجل إصدارات لكل مستند، وصُغ الاتفاقيات بالعربية أو الإنجليزية، واحصل على مراجعات منظمة للعقود وفق الولاية القضائية التي تعمل بها.',
       cta: 'ابدأ تجربتك المجانية لمدة ١٤ يوماً', cta2: 'اطّلع على الأسعار', note: 'لا حاجة لبطاقة ائتمان.'
     },
     heroCard: ['رقم مرجعي وحالة وأولوية ومسؤول لكل قضية', 'مستندات بسجل إصدارات وتصدير Word بترويسة المكتب', 'مراجعة ذكية بدرجة مخاطر وملاحظات وبنود ناقصة', 'جلسات ومواعيد إيداع ومهل مع تنبيهات بالتأخير'],
-    featuresTitle: 'كل ما يحتاجه مكتب محاماة حديث في الخليج', featuresSub: 'مصممة وفق طريقة عمل المكاتب في عُمان والإمارات والسعودية وقطر والكويت والبحرين.',
+    featuresTitle: 'كل ما يحتاجه مكتب محاماة حديث في الشرق الأوسط', featuresSub: 'مصممة وفق طريقة عمل المكاتب في دول الخليج ومصر والأردن ولبنان والعراق وشمال أفريقيا.',
     features: [
       ['fa-folder-open', 'القضايا والموكلون', 'أرقام مرجعية تلقائية، ومتابعة الحالة والأولوية، والمحامي المسؤول وسجل الملاحظات، مع سجلات موكلين ثنائية اللغة وأرقام الهوية أو السجل التجاري.'],
       ['fa-file-lines', 'مستندات مع قراءة العربية الممسوحة', 'ارفع ملفات PDF وWord – وتُقرأ الأوراق العربية الممسوحة تلقائيًا – وعدّلها مع سجل إصدارات كامل وصدّرها بترويسة مكتبك.'],
       ['fa-pen-nib', 'الصياغة الذكية', 'أنشئ مسودات أولية لـ ١٢ نوعاً من المستندات الشائعة – من اتفاقيات عدم الإفصاح وعقود العمل إلى صحف الدعوى – بالعربية أو الإنجليزية.'],
       ['fa-magnifying-glass-chart', 'مراجعة العقود بالذكاء الاصطناعي', 'ملخصات، وتقييم مخاطر، وفحص امتثال، ومراجعة بنداً ببند، مع تصنيف كل ملاحظة حسب خطورتها وتوصية بالمعالجة.'],
-      ['fa-book-open', 'مكتبة قوانين خليجية مع الإسناد', 'ابحث في القوانين والمراسيم والأحكام مادةً بمادة بالعربية أو الإنجليزية، ويجيب المساعد الذكي من مكتبتك مستشهدًا بالمادة بعينها.'],
+      ['fa-book-open', 'مكتبة قوانين عربية مع الإسناد', 'ابحث في القوانين والمراسيم والأحكام مادةً بمادة بالعربية أو الإنجليزية، ويجيب المساعد الذكي من مكتبتك مستشهدًا بالمادة بعينها.'],
       ['fa-comments', 'مساعد البحث القانوني', 'إجابات مرتبطة بالولاية القضائية يمكنها الاستناد إلى وقائع القضية، مع حفظ المحادثات وقائمة تحقق في نهاية كل إجابة.'],
       ['fa-file-invoice-dollar', 'الوقت والفواتير الضريبية', 'سجّل الوقت والمصروفات وأصدر فواتير ضريبية ثنائية اللغة بنسبة الضريبة الصحيحة لعُمان والإمارات والسعودية والبحرين، وتابع المستحقات.'],
       ['fa-door-open', 'بوابة موكلين آمنة', 'يتابع الموكلون قضاياهم وينزّلون المستندات والفواتير ويرسلون الملفات ويراسلون محاميهم دون مرفقات البريد.'],
@@ -91,7 +91,7 @@ const copy = {
       ['fa-file-export', 'بياناتك ملكك', 'صدّر بيانات مساحة العمل في أي وقت. لا تُستخدم مستنداتك أبداً لتدريب نماذج الذكاء الاصطناعي.']
     ],
     disclaimer: 'TrustiqLegal أداة للمهنيين القانونيين ولا تقدم استشارات قانونية. يجب أن يراجع محامٍ مؤهل مخرجات الذكاء الاصطناعي.',
-    pricingTitle: 'أسعار واضحة وبسيطة', pricingSub: 'تشمل جميع الباقات مساحة العمل ثنائية اللغة وجميع الولايات القضائية الخليجية وسجل الإصدارات وسجل التدقيق. الأسعار لا تشمل ضريبة القيمة المضافة.',
+    pricingTitle: 'أسعار واضحة وبسيطة', pricingSub: 'تشمل جميع الباقات مساحة العمل ثنائية اللغة وجميع الولايات القضائية الخليجية والعربية وسجل الإصدارات وسجل التدقيق. الأسعار لا تشمل ضريبة القيمة المضافة.',
     perMonth: '/شهرياً', custom: 'حسب الطلب', unlimited: 'غير محدود', popular: 'الأكثر طلباً',
     plans: {
       starter: { name: 'الأساسية', desc: 'للمحامين المستقلين والمكاتب الصغيرة', price: '١٩٩ ر.ع.' },

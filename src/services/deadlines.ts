@@ -9,10 +9,11 @@ export type DeadlineUnit = (typeof DEADLINE_UNITS)[number]
 export type CalendarKind = 'gregorian' | 'hijri'
 
 // Weekend days per jurisdiction (0 = Sunday … 6 = Saturday).
-// Oman, Saudi Arabia, Qatar, Kuwait and Bahrain rest Friday–Saturday; the UAE moved to Saturday–Sunday in 2022.
+// Most Arab states rest Friday–Saturday; the UAE moved to Saturday–Sunday in 2022, as do Lebanon, Morocco and Tunisia.
 export const WEEKENDS: Record<string, number[]> = {
   oman: [5, 6], ksa: [5, 6], qatar: [5, 6], kuwait: [5, 6], bahrain: [5, 6], gcc: [5, 6],
-  uae: [6, 0], difc: [6, 0], adgm: [6, 0], international: [6, 0]
+  egypt: [5, 6], jordan: [5, 6], iraq: [5, 6], algeria: [5, 6], libya: [5, 6],
+  uae: [6, 0], difc: [6, 0], adgm: [6, 0], lebanon: [6, 0], morocco: [6, 0], tunisia: [6, 0], international: [6, 0]
 }
 
 export type Holiday = { date: string; name: string }

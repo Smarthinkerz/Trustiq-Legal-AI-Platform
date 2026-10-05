@@ -1,9 +1,11 @@
 import type { Queryable } from '../db'
 
-// Standard VAT rates by jurisdiction. Firms can override the rate in billing settings.
-// Qatar and Kuwait have not implemented VAT; DIFC/ADGM follow UAE VAT.
+// Standard VAT / GST rates by jurisdiction. Firms can override the rate in billing settings.
+// Qatar, Kuwait, Iraq and Libya have no general VAT; DIFC/ADGM follow UAE VAT; Jordan levies 16% general sales tax.
 export const DEFAULT_VAT: Record<string, number> = {
-  oman: 5, uae: 5, difc: 5, adgm: 5, ksa: 15, bahrain: 10, qatar: 0, kuwait: 0, gcc: 0, international: 0
+  oman: 5, uae: 5, difc: 5, adgm: 5, ksa: 15, bahrain: 10, qatar: 0, kuwait: 0, gcc: 0,
+  egypt: 14, jordan: 16, lebanon: 11, iraq: 0, morocco: 20, tunisia: 19, algeria: 19, libya: 0,
+  international: 0
 }
 
 // ISO 4217 minor units: the Gulf dinars and the Omani rial use three decimals.
