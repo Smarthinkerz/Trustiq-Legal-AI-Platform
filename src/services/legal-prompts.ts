@@ -1,4 +1,4 @@
-import { jurisdictionName } from './reference'
+import { COURTS, jurisdictionName, templateKind } from './reference'
 
 const MAX_CONTEXT_CHARS = 60_000
 
@@ -82,19 +82,47 @@ export function analysisMessages(opts: { type: AnalysisType; lang: 'en' | 'ar'; 
   return [{ role: 'system' as const, content: system }, { role: 'user' as const, content: user }]
 }
 
-export function draftMessages(opts: { templateName: string; lang: 'en' | 'ar'; jurisdiction?: string | null; instructions: string; parties?: string; caseContext?: string | null }) {
+// Structure for each kind of document the drafter produces.
+function draftStructure(templateId: string | undefined, templateName: string, jurisdiction?: string | null): string {
+  const kind = templateId ? templateKind(templateId) : 'agreement'
+  if (kind === 'pleading') {
+    const courts = jurisdiction ? COURTS[jurisdiction] : undefined
+    const target = templateId === 'appeal' ? courts?.appeal : templateId === 'cassation' ? courts?.supreme : courts?.first
+    return [
+      `Draft a complete ${templateName} in the form used before the courts of this jurisdiction.`,
+      target ? `Address it to: ${target} [CITY]. If the facts point to a different competent court, use that court and say so in a placeholder note.` : 'Address it to the competent court as a placeholder: [COURT NAME AND CITY].',
+      'Follow the customary order of an Arab court pleading: court heading; the parties with their capacities, addresses for service and the advocate acting for each; the subject of the claim; the facts in numbered paragraphs; the legal grounds; the requests (الطلبات) as a numbered list including costs and advocate fees; the advocate signature block; and a list of attached documents.',
+      templateId === 'appeal' || templateId === 'cassation'
+        ? 'Identify the judgment challenged (court, case number, date, operative part) and state that the appeal is filed within the legal time limit as a placeholder [DATE OF SERVICE / TIME LIMIT] for the lawyer to verify. Set out each ground of appeal under its own heading.'
+        : templateId === 'payment_order'
+          ? 'Show that the debt is fixed, due and evidenced in writing, state the prior demand made on the debtor, and attach the supporting documents.'
+          : templateId === 'labour_complaint'
+            ? 'Address the competent labour authority or labour court, list each entitlement claimed (unpaid wages, leave, end-of-service gratuity, notice, compensation) with its amount or a placeholder, and note any amicable settlement attempt.'
+            : ''
+    ].filter(Boolean).join('\n')
+  }
+  if (kind === 'letter') return `Draft a complete, ready-to-review ${templateName}, formatted as the professional document lawyers in this jurisdiction use, with date, reference, addressee and signature block.`
+  return `Draft a complete, ready-to-review ${templateName}. Use numbered clauses with headings, include the standard protective clauses expected in this jurisdiction (governing law, dispute resolution, notices, entire agreement, severability, language precedence where relevant) and a signature block.`
+}
+
+export function draftMessages(opts: { templateName: string; templateId?: string; lang: 'en' | 'ar'; jurisdiction?: string | null; instructions: string; parties?: string; caseContext?: string | null; sources?: { ref: string; citation: string; text: string }[] }) {
+  const sources = opts.sources ?? []
   const system = [
     'You are a senior Middle East lawyer (GCC and wider Arab region) drafting a legal document for a law firm.',
     `Governing jurisdiction: ${jurisdictionName(opts.jurisdiction)}.`,
     SAFETY,
     languageRule(opts.lang),
-    `Draft a complete, ready-to-review ${opts.templateName}. Use numbered clauses with headings, include the standard protective clauses expected in this jurisdiction (governing law, dispute resolution, notices, entire agreement, severability, language precedence where relevant) and a signature block.`,
+    draftStructure(opts.templateId, opts.templateName, opts.jurisdiction),
+    sources.length
+      ? 'When you rely on a statutory provision, cite it by law name and article number exactly as it appears in the <sources> from the firm\'s law library. Do not cite any article that is not in the sources; where a legal basis is needed but not provided, write a placeholder such as [LEGAL BASIS – ARTICLE TO BE CONFIRMED].'
+      : 'Do not invent article numbers or case citations. Where a legal basis is needed, write a placeholder such as [LEGAL BASIS – ARTICLE TO BE CONFIRMED].',
     'Use square-bracket placeholders such as [PARTY A NAME] for any fact not provided. Output plain text only: no markdown symbols such as # or **, and no commentary before or after the document.'
   ].join('\n\n')
   const user = [
     opts.parties ? `Parties: ${opts.parties}` : '',
     `Instructions and key facts:\n${opts.instructions}`,
-    opts.caseContext ? `<case>\n${truncate(opts.caseContext, 10_000)}\n</case>` : ''
+    opts.caseContext ? `<case>\n${truncate(opts.caseContext, 10_000)}\n</case>` : '',
+    sources.length ? `<sources>\n${sources.map((s) => `[${s.ref}] ${s.citation}\n${truncate(s.text, 2500)}`).join('\n\n')}\n</sources>` : ''
   ].filter(Boolean).join('\n\n')
   return [{ role: 'system' as const, content: system }, { role: 'user' as const, content: user }]
 }

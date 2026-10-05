@@ -153,8 +153,21 @@ aiRoutes.post('/draft', jsonBody(z.object({
   await assertCanCreateDocument(db, org)
   if (b.client_id && !(await db.query('SELECT 1 FROM clients WHERE id = $1 AND org_id = $2', [b.client_id, org.id])).length) throw badRequest('Selected client does not exist.')
   const tName = templateName(b.template)
+  // Ground the draft in the firm's library: laws named in the instructions first, then the best matches.
+  const draftQuery = `${b.instructions} ${b.parties ?? ''}`.slice(0, 1500)
+  const draftPassages: Passage[] = []
+  for (const s of await findReferencedSources(db, org.id, lawReferences(draftQuery))) draftPassages.push(...await referencedPassages(db, org.id, s.id, draftQuery, 4))
+  const seenDraft = new Set(draftPassages.map((p) => p.id))
+  for (const p of await searchLibrary(db, org.id, draftQuery, { jurisdictions: isGcc(b.jurisdiction) ? [b.jurisdiction, 'gcc'] : [b.jurisdiction], limit: 6 })) {
+    if (draftPassages.length >= 8) break
+    if (!seenDraft.has(p.id)) { seenDraft.add(p.id); draftPassages.push(p) }
+  }
+  const draftSources = draftPassages.map((p, i) => ({ ref: `S${i + 1}`, citation: citationLabel(p), text: p.text }))
   const result = await ai.complete({
-    messages: draftMessages({ templateName: tName, lang: b.language, jurisdiction: b.jurisdiction, instructions: b.instructions, parties: b.parties, caseContext: await caseContext(db, org.id, b.case_id) }),
+    messages: draftMessages({
+      templateName: tName, templateId: b.template, lang: b.language, jurisdiction: b.jurisdiction, instructions: b.instructions, parties: b.parties,
+      caseContext: await caseContext(db, org.id, b.case_id), sources: draftSources
+    }),
     maxTokens: 6000,
     temperature: 0.3
   })

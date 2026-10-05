@@ -48,20 +48,49 @@ export const PRACTICE_AREAS = [
 export const PRACTICE_AREA_IDS = PRACTICE_AREAS.map((p) => p.id) as unknown as [string, ...string[]]
 
 // Document types the AI drafter supports. `id` is stored on documents.doc_type.
+// kind: agreements get contract clauses; pleadings get court formatting; letters/memos are free-form.
 export const DOCUMENT_TEMPLATES = [
-  { id: 'nda', name: 'Non-Disclosure Agreement', name_ar: 'اتفاقية عدم إفصاح' },
-  { id: 'service_agreement', name: 'Service Agreement', name_ar: 'اتفاقية تقديم خدمات' },
-  { id: 'employment_contract', name: 'Employment Contract', name_ar: 'عقد عمل' },
-  { id: 'sale_purchase', name: 'Sale and Purchase Agreement', name_ar: 'اتفاقية بيع وشراء' },
-  { id: 'lease', name: 'Lease Agreement', name_ar: 'عقد إيجار' },
-  { id: 'shareholders', name: 'Shareholders\' Agreement', name_ar: 'اتفاقية مساهمين' },
-  { id: 'mou', name: 'Memorandum of Understanding', name_ar: 'مذكرة تفاهم' },
-  { id: 'poa', name: 'Power of Attorney', name_ar: 'وكالة قانونية' },
-  { id: 'legal_notice', name: 'Legal Notice / Demand Letter', name_ar: 'إنذار قانوني / خطاب مطالبة' },
-  { id: 'settlement', name: 'Settlement Agreement', name_ar: 'اتفاقية تسوية' },
-  { id: 'legal_memo', name: 'Legal Memorandum', name_ar: 'مذكرة قانونية' },
-  { id: 'statement_of_claim', name: 'Statement of Claim', name_ar: 'صحيفة دعوى' }
+  { id: 'nda', name: 'Non-Disclosure Agreement', name_ar: 'اتفاقية عدم إفصاح', kind: 'agreement' },
+  { id: 'service_agreement', name: 'Service Agreement', name_ar: 'اتفاقية تقديم خدمات', kind: 'agreement' },
+  { id: 'employment_contract', name: 'Employment Contract', name_ar: 'عقد عمل', kind: 'agreement' },
+  { id: 'sale_purchase', name: 'Sale and Purchase Agreement', name_ar: 'اتفاقية بيع وشراء', kind: 'agreement' },
+  { id: 'lease', name: 'Lease Agreement', name_ar: 'عقد إيجار', kind: 'agreement' },
+  { id: 'shareholders', name: 'Shareholders\' Agreement', name_ar: 'اتفاقية مساهمين', kind: 'agreement' },
+  { id: 'mou', name: 'Memorandum of Understanding', name_ar: 'مذكرة تفاهم', kind: 'agreement' },
+  { id: 'fee_agreement', name: 'Legal Fee Agreement', name_ar: 'اتفاقية أتعاب محاماة', kind: 'agreement' },
+  { id: 'poa', name: 'Power of Attorney', name_ar: 'وكالة قانونية', kind: 'letter' },
+  { id: 'legal_notice', name: 'Legal Notice / Demand Letter', name_ar: 'إنذار قانوني / خطاب مطالبة', kind: 'letter' },
+  { id: 'settlement', name: 'Settlement Agreement', name_ar: 'اتفاقية تسوية', kind: 'agreement' },
+  { id: 'legal_memo', name: 'Legal Memorandum', name_ar: 'مذكرة قانونية', kind: 'letter' },
+  { id: 'statement_of_claim', name: 'Statement of Claim', name_ar: 'صحيفة دعوى', kind: 'pleading' },
+  { id: 'defence_memo', name: 'Statement of Defence', name_ar: 'مذكرة دفاع', kind: 'pleading' },
+  { id: 'appeal', name: 'Statement of Appeal', name_ar: 'صحيفة استئناف', kind: 'pleading' },
+  { id: 'cassation', name: 'Cassation / Supreme Court Appeal', name_ar: 'صحيفة طعن بالنقض / التمييز', kind: 'pleading' },
+  { id: 'payment_order', name: 'Payment Order Application', name_ar: 'طلب استصدار أمر أداء', kind: 'pleading' },
+  { id: 'labour_complaint', name: 'Labour Complaint', name_ar: 'شكوى عمالية', kind: 'pleading' }
 ] as const
+
+export const templateKind = (id: string) => DOCUMENT_TEMPLATES.find((t) => t.id === id)?.kind ?? 'agreement'
+
+// Court tiers per jurisdiction, used so pleadings are addressed to the right court.
+export const COURTS: Record<string, { first: string; appeal: string; supreme: string }> = {
+  oman: { first: 'المحكمة الابتدائية', appeal: 'محكمة الاستئناف', supreme: 'المحكمة العليا' },
+  uae: { first: 'المحكمة الابتدائية', appeal: 'محكمة الاستئناف', supreme: 'المحكمة الاتحادية العليا (أو محكمة التمييز في دبي / محكمة النقض في أبوظبي)' },
+  ksa: { first: 'المحكمة المختصة (العامة أو التجارية أو العمالية أو الأحوال الشخصية)', appeal: 'محكمة الاستئناف', supreme: 'المحكمة العليا' },
+  qatar: { first: 'المحكمة الابتدائية', appeal: 'محكمة الاستئناف', supreme: 'محكمة التمييز' },
+  kuwait: { first: 'المحكمة الكلية', appeal: 'محكمة الاستئناف', supreme: 'محكمة التمييز' },
+  bahrain: { first: 'المحكمة الكبرى المدنية', appeal: 'محكمة الاستئناف العليا المدنية', supreme: 'محكمة التمييز' },
+  difc: { first: 'DIFC Court of First Instance', appeal: 'DIFC Court of Appeal', supreme: 'DIFC Court of Appeal' },
+  adgm: { first: 'ADGM Court of First Instance', appeal: 'ADGM Court of Appeal', supreme: 'ADGM Court of Appeal' },
+  egypt: { first: 'المحكمة الابتدائية', appeal: 'محكمة الاستئناف', supreme: 'محكمة النقض' },
+  jordan: { first: 'محكمة البداية', appeal: 'محكمة الاستئناف', supreme: 'محكمة التمييز' },
+  lebanon: { first: 'المحكمة الابتدائية', appeal: 'محكمة الاستئناف', supreme: 'محكمة التمييز' },
+  iraq: { first: 'محكمة البداءة', appeal: 'محكمة الاستئناف', supreme: 'محكمة التمييز الاتحادية' },
+  morocco: { first: 'المحكمة الابتدائية', appeal: 'محكمة الاستئناف', supreme: 'محكمة النقض' },
+  tunisia: { first: 'المحكمة الابتدائية', appeal: 'محكمة الاستئناف', supreme: 'محكمة التعقيب' },
+  algeria: { first: 'المحكمة', appeal: 'المجلس القضائي', supreme: 'المحكمة العليا' },
+  libya: { first: 'المحكمة الابتدائية', appeal: 'محكمة الاستئناف', supreme: 'المحكمة العليا' }
+}
 
 export const DOC_TYPE_IDS = [...DOCUMENT_TEMPLATES.map((t) => t.id), 'contract', 'correspondence', 'evidence', 'court_filing', 'other'] as unknown as [string, ...string[]]
 
