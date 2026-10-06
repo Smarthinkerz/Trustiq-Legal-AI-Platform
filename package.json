@@ -24,6 +24,7 @@
     "@tailwindcss/cli": "^4.3.3",
     "bcryptjs": "^3.0.3",
     "docx": "^9.8.1",
+    "fflate": "^0.8.3",
     "hono": "^4.13.11",
     "mammoth": "^1.13.0",
     "nodemailer": "^10.0.13",

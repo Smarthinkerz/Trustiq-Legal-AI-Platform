@@ -7,6 +7,7 @@ import {
   selectField, showError, spinner, statusBadge, submitButton, textareaField, toast
 } from '../ui.js'
 import { openCaseForm } from './cases.js'
+import { openImportDialog } from './import.js'
 import { invoiceBadge, openInvoiceWizard } from './billing.js'
 import { messageThread } from './portal.js'
 
@@ -69,7 +70,7 @@ export async function clientsListView(root, { query, isCurrent }) {
   const state = { page: Number(query.get('page')) || 1, q: query.get('q') || '', archived: query.get('archived') === 'true' }
   const ro = readOnly()
   render(root, html`
-    ${pageHeader(t('nav.clients'), t('clients.subtitle'), ro ? '' : html`<button class="btn btn-primary" data-action="new"><i class="fas fa-plus"></i>${t('clients.new')}</button>`)}
+    ${pageHeader(t('nav.clients'), t('clients.subtitle'), ro ? '' : html`<div class="flex flex-wrap gap-2">${can('owner', 'admin', 'lawyer') ? html`<button class="btn btn-outline" data-action="import"><i class="fas fa-file-excel"></i>${t('import_xl.button')}</button>` : ''}<button class="btn btn-primary" data-action="new"><i class="fas fa-plus"></i>${t('clients.new')}</button></div>`)}
     <div class="card">
       <div class="p-4 border-b border-slate-100 flex flex-wrap gap-3 items-center">
         <div class="relative flex-1 min-w-52">
@@ -107,6 +108,7 @@ export async function clientsListView(root, { query, isCurrent }) {
   bind(root, {
     actions: {
       new: () => openClientForm({ onSaved: (c) => (location.hash = `#/clients/${c.id}`) }),
+      import: () => openImportDialog('clients', { onDone: reload }),
       open: (el) => (location.hash = `#/clients/${el.dataset.id}`),
       page: (el) => { state.page = Number(el.dataset.page); reload() }
     },

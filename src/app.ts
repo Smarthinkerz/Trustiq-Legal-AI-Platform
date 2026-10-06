@@ -17,6 +17,7 @@ import casesRoutes from './routes/cases'
 import documentsRoutes from './routes/documents'
 import eventsRoutes from './routes/events'
 import deadlinesRoutes from './routes/deadlines'
+import importsRoutes from './routes/imports'
 import aiRoutes from './routes/ai'
 import dashboardRoutes from './routes/dashboard'
 import referenceRoutes from './routes/api'
@@ -120,7 +121,7 @@ export function createApp(deps: Deps) {
   const jsonLimit = bodyLimit({ maxSize: 3 * 1024 * 1024 })
   app.use('/api/*', async (c, next) => {
     const p = c.req.path
-    const isUpload = p === '/api/documents/upload' || p === '/api/v1/documents/upload' || p === '/api/org/branding/logo' || p === '/api/library/sources' || p === '/api/portal/documents'
+    const isUpload = p === '/api/documents/upload' || p === '/api/v1/documents/upload' || p === '/api/org/branding/logo' || p === '/api/library/sources' || p === '/api/portal/documents' || p === '/api/import' || p === '/api/import/preview'
     return (isUpload ? uploadLimit : jsonLimit)(c, next)
   })
 
@@ -144,7 +145,7 @@ export function createApp(deps: Deps) {
     ['/api/documents', documentsRoutes], ['/api/events', eventsRoutes], ['/api/ai', aiRoutes],
     ['/api/library', libraryRoutes], ['/api/billing', billingRoutes], ['/api/reports', reportsRoutes],
     ['/api/tasks', tasksRoutes], ['/api/workspace', workspaceRoutes], ['/api/portal', portalRoutes],
-    ['/api/deadlines', deadlinesRoutes]
+    ['/api/deadlines', deadlinesRoutes], ['/api/import', importsRoutes]
   ] as const) {
     app.use(`${path}/*`, requireActiveSubscription)
     app.use(path, requireActiveSubscription)
