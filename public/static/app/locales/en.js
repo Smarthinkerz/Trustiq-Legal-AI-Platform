@@ -1048,5 +1048,9 @@ export default {
   "google.result_denied": "Google Calendar was not connected: access was not allowed.",
   "google.result_scope": "Google Calendar was not connected: please allow TrustiqLegal to manage its calendar.",
   "google.result_expired": "The Google sign-in took too long or was opened in another browser. Please try again.",
-  "google.result_error": "Google Calendar could not be connected. Please try again."
+  "google.result_error": "Google Calendar could not be connected. Please try again.",
+  "google.setup": "Setup details (admins)",
+  "google.client_id": "Client ID used by the server",
+  "google.redirect_uri": "Authorized redirect URI to add in Google Cloud",
+  "google.setup_hint": "The Client ID must match the OAuth client in Google Cloud Console → Google Auth Platform → Clients, and the redirect URI must be listed on that client."
 }

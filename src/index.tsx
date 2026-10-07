@@ -79,7 +79,13 @@ async function main() {
       .finally(() => { syncing = false })
   }, 60_000)
   calendarSync.unref()
-  if (config.google) log.info('Google Calendar sync enabled', { redirectUri: `${config.appUrl}/api/integrations/google/callback` })
+  if (config.google) {
+    // The client ID is public (it appears in every Google sign-in URL); logging it helps match it with Google Cloud Console.
+    log.info('Google Calendar sync enabled', { clientId: config.google.clientId, redirectUri: `${config.appUrl}/api/integrations/google/callback` })
+    for (const problem of config.google.problems) log.warn(`Google Calendar setup: ${problem}`)
+  } else if (process.env.GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_SECRET) {
+    log.warn('Google Calendar sync is off: set both GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET')
+  }
 
   const shutdown = (signal: string) => {
     log.info('shutting down', { signal })

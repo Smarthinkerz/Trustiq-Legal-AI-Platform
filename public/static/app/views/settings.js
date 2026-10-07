@@ -106,6 +106,15 @@ async function profile(root, { isCurrent, rerender, query } = {}) {
               <button class="btn btn-ghost btn-sm text-red-600" data-action="google-disconnect">${t('google.disconnect')}</button>
             </div>`
           : html`<button class="btn btn-outline" data-action="google-connect"><i class="fab fa-google"></i>${t('google.connect')}</button>`}
+          ${google.setup ? html`<details class="mt-4 text-xs text-slate-600" ${google.setup.problems.length ? raw('open') : ''}>
+            <summary class="cursor-pointer">${t('google.setup')}</summary>
+            ${google.setup.problems.map((p) => html`<p class="text-red-600 mt-2"><i class="fas fa-triangle-exclamation"></i> ${p}</p>`)}
+            <dl class="mt-2 space-y-1">
+              <div><dt class="font-medium">${t('google.client_id')}</dt><dd class="font-mono break-all" dir="ltr">${google.setup.client_id}</dd></div>
+              <div><dt class="font-medium">${t('google.redirect_uri')}</dt><dd class="font-mono break-all" dir="ltr">${google.setup.redirect_uri}</dd></div>
+            </dl>
+            <p class="mt-2">${t('google.setup_hint')}</p>
+          </details>` : ''}
         </div>` : ''}
       </section>
     </div>`)

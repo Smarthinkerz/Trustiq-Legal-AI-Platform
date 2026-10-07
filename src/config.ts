@@ -70,7 +70,7 @@ export type Config = {
   platformVatPercent: number
   libraryImportDomains: string[]
   libraryImportExtraCa: string
-  google?: { clientId: string; clientSecret: string }
+  google?: { clientId: string; clientSecret: string; problems: string[] }
   encryptionKey?: string
   logLevel: 'debug' | 'info' | 'warn' | 'error'
 }
@@ -119,8 +119,35 @@ export function loadConfig(source: Record<string, string | undefined> = process.
     platformVatPercent: e.PLATFORM_VAT_PERCENT,
     libraryImportExtraCa: e.LIBRARY_IMPORT_EXTRA_CA,
     libraryImportDomains: e.LIBRARY_IMPORT_DOMAINS.split(',').map((d) => d.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/^\*\./, '')).filter(Boolean),
-    google: e.GOOGLE_CLIENT_ID && e.GOOGLE_CLIENT_SECRET ? { clientId: e.GOOGLE_CLIENT_ID.trim(), clientSecret: e.GOOGLE_CLIENT_SECRET.trim() } : undefined,
+    google: googleCredentials(e.GOOGLE_CLIENT_ID, e.GOOGLE_CLIENT_SECRET),
     encryptionKey: e.ENCRYPTION_KEY || undefined,
     logLevel: e.LOG_LEVEL
   }
+}
+
+const CLIENT_ID_RE = /^\d+-[a-z0-9]+\.apps\.googleusercontent\.com$/
+const unquote = (v: string) => v.trim().replace(/^(['"`])([\s\S]*)\1$/, '$2').trim()
+
+// Accepts the values as pasted from Google Cloud Console, including surrounding quotes, swapped
+// variables or the whole downloaded client_secret.json, and lists anything that still looks wrong.
+export function googleCredentials(rawId?: string, rawSecret?: string): Config['google'] {
+  if (!rawId?.trim() && !rawSecret?.trim()) return undefined
+  let id = unquote(rawId ?? '')
+  let secret = unquote(rawSecret ?? '')
+  for (const v of [id, secret]) {
+    if (!v.startsWith('{')) continue
+    try {
+      const j = JSON.parse(v)
+      const c = j.web ?? j.installed ?? j
+      if (c.client_id) id = String(c.client_id).trim()
+      if (c.client_secret) secret = String(c.client_secret).trim()
+    } catch { /* reported below */ }
+  }
+  if (CLIENT_ID_RE.test(secret) && !CLIENT_ID_RE.test(id)) [id, secret] = [secret, id]
+  const problems: string[] = []
+  if (!id) problems.push('GOOGLE_CLIENT_ID is empty.')
+  else if (!CLIENT_ID_RE.test(id)) problems.push('GOOGLE_CLIENT_ID does not look like an OAuth client ID (it should end in .apps.googleusercontent.com).')
+  if (!secret) problems.push('GOOGLE_CLIENT_SECRET is empty.')
+  if (!id || !secret) return undefined
+  return { clientId: id, clientSecret: secret, problems }
 }
