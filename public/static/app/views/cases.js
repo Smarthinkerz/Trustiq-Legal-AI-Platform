@@ -1,7 +1,7 @@
 import { api } from '../api.js'
 import { bind, formData, html, qs, render } from '../dom.js'
 import { fmtDate, fmtDateTime, fmtMoney, fmtRelative, t } from '../i18n.js'
-import { aiEnabled, canDelete, readOnly, refLabel, refOptions, store } from '../store.js'
+import { aiEnabled, can, canDelete, readOnly, refLabel, refOptions, store } from '../store.js'
 import {
   busy, clearFieldErrors, confirmDialog, debounce, emptyState, eventBadge, formActions, inputField, modal, pageHeader,
   pagination, priorityBadge, selectField, showError, spinner, statusBadge, submitButton, textareaField, toast
@@ -12,6 +12,7 @@ import { openEventForm } from './calendar.js'
 import { openChecklistForm, openTaskForm, taskHandlers, taskRows } from './tasks.js'
 import { fmtHours, openExpenseForm, openInvoiceWizard, openTimeForm } from './billing.js'
 import { openGenerateForm } from './templates.js'
+import { openImportDialog } from './import.js'
 
 export const CASE_STATUSES = ['active', 'pending', 'under_review', 'on_hold', 'closed']
 export const PRIORITIES = ['low', 'medium', 'high', 'urgent']
@@ -73,7 +74,7 @@ export async function casesListView(root, { query, isCurrent }) {
   const ro = readOnly()
 
   render(root, html`
-    ${pageHeader(t('nav.cases'), t('cases.subtitle'), ro ? '' : html`<button class="btn btn-primary" data-action="new"><i class="fas fa-plus"></i>${t('cases.new')}</button>`)}
+    ${pageHeader(t('nav.cases'), t('cases.subtitle'), ro ? '' : html`<div class="flex flex-wrap gap-2">${can('owner', 'admin', 'lawyer') ? html`<button class="btn btn-outline" data-action="import"><i class="fas fa-file-excel"></i>${t('import_xl.button')}</button>` : ''}<button class="btn btn-primary" data-action="new"><i class="fas fa-plus"></i>${t('cases.new')}</button></div>`)}
     <div class="card">
       <div class="p-4 border-b border-slate-100 flex flex-wrap gap-3">
         <div class="relative flex-1 min-w-52">
@@ -118,6 +119,7 @@ export async function casesListView(root, { query, isCurrent }) {
   bind(root, {
     actions: {
       new: () => openCaseForm({ onSaved: (k) => (location.hash = `#/cases/${k.id}`) }),
+      import: () => openImportDialog('cases', { onDone: reload }),
       open: (el) => (location.hash = `#/cases/${el.dataset.id}`),
       page: (el) => { state.page = Number(el.dataset.page); reload() },
       'clear-assignee': () => { location.hash = '#/cases' }
