@@ -143,6 +143,9 @@ export function googleCredentials(rawId?: string, rawSecret?: string): Config['g
       if (c.client_secret) secret = String(c.client_secret).trim()
     } catch { /* reported below */ }
   }
+  // Client IDs and secrets never contain whitespace; values copied from a wrapped line often do.
+  id = id.replace(/\s+/g, '')
+  secret = secret.replace(/\s+/g, '')
   if (CLIENT_ID_RE.test(secret) && !CLIENT_ID_RE.test(id)) [id, secret] = [secret, id]
   const problems: string[] = []
   if (!id) problems.push('GOOGLE_CLIENT_ID is empty.')
