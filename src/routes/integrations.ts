@@ -4,7 +4,7 @@ import { timingSafeEqual } from 'node:crypto'
 import { audit, auth, type AppEnv, type Ctx } from '../context'
 import { tooMany, unavailable } from '../lib/errors'
 import { newToken } from '../lib/crypto'
-import { authorizationUrl, connectWithCode, disconnect, GoogleError, syncNow, type GoogleDeps } from '../services/google-calendar'
+import { authorizationUrl, connectWithCode, redirectUri, disconnect, GoogleError, syncNow, type GoogleDeps } from '../services/google-calendar'
 
 const STATE_COOKIE = 'tq_google_state'
 const STATE_PATH = '/api/integrations/google'
@@ -27,7 +27,11 @@ integrationsRoutes.get('/google', async (c) => {
     `SELECT account_email, calendar_id, last_synced_at, last_error, needs_sync, created_at,
             (SELECT count(*)::int FROM calendar_sync_items i WHERE i.user_id = c.user_id) AS items
        FROM calendar_connections c WHERE user_id = $1`, [user.id])
-  return c.json({ configured: !!config.google, connected: !!conn, connection: conn ?? null })
+  // Owners and admins see setup problems so they can fix the server variables.
+  const setup = user.role === 'owner' || user.role === 'admin'
+    ? { client_id: config.google?.clientId ?? null, redirect_uri: config.google ? redirectUri(config) : null, problems: config.google?.problems ?? [] }
+    : undefined
+  return c.json({ configured: !!config.google, connected: !!conn, connection: conn ?? null, setup })
 })
 
 integrationsRoutes.post('/google/connect', async (c) => {

@@ -1048,5 +1048,9 @@ export default {
   "google.result_denied": "لم يتم ربط تقويم Google: لم يُسمح بالوصول.",
   "google.result_scope": "لم يتم ربط تقويم Google: يُرجى السماح لـ TrustiqLegal بإدارة تقويمه.",
   "google.result_expired": "استغرق تسجيل الدخول إلى Google وقتًا طويلًا أو فُتح في متصفح آخر. يُرجى المحاولة مرة أخرى.",
-  "google.result_error": "تعذّر ربط تقويم Google. يُرجى المحاولة مرة أخرى."
+  "google.result_error": "تعذّر ربط تقويم Google. يُرجى المحاولة مرة أخرى.",
+  "google.setup": "تفاصيل الإعداد (للمسؤولين)",
+  "google.client_id": "معرّف العميل الذي يستخدمه الخادم",
+  "google.redirect_uri": "عنوان إعادة التوجيه المطلوب إضافته في Google Cloud",
+  "google.setup_hint": "يجب أن يطابق معرّف العميل عميل OAuth في Google Cloud Console ← Google Auth Platform ← Clients، وأن يكون عنوان إعادة التوجيه مُدرجًا في ذلك العميل."
 }

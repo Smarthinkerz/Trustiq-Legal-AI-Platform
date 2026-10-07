@@ -1,4 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest'
+import { googleCredentials } from '../src/config'
 import { open, seal } from '../src/lib/secret-box'
 import { runCalendarSync } from '../src/services/google-calendar'
 import { client, registered, setup } from './helpers'
@@ -81,6 +82,25 @@ describe('secret box', () => {
     expect(open(sealed, 'k1')).toBe('refresh-token')
     expect(open(sealed, 'k2')).toBeNull()
     expect(open(sealed.slice(0, -2) + 'AA', 'k1')).toBeNull()
+  })
+})
+
+describe('Google credentials from the environment', () => {
+  const id = '514012320000-abcdef0123456789.apps.googleusercontent.com'
+  it('cleans up common pasting mistakes and reports what still looks wrong', () => {
+    expect(googleCredentials(` "${id}" `, "'GOCSPX-secret'")).toEqual({ clientId: id, clientSecret: 'GOCSPX-secret', problems: [] })
+    expect(googleCredentials('GOCSPX-secret', id)).toMatchObject({ clientId: id, clientSecret: 'GOCSPX-secret' })
+    const json = JSON.stringify({ web: { client_id: id, client_secret: 'GOCSPX-x', redirect_uris: [] } })
+    expect(googleCredentials(json, '')).toMatchObject({ clientId: id, clientSecret: 'GOCSPX-x', problems: [] })
+    expect(googleCredentials('trustiqlegal-474512', 'GOCSPX-x')!.problems[0]).toContain('does not look like an OAuth client ID')
+    expect(googleCredentials(id, '')).toBeUndefined()
+    expect(googleCredentials(undefined, undefined)).toBeUndefined()
+  })
+
+  it('shows the client ID and redirect URI to admins only', async () => {
+    const { c } = await registered(ctx.app)
+    const r = (await c.get('/api/integrations/google')).data
+    expect(r.setup).toEqual({ client_id: 'test-client', redirect_uri: 'http://localhost:8080/api/integrations/google/callback', problems: [expect.stringContaining('does not look like')] })
   })
 })
 
