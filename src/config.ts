@@ -42,6 +42,11 @@ const envSchema = z.object({
   LIBRARY_IMPORT_DOMAINS: z.string().default(''),
   // Extra CA certificates (PEM) trusted only for library imports, e.g. a government PKI root.
   LIBRARY_IMPORT_EXTRA_CA: z.string().default(''),
+  // Google Calendar sync (OAuth client from Google Cloud Console). Redirect URI: <APP_URL>/api/integrations/google/callback
+  GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_CLIENT_SECRET: z.string().optional(),
+  // Key for encrypting stored OAuth tokens. Defaults to a key derived from GOOGLE_CLIENT_SECRET.
+  ENCRYPTION_KEY: z.string().optional(),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info')
 })
 
@@ -65,6 +70,8 @@ export type Config = {
   platformVatPercent: number
   libraryImportDomains: string[]
   libraryImportExtraCa: string
+  google?: { clientId: string; clientSecret: string }
+  encryptionKey?: string
   logLevel: 'debug' | 'info' | 'warn' | 'error'
 }
 
@@ -112,6 +119,8 @@ export function loadConfig(source: Record<string, string | undefined> = process.
     platformVatPercent: e.PLATFORM_VAT_PERCENT,
     libraryImportExtraCa: e.LIBRARY_IMPORT_EXTRA_CA,
     libraryImportDomains: e.LIBRARY_IMPORT_DOMAINS.split(',').map((d) => d.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/^\*\./, '')).filter(Boolean),
+    google: e.GOOGLE_CLIENT_ID && e.GOOGLE_CLIENT_SECRET ? { clientId: e.GOOGLE_CLIENT_ID.trim(), clientSecret: e.GOOGLE_CLIENT_SECRET.trim() } : undefined,
+    encryptionKey: e.ENCRYPTION_KEY || undefined,
     logLevel: e.LOG_LEVEL
   }
 }

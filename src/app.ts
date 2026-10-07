@@ -19,6 +19,8 @@ import eventsRoutes from './routes/events'
 import deadlinesRoutes from './routes/deadlines'
 import importsRoutes from './routes/imports'
 import websiteRoutes from './routes/website'
+import integrationsRoutes from './routes/integrations'
+import { markCalendarsDirty } from './services/google-calendar'
 import { firmSiteRoutes } from './routes/firm-site'
 import aiRoutes from './routes/ai'
 import dashboardRoutes from './routes/dashboard'
@@ -137,7 +139,18 @@ export function createApp(deps: Deps) {
     await next()
   })
 
+  // Changes to the firm calendar, tasks or cases queue a Google Calendar sync for the firm's connected users.
+  const CALENDAR_SOURCES = /^\/api\/(v1\/)?(events|tasks|cases)(\/|$)/
+  app.use('/api/*', async (c, next) => {
+    await next()
+    const org = c.get('org')
+    if (org && !['GET', 'HEAD', 'OPTIONS'].includes(c.req.method) && c.res.status < 400 && CALENDAR_SOURCES.test(c.req.path)) {
+      await markCalendarsDirty(deps.db, org.id).catch((err) => log.warn('calendar dirty flag failed', { err }))
+    }
+  })
+
   app.route('/api/auth', authRoutes)
+  app.route('/api/integrations', integrationsRoutes)
   app.route('/api/reference', referenceRoutes)
   app.route('/api/org', orgRoutes)
   app.route('/api/admin', adminRoutes)
