@@ -10,6 +10,7 @@ Bilingual (English/Arabic), AI-assisted practice-management platform for law fir
 - **Time & billing**: time entries and expenses, per-lawyer rates, invoices with jurisdiction VAT (OM/UAE 5%, KSA 15%, BH 10%) and 3-decimal currencies, numbering, payments, bilingual tax-invoice Word export
 - **Client portal**: clients see their matters, hearings, shared documents and issued invoices, upload files and message their lawyer
 - **Calendar**: hearings, filings, deadlines and meetings; daily email digest; private ICS feed for Outlook/Google/Apple
+- **Firm website & leads**: each firm can publish a bilingual website at `/f/<address>` with practice areas, contact details and an English/Arabic **blog**; an **AI blog writer** drafts, improves, translates and summarises articles; consultation requests land in a **leads inbox** that runs a conflict check and turns an enquiry into a client and case; an optional **website chatbot** answers visitors from the firm's own information (never legal advice) and counts against the plan's AI allowance
 - **Reports**: hours by lawyer and matter, billable value, invoicing, receivables aging, case intake, AI usage
 - **Security**: TOTP two-step verification with recovery codes, roles (owner/admin/lawyer/staff/client), audit log
 - **Subscriptions**: free trial, Starter, Professional and Enterprise limits; self-serve monthly payment via **Tap Payments**, renewal reminders, platform admin console

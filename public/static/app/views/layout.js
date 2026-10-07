@@ -16,6 +16,7 @@ const NAV = [
   ['templates', 'fa-file-signature', '/templates'],
   ['assistant', 'fa-wand-magic-sparkles', '/assistant'],
   ['library', 'fa-book-open', '/library'],
+  ['website', 'fa-globe', '/website'],
   ['billing', 'fa-file-invoice-dollar', '/billing'],
   ['reports', 'fa-chart-line', '/reports', () => can('owner', 'admin')],
   ['settings', 'fa-gear', '/settings']
