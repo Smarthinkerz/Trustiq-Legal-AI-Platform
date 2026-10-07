@@ -89,6 +89,7 @@ describe('Google credentials from the environment', () => {
   const id = '514012320000-abcdef0123456789.apps.googleusercontent.com'
   it('cleans up common pasting mistakes and reports what still looks wrong', () => {
     expect(googleCredentials(` "${id}" `, "'GOCSPX-secret'")).toEqual({ clientId: id, clientSecret: 'GOCSPX-secret', problems: [] })
+    expect(googleCredentials('514012320000- abcdef0123456789.apps.\n googleusercontent.com', 'GOCSPX- secret ')).toEqual({ clientId: id, clientSecret: 'GOCSPX-secret', problems: [] })
     expect(googleCredentials('GOCSPX-secret', id)).toMatchObject({ clientId: id, clientSecret: 'GOCSPX-secret' })
     const json = JSON.stringify({ web: { client_id: id, client_secret: 'GOCSPX-x', redirect_uris: [] } })
     expect(googleCredentials(json, '')).toMatchObject({ clientId: id, clientSecret: 'GOCSPX-x', problems: [] })
