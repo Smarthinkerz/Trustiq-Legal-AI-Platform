@@ -44,7 +44,7 @@ export async function assertCanUseAi(db: Queryable, org: Org, advanced = false) 
   }
 }
 
-export async function recordAiUsage(db: Queryable, orgId: string, userId: string, feature: string, usage: { model: string; promptTokens: number; completionTokens: number }) {
+export async function recordAiUsage(db: Queryable, orgId: string, userId: string | null, feature: string, usage: { model: string; promptTokens: number; completionTokens: number }) {
   await db.query(
     'INSERT INTO ai_usage (org_id, user_id, feature, model, prompt_tokens, completion_tokens) VALUES ($1, $2, $3, $4, $5, $6)',
     [orgId, userId, feature, usage.model, usage.promptTokens, usage.completionTokens]

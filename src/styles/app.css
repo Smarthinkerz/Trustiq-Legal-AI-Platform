@@ -3,6 +3,7 @@
 @source "../landing.ts";
 @source "../pages";
 @source "../../public/static/app";
+@source "../../public/static/site";
 
 @theme {
   --color-brand-50: #eef4fb;

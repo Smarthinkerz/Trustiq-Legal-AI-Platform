@@ -545,6 +545,71 @@ CREATE TABLE org_holidays (
 CREATE UNIQUE INDEX org_holidays_unique_idx ON org_holidays (org_id, date, coalesce(jurisdiction, ''));
 CREATE INDEX org_holidays_org_idx ON org_holidays (org_id, date);
 `
+  },
+  {
+    version: 7,
+    name: 'firm_website',
+    sql: `
+CREATE TABLE firm_sites (
+  org_id UUID PRIMARY KEY REFERENCES organizations(id) ON DELETE CASCADE,
+  slug TEXT NOT NULL UNIQUE,
+  published BOOLEAN NOT NULL DEFAULT false,
+  tagline TEXT,
+  tagline_ar TEXT,
+  about TEXT,
+  about_ar TEXT,
+  practice_areas TEXT[] NOT NULL DEFAULT '{}',
+  contact_email TEXT,
+  phone TEXT,
+  whatsapp TEXT,
+  address TEXT,
+  address_ar TEXT,
+  office_hours TEXT,
+  office_hours_ar TEXT,
+  chatbot_enabled BOOLEAN NOT NULL DEFAULT false,
+  chatbot_greeting TEXT,
+  chatbot_greeting_ar TEXT,
+  chat_knowledge TEXT,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE blog_posts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  slug TEXT NOT NULL,
+  title TEXT,
+  title_ar TEXT,
+  excerpt TEXT,
+  excerpt_ar TEXT,
+  body TEXT,
+  body_ar TEXT,
+  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published')),
+  published_at TIMESTAMPTZ,
+  author_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (org_id, slug)
+);
+CREATE INDEX blog_posts_org_idx ON blog_posts (org_id, status, published_at DESC);
+CREATE TABLE leads (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  email TEXT,
+  phone TEXT,
+  message TEXT,
+  practice_area TEXT,
+  source TEXT NOT NULL DEFAULT 'form' CHECK (source IN ('form', 'chat', 'manual')),
+  language TEXT NOT NULL DEFAULT 'en',
+  status TEXT NOT NULL DEFAULT 'new' CHECK (status IN ('new', 'contacted', 'converted', 'declined')),
+  notes TEXT,
+  client_id UUID REFERENCES clients(id) ON DELETE SET NULL,
+  case_id UUID REFERENCES cases(id) ON DELETE SET NULL,
+  handled_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX leads_org_idx ON leads (org_id, status, created_at DESC);
+`
   }
 ]
 

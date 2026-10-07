@@ -18,6 +18,8 @@ import documentsRoutes from './routes/documents'
 import eventsRoutes from './routes/events'
 import deadlinesRoutes from './routes/deadlines'
 import importsRoutes from './routes/imports'
+import websiteRoutes from './routes/website'
+import { firmSiteRoutes } from './routes/firm-site'
 import aiRoutes from './routes/ai'
 import dashboardRoutes from './routes/dashboard'
 import referenceRoutes from './routes/api'
@@ -145,7 +147,7 @@ export function createApp(deps: Deps) {
     ['/api/documents', documentsRoutes], ['/api/events', eventsRoutes], ['/api/ai', aiRoutes],
     ['/api/library', libraryRoutes], ['/api/billing', billingRoutes], ['/api/reports', reportsRoutes],
     ['/api/tasks', tasksRoutes], ['/api/workspace', workspaceRoutes], ['/api/portal', portalRoutes],
-    ['/api/deadlines', deadlinesRoutes], ['/api/import', importsRoutes]
+    ['/api/deadlines', deadlinesRoutes], ['/api/import', importsRoutes], ['/api/website', websiteRoutes]
   ] as const) {
     app.use(`${path}/*`, requireActiveSubscription)
     app.use(path, requireActiveSubscription)
@@ -235,6 +237,9 @@ export function createApp(deps: Deps) {
   app.get('/developers', html(apiDocsPage({ assetVersion, appUrl: config.appUrl })))
   app.get('/terms', html(legalPage('terms', { assetVersion, supportEmail: config.supportEmail })))
   app.get('/privacy', html(legalPage('privacy', { assetVersion, supportEmail: config.supportEmail })))
+
+  // Public firm websites (blog, consultation form, chatbot).
+  app.route('/f', firmSiteRoutes(deps, assetVersion))
 
   app.notFound((c) => c.html(legalPage('404', { assetVersion, supportEmail: config.supportEmail }), 404))
 
