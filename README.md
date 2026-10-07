@@ -9,7 +9,7 @@ Bilingual (English/Arabic), AI-assisted practice-management platform for law fir
 - **Tasks & checklists**: personal and matter tasks, bilingual checklists (litigation, arbitration, employment, corporate, real estate, commercial, family)
 - **Time & billing**: time entries and expenses, per-lawyer rates, invoices with jurisdiction VAT (OM/UAE 5%, KSA 15%, BH 10%) and 3-decimal currencies, numbering, payments, bilingual tax-invoice Word export
 - **Client portal**: clients see their matters, hearings, shared documents and issued invoices, upload files and message their lawyer
-- **Calendar**: hearings, filings, deadlines and meetings; daily email digest; private ICS feed for Outlook/Google/Apple
+- **Calendar**: hearings, filings, deadlines and meetings; daily email digest; private ICS feed for Outlook/Google/Apple; **Google Calendar sync** that keeps a dedicated "TrustiqLegal" calendar in each lawyer's Google account up to date
 - **Firm website & leads**: each firm can publish a bilingual website at `/f/<address>` with practice areas, contact details and an English/Arabic **blog**; an **AI blog writer** drafts, improves, translates and summarises articles; consultation requests land in a **leads inbox** that runs a conflict check and turns an enquiry into a client and case; an optional **website chatbot** answers visitors from the firm's own information (never legal advice) and counts against the plan's AI allowance
 - **Reports**: hours by lawyer and matter, billable value, invoicing, receivables aging, case intake, AI usage
 - **Security**: TOTP two-step verification with recovery codes, roles (owner/admin/lawyer/staff/client), audit log
@@ -73,6 +73,8 @@ See `.env.example` for the full list. In production (`NODE_ENV=production`) the 
 | `APP_URL` | Public URL, e.g. `https://app.trustiqlegal.com`. Used for email links and to reject cross-site requests. |
 
 Strongly recommended: `OPENAI_API_KEY`, `SMTP_*` + `MAIL_FROM`, `PLATFORM_ADMIN_EMAILS`, `SALES_EMAIL`, `SUPPORT_EMAIL`, and `DATABASE_SSL=true` for managed Postgres.
+
+Google Calendar sync: create an OAuth client (type "Web application") in Google Cloud Console with the Google Calendar API enabled, add the redirect URI `${APP_URL}/api/integrations/google/callback`, and set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. Each user connects from Settings → Profile. The app asks only for the `calendar.app.created` scope, so it creates and manages its own "TrustiqLegal" calendar and cannot read or change the user's other calendars. Firm events (30 days back, 400 days ahead) and the user's open tasks are pushed one way; changes are picked up within a minute and every calendar is refreshed hourly. Refresh tokens are stored encrypted (AES-256-GCM) with a key derived from `ENCRYPTION_KEY`, or from `GOOGLE_CLIENT_SECRET` when that is not set; changing either means users reconnect. While the OAuth consent screen is in "Testing" mode, only the test users you add there can connect.
 
 Online payments: set `TAP_SECRET_KEY` and `TAP_WEBHOOK_SECRET`, and in the Tap dashboard set the webhook URL to `${APP_URL}/webhooks/tap`. Checkout creates a hosted Tap charge, and the customer returns to `/billing/tap/return`, where the charge is re-fetched from Tap and reconciled. Webhooks are signature-checked (`hashstring` header), rate-limited, idempotent and audited in `webhook_events`. Each successful payment extends the plan by one month. Without `TAP_SECRET_KEY` the plan page falls back to "contact sales".
 

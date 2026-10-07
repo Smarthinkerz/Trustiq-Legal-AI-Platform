@@ -70,7 +70,7 @@ export function fakeTap(): FakeTap {
   return tap
 }
 
-export async function setup(env: Record<string, string> = {}) {
+export async function setup(env: Record<string, string> = {}, opts: { googleFetch?: typeof fetch } = {}) {
   const config = loadConfig({
     NODE_ENV: 'test', APP_URL: 'http://localhost:8080', PLATFORM_ADMIN_EMAILS: 'ops@trustiq.test',
     ...(process.env.TEST_DATABASE_URL ? { DATABASE_URL: process.env.TEST_DATABASE_URL } : {}),
@@ -84,11 +84,11 @@ export async function setup(env: Record<string, string> = {}) {
   const web = fakeWeb()
   const log = createLogger('error', true)
   const app = createApp({
-    config, db, ai, mailer, tap, webFetch: web.fetch,
+    config, db, ai, mailer, tap, webFetch: web.fetch, googleFetch: opts.googleFetch,
     log,
     limiters: { auth: new RateLimiter(1000, 60_000), api: new RateLimiter(10_000, 60_000), ai: new RateLimiter(1000, 60_000), webhook: new RateLimiter(1000, 60_000), apiKey: new RateLimiter(1000, 60_000) }
   })
-  return { app, db, ai, mails, config, tap, web, runImports: () => runLibraryImports({ db, config, ai, log, webFetch: web.fetch }) }
+  return { app, db, ai, mails, config, tap, web, log, runImports: () => runLibraryImports({ db, config, ai, log, webFetch: web.fetch }) }
 }
 
 type App = Awaited<ReturnType<typeof setup>>['app']

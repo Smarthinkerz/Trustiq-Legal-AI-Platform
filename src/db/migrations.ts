@@ -610,6 +610,35 @@ CREATE TABLE leads (
 );
 CREATE INDEX leads_org_idx ON leads (org_id, status, created_at DESC);
 `
+    },
+  {
+    version: 8,
+    name: 'calendar_sync',
+    sql: `
+CREATE TABLE calendar_connections (
+  user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  provider TEXT NOT NULL DEFAULT 'google' CHECK (provider IN ('google')),
+  account_email TEXT,
+  refresh_token TEXT NOT NULL,
+  access_token TEXT,
+  access_expires_at TIMESTAMPTZ,
+  calendar_id TEXT,
+  needs_sync BOOLEAN NOT NULL DEFAULT true,
+  sync_started_at TIMESTAMPTZ,
+  last_synced_at TIMESTAMPTZ,
+  last_error TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX calendar_connections_org_idx ON calendar_connections (org_id);
+CREATE TABLE calendar_sync_items (
+  user_id UUID NOT NULL REFERENCES calendar_connections(user_id) ON DELETE CASCADE,
+  item_key TEXT NOT NULL,
+  remote_id TEXT NOT NULL,
+  hash TEXT NOT NULL,
+  PRIMARY KEY (user_id, item_key)
+);
+`
   }
 ]
 

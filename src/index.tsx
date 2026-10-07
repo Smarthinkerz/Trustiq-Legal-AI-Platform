@@ -9,6 +9,7 @@ import { createAiService } from './services/ai'
 import { runDailyDigest, runRenewalReminders } from './services/jobs'
 import { createTapClient } from './services/tap'
 import { runLibraryImports } from './services/library-import'
+import { runCalendarSync } from './services/google-calendar'
 
 async function main() {
   const config = loadConfig()
@@ -68,11 +69,24 @@ async function main() {
   }, 5_000)
   importer.unref()
 
+  // Google Calendar sync: pushes firm calendar changes to connected users' Google calendars.
+  let syncing = false
+  const calendarSync = setInterval(() => {
+    if (syncing || !config.google) return
+    syncing = true
+    runCalendarSync({ db, config, log })
+      .catch((err) => log.error('calendar sync worker failed', { err }))
+      .finally(() => { syncing = false })
+  }, 60_000)
+  calendarSync.unref()
+  if (config.google) log.info('Google Calendar sync enabled', { redirectUri: `${config.appUrl}/api/integrations/google/callback` })
+
   const shutdown = (signal: string) => {
     log.info('shutting down', { signal })
     clearInterval(sweeper)
     clearInterval(jobs)
     clearInterval(importer)
+    clearInterval(calendarSync)
     server.close(async () => {
       await db.close().catch(() => {})
       process.exit(0)

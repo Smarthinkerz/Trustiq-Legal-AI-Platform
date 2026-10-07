@@ -35,11 +35,20 @@ export async function settingsView(root, ctx) {
 // ---------------- Profile ----------------
 export { profile as profileTab }
 
-async function profile(root, { isCurrent, rerender } = {}) {
+async function profile(root, { isCurrent, rerender, query } = {}) {
   const { user } = store.me
-  const prefs = await api.get('/api/auth/preferences')
-  if (isCurrent && !isCurrent()) return
   const client = user.role === 'client'
+  const [prefs, google] = await Promise.all([
+    api.get('/api/auth/preferences'),
+    client ? null : api.get('/api/integrations/google').catch(() => null)
+  ])
+  if (isCurrent && !isCurrent()) return
+  // Result of the Google consent screen, reported once.
+  const googleResult = query?.get('google')
+  if (googleResult && location.hash.includes('google=')) {
+    toast(t(`google.result_${googleResult}`), googleResult === 'connected' ? 'success' : 'error')
+    history.replaceState(null, '', '#/settings?tab=profile')
+  }
   render(root, html`
     <div class="grid lg:grid-cols-2 gap-6 max-w-5xl">
       <section class="card card-pad">
@@ -82,6 +91,22 @@ async function profile(root, { isCurrent, rerender } = {}) {
             <button class="btn btn-ghost btn-sm" data-action="calendar-token">${t('prefs.calendar_reset')}</button>`
           : html`<button class="btn btn-outline" data-action="calendar-token"><i class="fas fa-link"></i>${t('prefs.calendar_create')}</button>`}
         </div>`}
+        ${google?.configured ? html`<div class="pt-5 border-t border-slate-100" data-google>
+          <h2 class="font-semibold mb-1"><i class="fab fa-google text-slate-400 me-1"></i>${t('google.title')}</h2>
+          <p class="text-sm text-slate-500 mb-3">${t('google.help')}</p>
+          ${google.connected ? html`
+            <p class="text-sm text-emerald-700"><i class="fas fa-circle-check"></i> ${t('google.connected_as', { email: google.connection.account_email || '—' })}</p>
+            <p class="text-xs text-slate-500 mt-1">${google.connection.last_synced_at
+              ? t('google.last_synced', { when: fmtRelative(google.connection.last_synced_at), n: fmtNumber(google.connection.items) })
+              : t('google.first_sync')}</p>
+            ${google.connection.last_error ? html`<p class="text-sm text-red-600 mt-2" role="alert"><i class="fas fa-triangle-exclamation"></i> ${google.connection.last_error}</p>` : ''}
+            <div class="flex flex-wrap gap-2 mt-3">
+              <button class="btn btn-outline btn-sm" data-action="google-sync"><i class="fas fa-rotate"></i>${t('google.sync_now')}</button>
+              ${google.connection.last_error ? html`<button class="btn btn-outline btn-sm" data-action="google-connect"><i class="fab fa-google"></i>${t('google.reconnect')}</button>` : ''}
+              <button class="btn btn-ghost btn-sm text-red-600" data-action="google-disconnect">${t('google.disconnect')}</button>
+            </div>`
+          : html`<button class="btn btn-outline" data-action="google-connect"><i class="fab fa-google"></i>${t('google.connect')}</button>`}
+        </div>` : ''}
       </section>
     </div>`)
   const again = () => (rerender ? rerender() : profile(root, { isCurrent, rerender }))
@@ -109,6 +134,22 @@ async function profile(root, { isCurrent, rerender } = {}) {
         if (prefs.calendar_url && !(await confirmDialog(t('prefs.calendar_reset_confirm'), { danger: false }))) return
         busy(el, async () => {
           try { await api.post('/api/auth/calendar-token'); again() } catch (err) { showError(err) }
+        })
+      },
+      'google-connect': (el) => busy(el, async () => {
+        try { const { url } = await api.post('/api/integrations/google/connect'); location.href = url } catch (err) { showError(err) }
+      }),
+      'google-sync': (el) => busy(el, async () => {
+        try {
+          const r = await api.post('/api/integrations/google/sync')
+          toast(t('google.synced', { n: fmtNumber(r.created + r.updated + r.deleted) }))
+        } catch (err) { showError(err) }
+        again()
+      }),
+      'google-disconnect': async (el) => {
+        if (!(await confirmDialog(t('google.disconnect_confirm')))) return
+        busy(el, async () => {
+          try { await api.del('/api/integrations/google'); toast(t('google.disconnected')); again() } catch (err) { showError(err) }
         })
       },
       'copy-feed': async () => {

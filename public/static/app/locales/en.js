@@ -1029,5 +1029,24 @@ export default {
   "web.greeting": "Greeting",
   "web.knowledge": "Information for the chatbot",
   "web.knowledge_hint": "Facts the chatbot may share: how consultations work, fees policy, languages spoken, documents to bring, frequently asked questions. Do not include confidential information.",
-  "web.chatbot_usage": "Each chatbot reply counts as one AI request on your plan. When the monthly allowance is used up, visitors are asked to use the consultation form instead."
+  "web.chatbot_usage": "Each chatbot reply counts as one AI request on your plan. When the monthly allowance is used up, visitors are asked to use the consultation form instead.",
+
+  // Google Calendar
+  "google.title": "Google Calendar",
+  "google.help": "Adds a \"TrustiqLegal\" calendar to your Google account with the firm's hearings, deadlines and meetings and your tasks, kept up to date automatically. TrustiqLegal cannot see or change your other calendars.",
+  "google.connect": "Connect Google Calendar",
+  "google.reconnect": "Connect again",
+  "google.connected_as": "Connected to {email}",
+  "google.last_synced": "Last synced {when} · {n} items",
+  "google.first_sync": "The first sync is running. It can take a minute.",
+  "google.sync_now": "Sync now",
+  "google.synced": "Synced ({n} changes)",
+  "google.disconnect": "Disconnect",
+  "google.disconnect_confirm": "Disconnect Google Calendar? The TrustiqLegal calendar will be removed from your Google account.",
+  "google.disconnected": "Google Calendar disconnected",
+  "google.result_connected": "Google Calendar connected. Your events will appear shortly.",
+  "google.result_denied": "Google Calendar was not connected: access was not allowed.",
+  "google.result_scope": "Google Calendar was not connected: please allow TrustiqLegal to manage its calendar.",
+  "google.result_expired": "The Google sign-in took too long or was opened in another browser. Please try again.",
+  "google.result_error": "Google Calendar could not be connected. Please try again."
 }

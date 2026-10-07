@@ -1029,5 +1029,24 @@ export default {
   "web.greeting": "رسالة الترحيب",
   "web.knowledge": "معلومات للمساعد الآلي",
   "web.knowledge_hint": "معلومات يمكن للمساعد مشاركتها: آلية الاستشارة، سياسة الأتعاب، اللغات، المستندات المطلوبة، الأسئلة الشائعة. لا تُدرج معلومات سرية.",
-  "web.chatbot_usage": "يُحتسب كل رد من المساعد الآلي طلبًا واحدًا من طلبات الذكاء الاصطناعي في باقتك. عند نفاد الحصة الشهرية يُطلب من الزوار استخدام نموذج طلب الاستشارة."
+  "web.chatbot_usage": "يُحتسب كل رد من المساعد الآلي طلبًا واحدًا من طلبات الذكاء الاصطناعي في باقتك. عند نفاد الحصة الشهرية يُطلب من الزوار استخدام نموذج طلب الاستشارة.",
+
+  // Google Calendar
+  "google.title": "تقويم Google",
+  "google.help": "يضيف تقويم «TrustiqLegal» إلى حسابك في Google يتضمن جلسات المكتب ومواعيده واجتماعاته ومهامك، ويُحدَّث تلقائيًا. لا يستطيع TrustiqLegal رؤية تقاويمك الأخرى أو تعديلها.",
+  "google.connect": "ربط تقويم Google",
+  "google.reconnect": "إعادة الربط",
+  "google.connected_as": "مرتبط بالحساب {email}",
+  "google.last_synced": "آخر مزامنة {when} · {n} عنصر",
+  "google.first_sync": "المزامنة الأولى قيد التنفيذ وقد تستغرق دقيقة.",
+  "google.sync_now": "مزامنة الآن",
+  "google.synced": "تمت المزامنة ({n} تغيير)",
+  "google.disconnect": "إلغاء الربط",
+  "google.disconnect_confirm": "إلغاء ربط تقويم Google؟ سيُحذف تقويم TrustiqLegal من حسابك في Google.",
+  "google.disconnected": "تم إلغاء ربط تقويم Google",
+  "google.result_connected": "تم ربط تقويم Google. ستظهر مواعيدك خلال لحظات.",
+  "google.result_denied": "لم يتم ربط تقويم Google: لم يُسمح بالوصول.",
+  "google.result_scope": "لم يتم ربط تقويم Google: يُرجى السماح لـ TrustiqLegal بإدارة تقويمه.",
+  "google.result_expired": "استغرق تسجيل الدخول إلى Google وقتًا طويلًا أو فُتح في متصفح آخر. يُرجى المحاولة مرة أخرى.",
+  "google.result_error": "تعذّر ربط تقويم Google. يُرجى المحاولة مرة أخرى."
 }

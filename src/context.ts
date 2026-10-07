@@ -44,6 +44,8 @@ export type Deps = {
   tap: TapClient
   // Overridable in tests; defaults to a fetcher that refuses private network addresses.
   webFetch?: WebFetcher
+  // Overridable in tests; used for Google OAuth and Calendar API calls.
+  googleFetch?: typeof fetch
   limiters: { auth: RateLimiter; api: RateLimiter; ai: RateLimiter; webhook: RateLimiter; apiKey: RateLimiter }
 }
 
