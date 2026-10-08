@@ -126,7 +126,9 @@ async function openDetails(id, onChange) {
         <ol class="mt-2 text-xs space-y-1">${events.map((e) => html`<li class="flex flex-wrap gap-x-2"><span class="text-slate-500">${fmtDateTime(e.created_at)}</span>
           <span class="font-medium">${t(`sig.event_${e.event}`)}</span>${e.signer_name ? html`<span dir="auto">${e.signer_name}</span>` : ''}${e.detail ? html`<span class="text-slate-500" dir="auto">${e.detail}</span>` : ''}${e.ip ? html`<span class="text-slate-400 font-mono">${e.ip}</span>` : ''}</li>`)}</ol></details>
       <div class="flex flex-wrap justify-end gap-2 pt-4 border-t border-slate-100">
-        ${r.status === 'completed' ? html`<button class="btn btn-primary" data-action="download"><i class="fas fa-file-word"></i>${t('sig.download_signed')}</button>`
+        ${r.signed_document_id ? html`<a class="btn btn-outline" href="#/documents/${r.signed_document_id}"><i class="fas fa-file-circle-check"></i>${t('sig.open_signed_document')}</a>` : ''}
+        ${r.status === 'completed' ? html`<button class="btn btn-primary" data-action="download"><i class="fas ${r.file_mime === 'application/pdf' ? 'fa-file-pdf' : 'fa-file-word'}"></i>${t('sig.download_signed')}</button>
+            ${r.file_mime === 'application/pdf' ? html`<button class="btn btn-outline" data-action="download-docx"><i class="fas fa-file-word"></i>${t('sig.download_word')}</button>` : ''}`
           : html`<button class="btn btn-outline" data-action="download"><i class="fas fa-file-word"></i>${t('sig.download_record')}</button>`}
         ${r.status === 'pending' && !r.expired && canSend() ? html`<button class="btn btn-outline" data-action="remind"><i class="fas fa-bell"></i>${t('sig.remind')}</button>
           <button class="btn btn-ghost text-red-600" data-action="cancel">${t('sig.cancel')}</button>` : ''}
@@ -135,6 +137,7 @@ async function openDetails(id, onChange) {
     bind(body, {
       actions: {
         download: () => download(`/api/signatures/${id}/signed-copy`),
+        'download-docx': () => download(`/api/signatures/${id}/signed-copy?format=docx`),
         remind: (el) => busy(el, async () => {
           try { const res = await api.post(`/api/signatures/${id}/remind`); m.close(); showLinks(res.links, t('sig.reminded')) } catch (err) { showError(err) }
         }),
@@ -158,7 +161,8 @@ export async function signaturesView(root, ctx) {
       <thead><tr><th>${t('sig.document')}</th><th>${t('sig.signers')}</th><th>${t('common.status')}</th><th>${t('sig.sent_on')}</th><th></th></tr></thead>
       <tbody>${items.map((r) => html`<tr>
         <td><button class="font-medium text-start hover:underline" data-action="open" data-id="${r.id}" dir="auto">${r.title}</button>
-          ${r.document_id ? html`<div><a class="text-xs text-brand-600 hover:underline" href="#/documents/${r.document_id}">${t('sig.open_document')}</a></div>` : ''}</td>
+          <div class="flex flex-wrap gap-x-3">${r.document_id ? html`<a class="text-xs text-brand-600 hover:underline" href="#/documents/${r.document_id}">${t('sig.open_document')}</a>` : ''}
+          ${r.signed_document_id ? html`<a class="text-xs text-emerald-700 hover:underline" href="#/documents/${r.signed_document_id}"><i class="fas fa-file-circle-check"></i> ${t('sig.open_signed_document')}</a>` : ''}</div></td>
         <td><ul class="text-xs space-y-0.5">${r.signers.map((s) => html`<li><i class="fas ${SIGNER_ICONS[s.status]} me-1"></i><span dir="auto">${s.name}</span></li>`)}</ul></td>
         <td>${statusBadge(r)}</td>
         <td class="text-sm text-slate-500" title="${fmtDateTime(r.created_at)}">${fmtRelative(r.created_at)}${r.status === 'pending' && !r.expired ? html`<div class="text-xs">${t('sig.until', { date: fmtDate(r.expires_at) })}</div>` : ''}</td>

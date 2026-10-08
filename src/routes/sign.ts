@@ -6,7 +6,7 @@ import { RateLimiter } from '../lib/rate-limit'
 import { signPage, type SignState } from '../pages/sign-page'
 import { contentDisposition } from '../services/export'
 import { completeIfAllSigned, isExpired, logSignatureEvent, parseSignatureImage, signerByToken, type SignerContext } from '../services/signatures'
-import { signedCopy } from './signatures'
+import { signedCopy, storeSignedDocument } from './signatures'
 
 // ---------------------------------------------------------------------------
 // Public signing pages at /sign/:token. The token is the signer's credential.
@@ -88,9 +88,10 @@ export function signRoutes(deps: Deps, assetVersion: string) {
   app.get('/:token/signed-copy', async (c) => {
     const s = await signerByToken(db, c.req.param('token'))
     if (!s || s.request_status !== 'completed') return c.body(null, 404)
-    const { buf, name } = await signedCopy(c, s.org_id, s.request_id)
+    const fmt = c.req.query('format')
+    const { buf, name, mime } = await signedCopy(db, s.org_id, s.request_id, fmt === 'docx' || fmt === 'pdf' ? fmt : undefined)
     await logSignatureEvent(db, s.request_id, s.signer_id, 'downloaded', { ip: clientIp(c) })
-    c.header('content-type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+    c.header('content-type', mime)
     c.header('content-disposition', contentDisposition(name))
     return c.body(new Uint8Array(buf))
   })
@@ -130,8 +131,9 @@ export function signRoutes(deps: Deps, assetVersion: string) {
       await logSignatureEvent(q, s.request_id, s.signer_id, 'signed', { detail: `as "${signedName}"${image ? ' with drawn signature' : ''}; consent given`, ip, userAgent })
       completed = await completeIfAllSigned(q, s.request_id)
     })
+    if (completed) await storeSignedDocument(db, s.org_id, s.request_id, log)
     await notifyFirm(s, completed ? `Signed by everyone: ${s.title.slice(0, 80)}` : `Signed by ${s.name}: ${s.title.slice(0, 80)}`,
-      completed ? `"${s.title}" has been signed by all signers. Download the signed copy from TrustiqLegal.` : `${s.name} signed "${s.title}".`)
+      completed ? `"${s.title}" has been signed by all signers. The signed copy is saved in Documents.` : `${s.name} signed "${s.title}".`)
     return back()
   })
 

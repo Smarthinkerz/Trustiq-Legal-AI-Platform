@@ -243,6 +243,10 @@ const SL = {
   ]
 } as const
 
+// A line with a blank to sign on that is labelled as a signature.
+export const isSignatureLine = (line: string) =>
+  /[_.…]{4,}/.test(line) && /(signature|signed by|sign here|التوقيع|توقيع|الموقع)/i.test(line)
+
 const utc = (d: Date | string | null | undefined) => (d ? new Date(d).toISOString().replace('T', ' ').slice(0, 19) : '—')
 
 export async function renderSignedDocx(d: SignedCopy): Promise<Buffer> {
@@ -260,9 +264,24 @@ export async function renderSignedDocx(d: SignedCopy): Promise<Buffer> {
   })
 
   const body: (Paragraph | Table)[] = [p(d.title, { bold: true, size: 32, center: true, after: 300 })]
+  // Signature lines in the text ("Signature: ______", "التوقيع: ______") receive the signers' stamps in order.
+  const stamps = d.signers.filter((s) => s.signature_image)
+  let nextStamp = 0
   for (const raw of d.content.replace(/\r\n?/g, '\n').split('\n')) {
     const line = raw.trimEnd()
     const lineRtl = rtl || hasArabic(line)
+    if (nextStamp < stamps.length && isSignatureLine(line)) {
+      const s = stamps[nextStamp++]!
+      const label = line.replace(/[_.…]{4,}/g, '').trim()
+      body.push(new Paragraph({
+        bidirectional: lineRtl, alignment: lineRtl ? AlignmentType.RIGHT : AlignmentType.LEFT, spacing: { before: 120, after: 120 },
+        children: [
+          ...(label ? [new TextRun({ text: `${label} `, size: 22, font, rightToLeft: lineRtl })] : []),
+          new ImageRun({ type: 'png', data: Buffer.from(s.signature_image!), transformation: { width: 165, height: 60 } })
+        ]
+      }))
+      continue
+    }
     body.push(new Paragraph({
       bidirectional: lineRtl, alignment: lineRtl ? AlignmentType.RIGHT : AlignmentType.JUSTIFIED, spacing: { after: line ? 120 : 60, line: 300 },
       children: [new TextRun({ text: line, bold: !!line && isHeading(line.trim()), size: 22, font, rightToLeft: lineRtl })]

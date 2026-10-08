@@ -703,6 +703,13 @@ CREATE TABLE signature_events (
 );
 CREATE INDEX signature_events_request_idx ON signature_events (request_id, id);
 `
+    },
+  {
+    version: 10,
+    name: 'signed_documents',
+    sql: `
+ALTER TABLE signature_requests ADD COLUMN signed_document_id UUID REFERENCES documents(id) ON DELETE SET NULL;
+`
   }
 ]
 

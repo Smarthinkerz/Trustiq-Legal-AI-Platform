@@ -1,5 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 import { unzipSync, strFromU8 } from 'fflate'
+import { PDFDocument, StandardFonts } from 'pdf-lib'
+import { isSignatureLine } from '../src/services/export'
 import { parseSignatureImage } from '../src/services/signatures'
 import { client, registered, setup } from './helpers'
 
@@ -147,5 +149,55 @@ describe('e-signature requests', () => {
     expect((await client(ctx.app).get(new URL(open.data.url).pathname)).data).toContain('Engagement letter')
     // Portal users cannot reach the firm API.
     expect((await portal.get('/api/signatures')).status).toBe(403)
+  })
+
+  it('puts signatures on the signature lines and files the signed copy in Documents', async () => {
+    expect(isSignatureLine('Client signature: ______________')).toBe(true)
+    expect(isSignatureLine('التوقيع: ..........')).toBe(true)
+    expect(isSignatureLine('Fees: ______')).toBe(false)
+    const { c, docId } = await firmWithDocument('AGREEMENT\nThe parties agree.\n\nClient signature: ______________\nFirm signature: ______________')
+    const sent = await c.post('/api/signatures', { document_id: docId, signers: [{ name: 'Client One', email: '' }, { name: 'Partner Two', email: '' }] })
+    for (const [i, name] of ['Client One', 'Partner Two'].entries()) {
+      await ctx.app.request(`/sign/${tokenOf(sent.data.links[i].url)}`, { method: 'POST', ...form({ action: 'sign', signed_name: name, consent: 'on', signature: PNG }) })
+    }
+    const detail = await c.get(`/api/signatures/${sent.data.id}`)
+    expect(detail.data.request.signed_document_id).toBeTruthy()
+    const signedDoc = await c.get(`/api/documents/${detail.data.request.signed_document_id}`)
+    expect(signedDoc.data.document).toMatchObject({ title: 'Engagement letter (signed)', status: 'final', file_name: 'Engagement letter – signed.docx' })
+    const file = await ctx.app.request(`/api/documents/${detail.data.request.signed_document_id}/file`, { headers: { cookie: c.cookie } })
+    const zip = unzipSync(new Uint8Array(await file.arrayBuffer()))
+    const xml = strFromU8(zip['word/document.xml']!)
+    // Both signature lines now hold a signature image, before the signature page.
+    const beforePage = xml.slice(0, xml.indexOf('Signature page'))
+    expect(beforePage.match(/<w:drawing>/g)?.length).toBe(2)
+    expect(beforePage).toContain('Client signature:')
+    expect(beforePage).not.toContain('______________')
+  })
+
+  it('stamps an uploaded PDF and appends a signature page', async () => {
+    const owner = await registered(ctx.app)
+    const src = await PDFDocument.create()
+    const f = await src.embedFont(StandardFonts.Helvetica)
+    for (let i = 0; i < 2; i++) src.addPage([595, 842]).drawText(`Lease agreement page ${i + 1}`, { x: 50, y: 780, size: 14, font: f })
+    const upload = new FormData()
+    upload.set('file', new File([new Uint8Array(await src.save())], 'lease.pdf', { type: 'application/pdf' }))
+    upload.set('title', 'Lease agreement')
+    const up = await owner.c.post('/api/documents/upload', upload)
+    expect(up.status).toBe(201)
+    const sent = await owner.c.post('/api/signatures', { document_id: up.data.document.id, signers: [{ name: 'Tenant Name', email: '' }] })
+    const token = tokenOf(sent.data.links[0].url)
+    expect((await client(ctx.app).get(`/sign/${token}`)).data).toContain('lease.pdf')
+    await ctx.app.request(`/sign/${token}`, { method: 'POST', ...form({ action: 'sign', signed_name: 'Tenant Name', consent: 'on', signature: PNG }) })
+
+    const res = await ctx.app.request(`/api/signatures/${sent.data.id}/signed-copy`, { headers: { cookie: owner.c.cookie } })
+    expect(res.headers.get('content-type')).toBe('application/pdf')
+    const signed = await PDFDocument.load(new Uint8Array(await res.arrayBuffer()))
+    expect(signed.getPageCount()).toBe(3)
+    const word = await ctx.app.request(`/api/signatures/${sent.data.id}/signed-copy?format=docx`, { headers: { cookie: owner.c.cookie } })
+    expect(word.headers.get('content-type')).toContain('wordprocessingml')
+    const fromSigner = await ctx.app.request(`/sign/${token}/signed-copy`)
+    expect(fromSigner.headers.get('content-type')).toBe('application/pdf')
+    const d = (await owner.c.get(`/api/signatures/${sent.data.id}`)).data.request
+    expect((await owner.c.get(`/api/documents/${d.signed_document_id}`)).data.document.file_name).toBe('Lease agreement – signed.pdf')
   })
 })

@@ -3,7 +3,11 @@ import { z } from 'zod'
 import { audit, auth, requireRole, type AppEnv, type Ctx } from '../context'
 import { badRequest, conflict, notFound } from '../lib/errors'
 import { jsonBody, optUuid, queryParams, uuidParam } from '../lib/http'
+import type { Db } from '../db'
+import type { Logger } from '../lib/logger'
 import { contentDisposition, renderSignedDocx, safeFileName } from '../services/export'
+import { renderSignedPdf } from '../services/signed-pdf'
+import { insertDocument } from './documents'
 import {
   DEFAULT_EXPIRY_DAYS, issueSigningToken, logSignatureEvent, sendSigningInvitation, sha256, signingUrl
 } from '../services/signatures'
@@ -25,7 +29,7 @@ signaturesRoutes.get('/', queryParams(z.object({ document_id: z.string().uuid().
   if (document_id) { params.push(document_id); where += ` AND r.document_id = $${params.length}` }
   if (status !== 'all') { params.push(status); where += ` AND r.status = $${params.length}` }
   const items = await c.get('deps').db.query(
-    `SELECT r.id, r.title, r.status, r.document_id, r.case_id, r.client_id, r.expires_at, r.created_at, r.completed_at,
+    `SELECT r.id, r.title, r.status, r.document_id, r.signed_document_id, r.case_id, r.client_id, r.expires_at, r.created_at, r.completed_at,
             (r.status = 'pending' AND r.expires_at < now()) AS expired, u.name AS created_by_name,
             coalesce((SELECT json_agg(json_build_object('id', s.id, 'name', s.name, 'email', s.email, 'status', s.status, 'signed_at', s.signed_at) ORDER BY s.position)
                         FROM signature_signers s WHERE s.request_id = r.id), '[]') AS signers
@@ -39,7 +43,7 @@ signaturesRoutes.get('/:id', async (c) => {
   const id = uuidParam(c.req.param('id'), 'Signature request')
   const { db } = c.get('deps')
   const request = await db.one(
-    `SELECT id, title, message, language, status, document_id, case_id, client_id, content_hash, file_name, file_hash, expires_at, created_at, completed_at,
+    `SELECT id, title, message, language, status, document_id, case_id, client_id, content_hash, file_name, file_mime, file_hash, expires_at, created_at, completed_at, signed_document_id,
             (status = 'pending' AND expires_at < now()) AS expired
        FROM signature_requests WHERE id = $1 AND org_id = $2`, [id, org.id])
   if (!request) throw notFound('Signature request')
@@ -134,8 +138,10 @@ signaturesRoutes.post('/:id/cancel', async (c) => {
   return c.json({ ok: true })
 })
 
-export async function signedCopy(c: Ctx, orgId: string, requestId: string) {
-  const { db } = c.get('deps')
+const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+
+// The signed copy: a signed PDF when the original is a PDF (and can be opened), otherwise Word.
+export async function signedCopy(db: Db, orgId: string, requestId: string, format?: 'pdf' | 'docx') {
   const r = await db.one('SELECT * FROM signature_requests WHERE id = $1 AND org_id = $2', [requestId, orgId])
   if (!r) throw notFound('Signature request')
   const [signers, events, letterhead] = await Promise.all([
@@ -143,19 +149,48 @@ export async function signedCopy(c: Ctx, orgId: string, requestId: string) {
     db.query(`SELECT e.event, e.detail, e.ip, e.created_at, s.name AS signer_name FROM signature_events e LEFT JOIN signature_signers s ON s.id = e.signer_id WHERE e.request_id = $1 ORDER BY e.id`, [requestId]),
     db.one('SELECT firm_name, firm_name_ar, address, phone, email, website, footer_text, primary_color, logo, logo_mime FROM branding WHERE org_id = $1', [orgId])
   ])
-  const buf = await renderSignedDocx({
+  const copy = {
     title: r.title, content: r.content || (r.file_name ? `(${r.file_name})` : ''), language: r.language, letterhead: letterhead ?? null,
     contentHash: r.content_hash, fileName: r.file_name, fileHash: r.file_hash, completedAt: r.completed_at, signers: signers as any, events: events as any
-  })
-  return { buf, name: safeFileName(`${r.title} – ${r.status === 'completed' ? 'signed' : r.status}`, 'docx') }
+  }
+  const suffix = r.status === 'completed' ? 'signed' : r.status
+  if (format !== 'docx' && r.file_data && r.file_mime === 'application/pdf') {
+    const pdf = await renderSignedPdf(new Uint8Array(r.file_data), { ...copy, reference: String(r.id).slice(0, 8).toUpperCase() })
+    if (pdf) return { buf: Buffer.from(pdf), name: safeFileName(`${r.title} – ${suffix}`, 'pdf'), mime: 'application/pdf' }
+  }
+  const buf = await renderSignedDocx(copy)
+  return { buf, name: safeFileName(`${r.title} – ${suffix}`, 'docx'), mime: DOCX_MIME }
 }
 
-signaturesRoutes.get('/:id/signed-copy', async (c) => {
+// Files the signed copy in Documents next to the original once everyone has signed.
+export async function storeSignedDocument(db: Db, orgId: string, requestId: string, log?: Logger) {
+  try {
+    const r = await db.one(
+      `SELECT r.id, r.title, r.content, r.language, r.case_id, r.client_id, r.created_by, r.signed_document_id,
+              d.doc_type, d.jurisdiction, coalesce(d.shared_with_client, false) AS shared
+         FROM signature_requests r LEFT JOIN documents d ON d.id = r.document_id
+        WHERE r.id = $1 AND r.org_id = $2 AND r.status = 'completed'`, [requestId, orgId])
+    if (!r || r.signed_document_id) return null
+    const { buf, name, mime } = await signedCopy(db, orgId, requestId)
+    const doc = await insertDocument(db, {
+      orgId, userId: r.created_by, title: `${r.title} (${r.language === 'ar' ? 'موقّع' : 'signed'})`, docType: r.doc_type ?? 'other',
+      language: r.language, jurisdiction: r.jurisdiction ?? null, status: 'final', source: 'upload', content: r.content ?? '',
+      caseId: r.case_id, clientId: r.client_id, file: { name, mime, bytes: new Uint8Array(buf) }, sharedWithClient: r.shared
+    })
+    await db.query('UPDATE signature_requests SET signed_document_id = $2 WHERE id = $1', [requestId, doc!.id])
+    return doc!.id as string
+  } catch (err) {
+    log?.error('storing signed document failed', { requestId, err })
+    return null
+  }
+}
+
+signaturesRoutes.get('/:id/signed-copy', queryParams(z.object({ format: z.enum(['pdf', 'docx']).optional() })), async (c) => {
   const { org } = auth(c)
   const id = uuidParam(c.req.param('id'), 'Signature request')
-  const { buf, name } = await signedCopy(c, org.id, id)
+  const { buf, name, mime } = await signedCopy(c.get('deps').db, org.id, id, c.req.valid('query').format)
   await audit(c, 'signature.downloaded', 'signature_request', id)
-  c.header('content-type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+  c.header('content-type', mime)
   c.header('content-disposition', contentDisposition(name))
   return c.body(new Uint8Array(buf))
 })
