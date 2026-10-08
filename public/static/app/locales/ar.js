@@ -1117,5 +1117,7 @@ export default {
   "sig.event_downloaded": "تنزيل النسخة الموقّعة",
   "portal.to_sign": "مستندات بانتظار توقيعك",
   "portal.sign_until": "يُرجى التوقيع قبل {date}",
-  "portal.review_sign": "مراجعة وتوقيع"
+  "portal.review_sign": "مراجعة وتوقيع",
+  "sig.open_signed_document": "المستند الموقّع",
+  "sig.download_word": "نسخة Word"
 }

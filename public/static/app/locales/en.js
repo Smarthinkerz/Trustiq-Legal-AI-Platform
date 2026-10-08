@@ -1117,5 +1117,7 @@ export default {
   "sig.event_downloaded": "Signed copy downloaded",
   "portal.to_sign": "Documents waiting for your signature",
   "portal.sign_until": "Please sign by {date}",
-  "portal.review_sign": "Review & sign"
+  "portal.review_sign": "Review & sign",
+  "sig.open_signed_document": "Signed document",
+  "sig.download_word": "Word version"
 }
