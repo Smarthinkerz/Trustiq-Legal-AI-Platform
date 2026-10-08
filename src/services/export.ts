@@ -125,6 +125,8 @@ type InvoiceData = {
   letterhead: Letterhead | null
   billing: { vat_number?: string | null; bank_details?: string | null; invoice_footer?: string | null }
   language: 'en' | 'ar'
+  // Saudi e-invoicing QR (phase 1); simplified = no buyer VAT number (B2C).
+  zatca?: { png: Buffer; simplified: boolean } | null
 }
 
 const L = {
@@ -134,7 +136,8 @@ const L = {
   qty: ['Qty / hours', 'الكمية / الساعات'], price: ['Rate', 'السعر'], amount: ['Amount', 'المبلغ'],
   subtotal: ['Subtotal', 'المجموع الفرعي'], vat: ['VAT', 'ضريبة القيمة المضافة'], total: ['Total', 'الإجمالي'],
   paid: ['Paid', 'المدفوع'], balance: ['Balance due', 'الرصيد المستحق'], bank: ['Payment details', 'بيانات الدفع'], notes: ['Notes', 'ملاحظات'],
-  status_void: ['VOID', 'ملغاة']
+  status_void: ['VOID', 'ملغاة'], simplified: ['Simplified Tax Invoice', 'فاتورة ضريبية مبسطة'],
+  buyer_vat: ['Customer VAT no.', 'الرقم الضريبي للعميل'], issued_at: ['Issued at', 'وقت الإصدار']
 } as const
 
 export async function renderInvoiceDocx(d: InvoiceData): Promise<Buffer> {
@@ -156,18 +159,20 @@ export async function renderInvoiceDocx(d: InvoiceData): Promise<Buffer> {
     children: [p(text, { bold: o.bold, alignment: o.right ? AlignmentType.RIGHT : align })]
   })
 
-  const title = inv.status === 'draft' ? lbl('draft') : lbl('tax_invoice')
+  const title = inv.status === 'draft' ? lbl('draft') : d.zatca?.simplified ? lbl('simplified') : lbl('tax_invoice')
   const meta: Paragraph[] = [
     p(title + (inv.status === 'void' ? `  –  ${lbl('status_void')}` : ''), { bold: true, size: 32, color }),
     p(`${lbl('number')}: ${inv.number ?? '—'}`),
     p(`${lbl('issued')}: ${inv.issue_date ? new Date(inv.issue_date).toISOString().slice(0, 10) : '—'}`),
     p(`${lbl('due')}: ${inv.due_date ? new Date(inv.due_date).toISOString().slice(0, 10) : '—'}`),
     ...(d.billing.vat_number ? [p(`${lbl('vat_no')}: ${d.billing.vat_number}`)] : []),
+    ...(d.zatca && inv.issued_at ? [p(`${lbl('issued_at')}: ${new Date(inv.issued_at).toISOString().replace('T', ' ').slice(0, 16)} UTC`)] : []),
     p(''),
     p(lbl('bill_to'), { bold: true }),
     p([inv.client_name, inv.client_name_ar].filter(Boolean).join(' – ')),
     ...(inv.client_address ? [p(inv.client_address)] : []),
     ...(inv.client_id_number ? [p(inv.client_id_number)] : []),
+    ...(inv.client_vat_number ? [p(`${lbl('buyer_vat')}: ${inv.client_vat_number}`)] : []),
     ...(inv.case_reference ? [p(`${lbl('matter')}: ${inv.case_reference} – ${inv.case_title ?? ''}`)] : []),
     p('')
   ]
@@ -197,6 +202,10 @@ export async function renderInvoiceDocx(d: InvoiceData): Promise<Buffer> {
   })
 
   const after: Paragraph[] = [p('')]
+  if (d.zatca) {
+    after.push(new Paragraph({ alignment: rtl ? AlignmentType.LEFT : AlignmentType.RIGHT, spacing: { before: 120, after: 120 },
+      children: [new ImageRun({ type: 'png', data: d.zatca.png, transformation: { width: 120, height: 120 } })] }))
+  }
   if (inv.notes) after.push(p(lbl('notes'), { bold: true }), ...String(inv.notes).split('\n').map((x) => p(x)))
   if (d.billing.bank_details) after.push(p(''), p(lbl('bank'), { bold: true }), ...String(d.billing.bank_details).split('\n').map((x) => p(x)))
   if (d.billing.invoice_footer) after.push(p(''), p(d.billing.invoice_footer, { size: 16, color: '666666' }))

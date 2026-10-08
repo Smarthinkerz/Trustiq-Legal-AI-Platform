@@ -14,12 +14,13 @@ const clientFields = {
   email: z.string().trim().email().max(254).nullish().or(z.literal('')).transform((v) => v || null),
   phone: optText(60),
   id_number: optText(80),
+  vat_number: optText(40),
   address: optText(500),
   notes: optText(5000)
 }
 const createSchema = z.object({ ...clientFields, kind: clientFields.kind.default('individual') })
 const updateSchema = z.object({ ...clientFields, archived: z.boolean() }).partial()
-const UPDATABLE = ['kind', 'name', 'name_ar', 'email', 'phone', 'id_number', 'address', 'notes'] as const
+const UPDATABLE = ['kind', 'name', 'name_ar', 'email', 'phone', 'id_number', 'vat_number', 'address', 'notes'] as const
 
 const clientsRoutes = new Hono<AppEnv>()
 
@@ -61,9 +62,9 @@ clientsRoutes.post('/', jsonBody(createSchema), async (c) => {
   const { user, org } = auth(c)
   const b = c.req.valid('json')
   const client = await c.get('deps').db.one(
-    `INSERT INTO clients (org_id, kind, name, name_ar, email, phone, id_number, address, notes, created_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
-    [org.id, b.kind, b.name, b.name_ar, b.email, b.phone, b.id_number, b.address, b.notes, user.id])
+    `INSERT INTO clients (org_id, kind, name, name_ar, email, phone, id_number, vat_number, address, notes, created_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
+    [org.id, b.kind, b.name, b.name_ar, b.email, b.phone, b.id_number, b.vat_number, b.address, b.notes, user.id])
   await audit(c, 'client.created', 'client', client!.id)
   return c.json({ client }, 201)
 })

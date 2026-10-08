@@ -43,6 +43,7 @@ export function openClientForm({ client, onSaved } = {}) {
         <div class="sm:col-span-2" data-conflicts></div>
         ${inputField({ name: 'email', label: t('clients.email'), type: 'email', value: c.email, attrs: 'dir="ltr"' })}
         ${inputField({ name: 'phone', label: t('clients.phone'), type: 'tel', value: c.phone, attrs: 'dir="ltr"' })}
+        ${inputField({ name: 'vat_number', label: t('clients.vat_number'), value: c.vat_number, hint: t('clients.vat_number_hint'), attrs: 'dir="ltr"' })}
         ${textareaField({ name: 'address', label: t('clients.address'), value: c.address, rows: 2, cls: 'sm:col-span-2' })}
         ${textareaField({ name: 'notes', label: t('clients.notes'), value: c.notes, rows: 3, cls: 'sm:col-span-2' })}
         <div class="sm:col-span-2">${formActions(client ? t('common.save') : t('clients.create'))}</div>
