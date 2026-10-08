@@ -20,6 +20,8 @@ import deadlinesRoutes from './routes/deadlines'
 import importsRoutes from './routes/imports'
 import websiteRoutes from './routes/website'
 import integrationsRoutes from './routes/integrations'
+import signaturesRoutes from './routes/signatures'
+import { signRoutes } from './routes/sign'
 import { markCalendarsDirty } from './services/google-calendar'
 import { firmSiteRoutes } from './routes/firm-site'
 import { helpRoutes } from './routes/help'
@@ -161,7 +163,7 @@ export function createApp(deps: Deps) {
     ['/api/documents', documentsRoutes], ['/api/events', eventsRoutes], ['/api/ai', aiRoutes],
     ['/api/library', libraryRoutes], ['/api/billing', billingRoutes], ['/api/reports', reportsRoutes],
     ['/api/tasks', tasksRoutes], ['/api/workspace', workspaceRoutes], ['/api/portal', portalRoutes],
-    ['/api/deadlines', deadlinesRoutes], ['/api/import', importsRoutes], ['/api/website', websiteRoutes]
+    ['/api/deadlines', deadlinesRoutes], ['/api/import', importsRoutes], ['/api/website', websiteRoutes], ['/api/signatures', signaturesRoutes]
   ] as const) {
     app.use(`${path}/*`, requireActiveSubscription)
     app.use(path, requireActiveSubscription)
@@ -256,6 +258,8 @@ export function createApp(deps: Deps) {
   app.route('/f', firmSiteRoutes(deps, assetVersion))
   // Homepage assistant about the platform itself.
   app.route('/help', helpRoutes(deps))
+  // Public e-signature pages (the link token is the signer's credential).
+  app.route('/sign', signRoutes(deps, assetVersion))
 
   app.notFound((c) => c.html(legalPage('404', { assetVersion, supportEmail: config.supportEmail }), 404))
 

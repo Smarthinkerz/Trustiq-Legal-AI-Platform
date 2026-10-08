@@ -1,13 +1,14 @@
 import { api, download } from '../api.js'
 import { bind, formData, html, qs, raw, render } from '../dom.js'
 import { fmtBytes, fmtDateTime, fmtRelative, getLang, t } from '../i18n.js'
-import { aiEnabled, canDelete, readOnly, refLabel, refOptions, store } from '../store.js'
+import { aiEnabled, can, canDelete, readOnly, refLabel, refOptions, store } from '../store.js'
 import {
   aiDisclaimer, busy, clearFieldErrors, confirmDialog, debounce, emptyState, formActions, inputField, modal, pageHeader,
   pagination, selectField, severityBadge, showError, spinner, statusBadge, submitButton, textareaField, toast
 } from '../ui.js'
 import { searchPicker, wirePickers } from './pickers.js'
 import { setLeaveGuard } from '../main.js'
+import { openSignatureDialog } from './signatures.js'
 
 const DOC_STATUSES = ['draft', 'review', 'final']
 const OTHER_TYPES = ['contract', 'correspondence', 'evidence', 'court_filing', 'other']
@@ -255,6 +256,7 @@ export async function documentDetailView(root, { params, isCurrent, rerender }) 
       <div class="flex flex-wrap gap-2">
         ${ro ? '' : selectField({ name: 'status', options: DOC_STATUSES.map((s) => ({ value: s, label: t(`status.${s}`) })), value: d.status, cls: 'w-32', attrs: `data-change="status" aria-label="${t('common.status')}"` })}
         <button class="btn btn-outline" data-action="export"><i class="fas fa-file-word"></i>${t('docs.export_word')}</button>
+        ${!ro && can('owner', 'admin', 'lawyer') ? html`<button class="btn btn-outline" data-action="sign"><i class="fas fa-signature"></i>${t('sig.send_for_signature')}</button>` : ''}
         ${d.file_name ? html`<button class="btn btn-outline" data-action="original" title="${d.file_name}"><i class="fas fa-download"></i>${t('docs.original')}</button>` : ''}
         ${canDelete() && !ro ? html`<button class="btn btn-danger-ghost" data-action="delete" aria-label="${t('common.delete')}"><i class="fas fa-trash"></i></button>` : ''}
       </div>
@@ -339,6 +341,10 @@ export async function documentDetailView(root, { params, isCurrent, rerender }) 
         download(`/api/documents/${d.id}/export?format=docx`)
       },
       original: () => download(`/api/documents/${d.id}/file`),
+      sign: async () => {
+        if (dirty && !(await confirmLeaveUnsaved())) return
+        openSignatureDialog(d)
+      },
       delete: async () => {
         if (!(await confirmDialog(t('docs.confirm_delete', { title: d.title })))) return
         try {

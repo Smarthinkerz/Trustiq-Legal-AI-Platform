@@ -639,6 +639,70 @@ CREATE TABLE calendar_sync_items (
   PRIMARY KEY (user_id, item_key)
 );
 `
+    },
+  {
+    version: 9,
+    name: 'e_signatures',
+    sql: `
+CREATE TABLE signature_requests (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  document_id UUID REFERENCES documents(id) ON DELETE SET NULL,
+  case_id UUID REFERENCES cases(id) ON DELETE SET NULL,
+  client_id UUID REFERENCES clients(id) ON DELETE SET NULL,
+  title TEXT NOT NULL,
+  message TEXT,
+  language TEXT NOT NULL DEFAULT 'en' CHECK (language IN ('en','ar')),
+  content TEXT NOT NULL,
+  content_hash TEXT NOT NULL,
+  file_name TEXT,
+  file_mime TEXT,
+  file_data BYTEA,
+  file_hash TEXT,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','completed','declined','cancelled')),
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  completed_at TIMESTAMPTZ
+);
+CREATE INDEX signature_requests_org_idx ON signature_requests (org_id, created_at DESC);
+CREATE TABLE signature_signers (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  request_id UUID NOT NULL REFERENCES signature_requests(id) ON DELETE CASCADE,
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  client_id UUID REFERENCES clients(id) ON DELETE SET NULL,
+  name TEXT NOT NULL,
+  email TEXT,
+  position INTEGER NOT NULL DEFAULT 1,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','viewed','signed','declined')),
+  viewed_at TIMESTAMPTZ,
+  signed_at TIMESTAMPTZ,
+  declined_at TIMESTAMPTZ,
+  decline_reason TEXT,
+  signed_name TEXT,
+  signature_image BYTEA,
+  ip TEXT,
+  user_agent TEXT
+);
+CREATE INDEX signature_signers_request_idx ON signature_signers (request_id);
+CREATE INDEX signature_signers_client_idx ON signature_signers (client_id);
+CREATE TABLE signature_tokens (
+  token_hash TEXT PRIMARY KEY,
+  signer_id UUID NOT NULL REFERENCES signature_signers(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE signature_events (
+  id BIGSERIAL PRIMARY KEY,
+  request_id UUID NOT NULL REFERENCES signature_requests(id) ON DELETE CASCADE,
+  signer_id UUID REFERENCES signature_signers(id) ON DELETE CASCADE,
+  event TEXT NOT NULL,
+  detail TEXT,
+  ip TEXT,
+  user_agent TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX signature_events_request_idx ON signature_events (request_id, id);
+`
   }
 ]
 
