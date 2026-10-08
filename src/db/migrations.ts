@@ -710,6 +710,15 @@ CREATE INDEX signature_events_request_idx ON signature_events (request_id, id);
     sql: `
 ALTER TABLE signature_requests ADD COLUMN signed_document_id UUID REFERENCES documents(id) ON DELETE SET NULL;
 `
+  },
+  {
+    version: 11,
+    name: 'zatca_invoicing',
+    sql: `
+ALTER TABLE invoices ADD COLUMN issued_at TIMESTAMPTZ;
+UPDATE invoices SET issued_at = issue_date::timestamptz WHERE issue_date IS NOT NULL;
+ALTER TABLE clients ADD COLUMN vat_number TEXT;
+`
   }
 ]
 

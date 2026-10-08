@@ -8,6 +8,7 @@ import { CURRENCIES } from '../services/reference'
 import { computeTotals, orgBilling, recalcInvoice, roundMoney, timeAmount } from '../services/billing'
 import { contentDisposition, renderInvoiceDocx, safeFileName } from '../services/export'
 import { ACCEPTED_TYPES } from '../services/extract'
+import { invoiceZatcaQr, isSaudiVatNumber, zatcaApplies } from '../services/zatca'
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use a date in YYYY-MM-DD format')
 const money = z.number().min(0).max(1e12)
@@ -48,6 +49,10 @@ billingRoutes.put('/settings', jsonBody(z.object({
   requireRole(c, 'owner', 'admin')
   const { org } = auth(c)
   const b = c.req.valid('json')
+  if (b.vat_number && zatcaApplies(org.default_jurisdiction, org.default_currency) && !isSaudiVatNumber(b.vat_number.replace(/\s/g, ''))) {
+    throw badRequest('A Saudi VAT registration number has 15 digits and starts and ends with 3.')
+  }
+  if (b.vat_number && zatcaApplies(org.default_jurisdiction, org.default_currency)) b.vat_number = b.vat_number.replace(/\s/g, '')
   await c.get('deps').db.query(
     `UPDATE organizations SET vat_number = $2, vat_rate = $3, payment_terms_days = $4, bank_details = $5, invoice_footer = $6, default_hourly_rate = $7, updated_at = now()
       WHERE id = $1`, [org.id, b.vat_number, b.vat_rate, b.payment_terms_days, b.bank_details, b.invoice_footer, b.default_hourly_rate])
@@ -274,7 +279,7 @@ billingRoutes.get('/invoices', queryParams(z.object({
 
 async function loadInvoice(q: Queryable, orgId: string, id: string) {
   const [invoice] = await q.query(
-    `SELECT i.*, cl.name AS client_name, cl.name_ar AS client_name_ar, cl.email AS client_email, cl.address AS client_address, cl.id_number AS client_id_number,
+    `SELECT i.*, cl.name AS client_name, cl.name_ar AS client_name_ar, cl.email AS client_email, cl.address AS client_address, cl.id_number AS client_id_number, cl.vat_number AS client_vat_number,
             k.reference AS case_reference, k.title AS case_title, (i.status = 'issued' AND i.due_date < CURRENT_DATE) AS overdue
        FROM invoices i JOIN clients cl ON cl.id = i.client_id LEFT JOIN cases k ON k.id = i.case_id
       WHERE i.id = $1 AND i.org_id = $2`, [id, orgId])
@@ -283,9 +288,20 @@ async function loadInvoice(q: Queryable, orgId: string, id: string) {
   return { invoice, lines }
 }
 
+async function zatcaFor(q: Queryable, orgId: string, invoice: Record<string, any>) {
+  const [o] = await q.query('SELECT name, vat_number, default_jurisdiction FROM organizations WHERE id = $1', [orgId])
+  return invoiceZatcaQr(invoice, { name: o.name, vat_number: o.vat_number, jurisdiction: o.default_jurisdiction })
+}
+
+async function invoiceJson(q: Queryable, orgId: string, id: string) {
+  const data = await loadInvoice(q, orgId, id)
+  const qr = await zatcaFor(q, orgId, data.invoice)
+  return { ...data, zatca: qr ? { qr: qr.dataUrl, tlv: qr.tlv, simplified: qr.simplified } : null }
+}
+
 billingRoutes.get('/invoices/:id', async (c) => {
   const { org } = auth(c)
-  return c.json(await loadInvoice(c.get('deps').db, org.id, uuidParam(c.req.param('id'), 'Invoice')))
+  return c.json(await invoiceJson(c.get('deps').db, org.id, uuidParam(c.req.param('id'), 'Invoice')))
 })
 
 billingRoutes.post('/invoices', jsonBody(z.object({
@@ -389,12 +405,12 @@ billingRoutes.post('/invoices/:id/issue', async (c) => {
     const [o] = await q.query('UPDATE organizations SET invoice_seq = invoice_seq + 1 WHERE id = $1 RETURNING invoice_seq, payment_terms_days', [org.id])
     const number = `INV-${new Date().getFullYear()}-${String(o.invoice_seq).padStart(4, '0')}`
     await q.query(
-      `UPDATE invoices SET status = 'issued', number = $3, issue_date = CURRENT_DATE,
+      `UPDATE invoices SET status = 'issued', number = $3, issue_date = CURRENT_DATE, issued_at = now(),
               due_date = COALESCE(due_date, CURRENT_DATE + $4::int), updated_at = now() WHERE id = $1 AND org_id = $2`,
       [id, org.id, number, o.payment_terms_days])
   })
   await audit(c, 'billing.invoice_issued', 'invoice', id)
-  return c.json(await loadInvoice(db, org.id, id))
+  return c.json(await invoiceJson(db, org.id, id))
 })
 
 billingRoutes.post('/invoices/:id/payments', jsonBody(z.object({ amount: z.number().positive().max(1e12) })), async (c) => {
@@ -458,7 +474,8 @@ export async function invoiceDocxResponse(db: Queryable, orgId: string, id: stri
   const { invoice, lines } = await loadInvoice(db, orgId, id)
   const [lh] = await db.query('SELECT * FROM branding WHERE org_id = $1', [orgId])
   const billing = await orgBilling(db, orgId)
-  const buf = await renderInvoiceDocx({ invoice, lines, letterhead: lh ?? null, billing, language })
+  const qr = await zatcaFor(db, orgId, invoice)
+  const buf = await renderInvoiceDocx({ invoice, lines, letterhead: lh ?? null, billing, language, zatca: qr ? { png: qr.png, simplified: qr.simplified } : null })
   const name = safeFileName(invoice.number ?? `draft-invoice-${String(invoice.id).slice(0, 8)}`, 'docx')
   return new Response(new Uint8Array(buf), {
     headers: { 'content-type': ACCEPTED_TYPES.docx, 'content-disposition': contentDisposition(name), 'cache-control': 'private, no-store' }

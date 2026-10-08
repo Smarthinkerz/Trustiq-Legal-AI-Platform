@@ -319,7 +319,7 @@ async function settings(root, { isCurrent, rerender }) {
       <h2 class="font-semibold mb-1">${t('billing.invoice_settings')}</h2>
       <p class="text-sm text-slate-500 mb-4">${t('billing.invoice_settings_help')}</p>
       <form data-form="settings" class="grid sm:grid-cols-2 gap-4" novalidate>
-        ${inputField({ name: 'vat_number', label: t('billing.vat_number'), value: s.vat_number, attrs: 'dir="ltr"' })}
+        ${inputField({ name: 'vat_number', label: t('billing.vat_number'), value: s.vat_number, hint: t('billing.zatca_settings_hint'), attrs: 'dir="ltr"' })}
         ${inputField({ name: 'vat_rate', label: t('billing.vat_rate'), type: 'number', value: s.vat_rate, attrs: 'data-type="number" min="0" max="100" step="0.01"', hint: jurisdictionVat != null ? t('billing.vat_default', { rate: jurisdictionVat }) : t('billing.vat_blank_hint') })}
         ${inputField({ name: 'payment_terms_days', label: t('billing.payment_terms'), type: 'number', value: s.payment_terms_days ?? 30, attrs: 'data-type="number" min="0" max="365"' })}
         ${inputField({ name: 'default_hourly_rate', label: t('billing.default_rate'), type: 'number', value: s.default_hourly_rate, attrs: 'data-type="number" min="0" step="0.001"' })}
@@ -354,7 +354,7 @@ async function settings(root, { isCurrent, rerender }) {
 }
 
 export async function invoiceView(root, { params, isCurrent, rerender }) {
-  const { invoice: inv, lines } = await api.get(`/api/billing/invoices/${params.id}`)
+  const { invoice: inv, lines, zatca } = await api.get(`/api/billing/invoices/${params.id}`)
   if (!isCurrent()) return
   const ro = readOnly()
   const money = (n) => fmtMoney(Number(n), inv.currency)
@@ -402,6 +402,11 @@ export async function invoiceView(root, { params, isCurrent, rerender }) {
           <div><dt class="text-xs text-slate-500">${t('cases.currency')}</dt><dd>${inv.currency}</dd></div>
           <div><dt class="text-xs text-slate-500">${t('billing.vat')}</dt><dd>${Number(inv.vat_rate)}%</dd></div>
         </dl>
+        ${zatca ? html`<div class="pt-4 border-t border-slate-100 flex items-center gap-4">
+          <img src="${zatca.qr}" alt="${t('billing.zatca_qr')}" width="112" height="112" class="rounded border border-slate-200 bg-white" />
+          <div class="text-xs text-slate-600"><p class="font-semibold text-slate-800">${zatca.simplified ? t('billing.simplified_invoice') : t('billing.tax_invoice')}</p><p class="mt-1">${t('billing.zatca_hint')}</p></div>
+        </div>` : ''}
+        ${inv.client_vat_number ? html`<p class="text-xs text-slate-500">${t('clients.vat_number')}: <span dir="ltr">${inv.client_vat_number}</span></p>` : ''}
         ${edit && ['draft', 'issued'].includes(inv.status) ? html`<form data-form="meta" class="space-y-3 pt-4 border-t border-slate-100" novalidate>
           ${inv.status === 'draft' ? inputField({ name: 'vat_rate', label: t('billing.vat_rate'), type: 'number', value: Number(inv.vat_rate), attrs: 'data-type="number" min="0" max="100" step="0.01"' }) : ''}
           ${inputField({ name: 'due_date', label: t('billing.due'), type: 'date', value: isoDay(inv.due_date) })}
