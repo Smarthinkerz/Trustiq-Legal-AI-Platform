@@ -22,6 +22,7 @@ import websiteRoutes from './routes/website'
 import integrationsRoutes from './routes/integrations'
 import { markCalendarsDirty } from './services/google-calendar'
 import { firmSiteRoutes } from './routes/firm-site'
+import { helpRoutes } from './routes/help'
 import aiRoutes from './routes/ai'
 import dashboardRoutes from './routes/dashboard'
 import referenceRoutes from './routes/api'
@@ -253,6 +254,8 @@ export function createApp(deps: Deps) {
 
   // Public firm websites (blog, consultation form, chatbot).
   app.route('/f', firmSiteRoutes(deps, assetVersion))
+  // Homepage assistant about the platform itself.
+  app.route('/help', helpRoutes(deps))
 
   app.notFound((c) => c.html(legalPage('404', { assetVersion, supportEmail: config.supportEmail }), 404))
 

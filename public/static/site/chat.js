@@ -8,7 +8,9 @@
   const color = /^#[0-9a-f]{6}$/i.test(root.dataset.color || '') ? root.dataset.color : '#1a365d'
   let t = {}
   try { t = JSON.parse(root.dataset.t || '{}') } catch { /* defaults below */ }
-  const STORE = `tq-chat:${slug}`
+  // Firm sites post to their own chat; other pages (the TrustiqLegal homepage) set data-endpoint.
+  const endpoint = root.dataset.endpoint || `/f/${encodeURIComponent(slug)}/chat`
+  const STORE = `tq-chat:${slug || endpoint}`
   let messages = []
   try { messages = JSON.parse(sessionStorage.getItem(STORE) || '[]').slice(-20) } catch { messages = [] }
   const save = () => { try { sessionStorage.setItem(STORE, JSON.stringify(messages.slice(-20))) } catch { /* private mode */ } }
@@ -78,7 +80,7 @@
     bubble('user', text)
     const typing = bubble('assistant', t.typing || '…')
     try {
-      const res = await fetch(`/f/${encodeURIComponent(slug)}/chat`, {
+      const res = await fetch(endpoint, {
         method: 'POST', headers: { 'content-type': 'application/json' }, credentials: 'omit',
         body: JSON.stringify({ lang, messages: messages.slice(-12) })
       })
