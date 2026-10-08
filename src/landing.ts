@@ -10,6 +10,11 @@ const copy = {
   en: {
     title: 'TrustiqLegal – AI-powered legal practice platform for Middle East law firms',
     description: 'Matter management, document drafting and AI contract review for law firms across the GCC and the Middle East, in English and Arabic.',
+    chat: {
+      title: 'TrustiqLegal assistant', open: 'Questions? Ask us', placeholder: 'Ask about features, pricing or how it works…', send: 'Send', close: 'Close chat',
+      greeting: 'Hello! I can explain how TrustiqLegal works, what each feature does and which plan fits your firm. What would you like to know?',
+      note: 'Automated assistant about the TrustiqLegal platform. Not legal advice.', error: 'Sorry, something went wrong. Please try again.', typing: 'Typing…', book: 'Start your free trial'
+    },
     nav: { features: 'Features', pricing: 'Pricing', security: 'Security', signin: 'Sign in', start: 'Start free trial', other: 'العربية', otherHref: '/ar' },
     hero: {
       eyebrow: 'Built for Middle East legal practice',
@@ -60,6 +65,11 @@ const copy = {
   ar: {
     title: 'TrustiqLegal – منصة ذكية لإدارة الممارسة القانونية لمكاتب المحاماة في الشرق الأوسط',
     description: 'إدارة القضايا وصياغة المستندات ومراجعة العقود بالذكاء الاصطناعي لمكاتب المحاماة في دول الخليج والشرق الأوسط، بالعربية والإنجليزية.',
+    chat: {
+      title: 'مساعد TrustiqLegal', open: 'لديك سؤال؟ اسألنا', placeholder: 'اسأل عن المزايا أو الأسعار أو طريقة العمل…', send: 'إرسال', close: 'إغلاق المحادثة',
+      greeting: 'مرحبًا! يمكنني أن أشرح لك طريقة عمل TrustiqLegal ومزايا كل قسم والباقة المناسبة لمكتبك. ماذا تود أن تعرف؟',
+      note: 'مساعد آلي حول منصة TrustiqLegal. لا يقدّم استشارات قانونية.', error: 'عذرًا، حدث خطأ. يُرجى المحاولة مرة أخرى.', typing: 'يكتب…', book: 'ابدأ تجربتك المجانية'
+    },
     nav: { features: 'المزايا', pricing: 'الأسعار', security: 'الأمان', signin: 'تسجيل الدخول', start: 'ابدأ التجربة المجانية', other: 'English', otherHref: '/' },
     hero: {
       eyebrow: 'مصممة للممارسة القانونية في الشرق الأوسط',
@@ -260,6 +270,9 @@ export function landingPage(opts: { assetVersion: string; salesEmail: string; su
     </div>
     <p class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-10 pt-6 border-t border-slate-800 text-center text-xs">&copy; ${new Date().getFullYear()} TrustiqLegal. ${t.footer.rights}</p>
   </footer>
+  <div id="tq-chat" data-endpoint="/help/chat" data-lang="${lang}" data-color="#1a365d"
+    data-greeting="${esc(t.chat.greeting)}" data-t="${esc(JSON.stringify(t.chat))}" data-consult="${register}"></div>
+  <script src="/static/site/chat.js?v=${opts.assetVersion}" defer></script>
 </body>
 </html>`
 }

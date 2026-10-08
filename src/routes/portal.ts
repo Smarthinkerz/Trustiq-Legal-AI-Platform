@@ -8,6 +8,7 @@ import { ACCEPTED_TYPES, cleanText, detectKind, extractText } from '../services/
 import { contentDisposition, renderDocx, safeFileName } from '../services/export'
 import { insertDocument } from './documents'
 import { invoiceDocxResponse } from './billing'
+import { issueSigningToken, signingUrl } from '../services/signatures'
 
 // Everything here is scoped to the signed-in portal user's own client record.
 function portalUser(c: Ctx) {
@@ -154,6 +155,30 @@ portalRoutes.post('/messages', jsonBody(z.object({ body: z.string().trim().min(1
     [org.id, clientId, b.case_id, user.id, b.body])
   await notifyFirm(c, org.id, clientId, b.case_id, `New message from ${user.name}`, `${user.name} wrote in the client portal:\n\n${b.body.slice(0, 2000)}`)
   return c.json({ message: msg }, 201)
+})
+
+// Documents the client has been asked to sign.
+portalRoutes.get('/signatures', async (c) => {
+  const { org, clientId, user } = portalUser(c)
+  const items = await c.get('deps').db.query(
+    `SELECT s.id, s.status AS signer_status, s.signed_at, r.id AS request_id, r.title, r.status, r.expires_at, r.created_at,
+            (r.status = 'pending' AND r.expires_at < now()) AS expired
+       FROM signature_signers s JOIN signature_requests r ON r.id = s.request_id
+      WHERE s.org_id = $1 AND (s.client_id = $2 OR lower(s.email) = lower($3)) AND r.status <> 'cancelled'
+      ORDER BY (s.status IN ('pending', 'viewed') AND r.status = 'pending') DESC, r.created_at DESC LIMIT 50`, [org.id, clientId, user.email])
+  return c.json({ items })
+})
+
+// A fresh personal signing link for one of the client's own signature requests.
+portalRoutes.post('/signatures/:id/open', async (c) => {
+  const { org, clientId, user } = portalUser(c)
+  const id = uuidParam(c.req.param('id'), 'Signature')
+  const { db, config } = c.get('deps')
+  const row = await db.one(
+    `SELECT s.id FROM signature_signers s JOIN signature_requests r ON r.id = s.request_id
+      WHERE s.id = $1 AND s.org_id = $2 AND (s.client_id = $3 OR lower(s.email) = lower($4)) AND r.status <> 'cancelled'`, [id, org.id, clientId, user.email])
+  if (!row) throw notFound('Signature')
+  return c.json({ url: signingUrl(config, await issueSigningToken(db, id)) })
 })
 
 export default portalRoutes

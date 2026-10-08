@@ -53,8 +53,9 @@ const docList = (docs) => docs.length ? html`<ul class="divide-y divide-slate-10
 </li>`)}</ul>` : html`<p class="px-5 py-6 text-sm text-slate-500">${t('portal.no_documents')}</p>`
 
 export async function portalHomeView(root, { isCurrent, rerender }) {
-  const o = await api.get('/api/portal/overview')
+  const [o, sig] = await Promise.all([api.get('/api/portal/overview'), api.get('/api/portal/signatures').catch(() => ({ items: [] }))])
   if (!isCurrent()) return
+  const toSign = sig.items.filter((s) => s.status === 'pending' && !s.expired && ['pending', 'viewed'].includes(s.signer_status))
   const outstanding = o.invoices.filter((i) => i.status === 'issued')
   render(root, html`
     <div class="mb-6">
@@ -62,6 +63,12 @@ export async function portalHomeView(root, { isCurrent, rerender }) {
       <p class="text-slate-500 text-sm mt-1">${t('portal.subtitle', { firm: (getLang() === 'ar' && o.firm?.firm_name_ar) || o.firm?.firm_name || store.me.org.name })}</p>
     </div>
     ${o.unread_messages ? html`<a href="#/portal/messages" class="block card card-pad mb-6 border-brand-300 bg-brand-50 text-brand-800 text-sm"><i class="fas fa-envelope"></i> ${t('portal.unread', { n: o.unread_messages })}</a>` : ''}
+    ${toSign.length ? html`<section class="card mb-6 border-amber-300">
+      <div class="px-5 py-4 border-b border-slate-100"><h2 class="font-semibold"><i class="fas fa-signature text-amber-600 me-2"></i>${t('portal.to_sign')}</h2></div>
+      <ul class="divide-y divide-slate-100">${toSign.map((s) => html`<li class="px-5 py-3 flex flex-wrap items-center gap-3">
+        <div class="flex-1 min-w-0"><div class="font-medium" dir="auto">${s.title}</div><div class="text-xs text-slate-500">${t('portal.sign_until', { date: fmtDate(s.expires_at) })}</div></div>
+        <button class="btn btn-primary btn-sm" data-action="open-sign" data-id="${s.id}"><i class="fas fa-pen-nib"></i>${t('portal.review_sign')}</button></li>`)}</ul>
+    </section>` : ''}
     <div class="grid lg:grid-cols-3 gap-6">
       <div class="lg:col-span-2 space-y-6">
         <section class="card">
@@ -100,6 +107,9 @@ export async function portalHomeView(root, { isCurrent, rerender }) {
   bind(root, {
     actions: {
       upload: () => openClientUpload({ cases: o.cases, onSaved: rerender }),
+      'open-sign': (el) => busy(el, async () => {
+        try { const { url } = await api.post(`/api/portal/signatures/${el.dataset.id}/open`); location.href = url } catch (err) { showError(err) }
+      }),
       'download-doc': (el) => download(`/api/portal/documents/${el.dataset.id}/download`),
       'download-invoice': (el) => download(`/api/portal/invoices/${el.dataset.id}/download`)
     }

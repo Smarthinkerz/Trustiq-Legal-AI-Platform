@@ -214,3 +214,102 @@ export async function renderInvoiceDocx(d: InvoiceData): Promise<Buffer> {
   })
   return Packer.toBuffer(doc)
 }
+
+// ---------------------------------------------------------------------------
+// Signed copy: the signed text followed by a signature page and an audit trail.
+// ---------------------------------------------------------------------------
+
+export type SignedCopy = {
+  title: string
+  content: string
+  language: 'en' | 'ar'
+  letterhead?: Letterhead | null
+  contentHash: string
+  fileName?: string | null
+  fileHash?: string | null
+  completedAt?: Date | string | null
+  signers: { name: string; email: string | null; status: string; signed_name: string | null; signed_at: Date | string | null; ip: string | null; signature_image: Uint8Array | null }[]
+  events: { event: string; signer_name: string | null; detail: string | null; ip: string | null; created_at: Date | string }[]
+}
+
+const SL = {
+  signatures: ['Signature page', 'صفحة التوقيعات'], signer: ['Signer', 'الموقّع'], signed_as: ['Signed as', 'وقّع باسم'],
+  signed_at: ['Signed at (UTC)', 'وقت التوقيع (UTC)'], ip: ['IP address', 'عنوان IP'], status: ['Status', 'الحالة'],
+  fingerprint: ['Document fingerprint (SHA-256)', 'البصمة الرقمية للمستند (SHA-256)'], file: ['Original file', 'الملف الأصلي'],
+  audit: ['Audit trail', 'سجل التدقيق'], completed: ['Completed (UTC)', 'اكتمل (UTC)'],
+  note: [
+    'Signed electronically through TrustiqLegal. Each signer opened a personal link, reviewed the document and confirmed their signature; the fingerprint above identifies the exact text that was signed.',
+    'تم التوقيع إلكترونيًا عبر TrustiqLegal. فتح كل موقّع رابطًا شخصيًا وراجع المستند وأكّد توقيعه، وتحدد البصمة أعلاه النص الذي تم توقيعه بالضبط.'
+  ]
+} as const
+
+const utc = (d: Date | string | null | undefined) => (d ? new Date(d).toISOString().replace('T', ' ').slice(0, 19) : '—')
+
+export async function renderSignedDocx(d: SignedCopy): Promise<Buffer> {
+  const rtl = d.language === 'ar'
+  const font = rtl ? 'Arial' : 'Calibri'
+  const color = (d.letterhead?.primary_color ?? '#1a365d').replace('#', '')
+  const align = rtl ? AlignmentType.RIGHT : AlignmentType.LEFT
+  const lbl = (k: Exclude<keyof typeof SL, 'note'>) => `${SL[k][0]} / ${SL[k][1]}`
+  const p = (text: string, o: { bold?: boolean; size?: number; color?: string; center?: boolean; after?: number } = {}) => new Paragraph({
+    bidirectional: rtl || hasArabic(text), alignment: o.center ? AlignmentType.CENTER : (rtl || hasArabic(text) ? AlignmentType.RIGHT : align), spacing: { after: o.after ?? 80 },
+    children: [new TextRun({ text, bold: o.bold, size: o.size ?? 20, font, color: o.color, rightToLeft: rtl || hasArabic(text) })]
+  })
+  const cell = (children: Paragraph[], o: { shade?: boolean; width?: number } = {}) => new TableCell({
+    width: o.width ? { size: o.width, type: WidthType.PERCENTAGE } : undefined, shading: o.shade ? { fill: 'EEF2F7' } : undefined, children
+  })
+
+  const body: (Paragraph | Table)[] = [p(d.title, { bold: true, size: 32, center: true, after: 300 })]
+  for (const raw of d.content.replace(/\r\n?/g, '\n').split('\n')) {
+    const line = raw.trimEnd()
+    const lineRtl = rtl || hasArabic(line)
+    body.push(new Paragraph({
+      bidirectional: lineRtl, alignment: lineRtl ? AlignmentType.RIGHT : AlignmentType.JUSTIFIED, spacing: { after: line ? 120 : 60, line: 300 },
+      children: [new TextRun({ text: line, bold: !!line && isHeading(line.trim()), size: 22, font, rightToLeft: lineRtl })]
+    }))
+  }
+
+  const page: (Paragraph | Table)[] = [p(lbl('signatures'), { bold: true, size: 30, color, after: 200 })]
+  for (const s of d.signers) {
+    const image = s.signature_image ? [new Paragraph({ alignment: align, children: [new ImageRun({ type: 'png', data: Buffer.from(s.signature_image), transformation: { width: 220, height: 80 } })] })] : []
+    page.push(new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE }, visuallyRightToLeft: rtl,
+      rows: [
+        new TableRow({ children: [cell([p(lbl('signer'), { bold: true })], { shade: true, width: 35 }), cell([p([s.name, s.email].filter(Boolean).join(' – '))], { width: 65 })] }),
+        new TableRow({ children: [cell([p(lbl('signed_as'), { bold: true })], { shade: true }), cell([...image, p(s.signed_name ?? '—', { bold: true, size: 26 })])] }),
+        new TableRow({ children: [cell([p(lbl('signed_at'), { bold: true })], { shade: true }), cell([p(utc(s.signed_at))])] }),
+        new TableRow({ children: [cell([p(lbl('ip'), { bold: true })], { shade: true }), cell([p(s.ip ?? '—')])] }),
+        new TableRow({ children: [cell([p(lbl('status'), { bold: true })], { shade: true }), cell([p(s.status)])] })
+      ]
+    }), p(''))
+  }
+  page.push(
+    p(`${lbl('fingerprint')}:`, { bold: true }), p(d.contentHash, { size: 16 }),
+    ...(d.fileHash ? [p(`${lbl('file')}: ${d.fileName ?? ''}`, { bold: true }), p(d.fileHash, { size: 16 })] : []),
+    p(`${lbl('completed')}: ${utc(d.completedAt)}`),
+    p(SL.note[0], { size: 16, color: '555555' }), p(SL.note[1], { size: 16, color: '555555' }),
+    p(''), p(lbl('audit'), { bold: true, size: 26, color, after: 120 }),
+    new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE }, visuallyRightToLeft: rtl,
+      rows: d.events.map((e) => new TableRow({ children: [
+        cell([p(utc(e.created_at), { size: 16 })], { width: 26 }),
+        cell([p([e.event, e.signer_name, e.detail].filter(Boolean).join(' · '), { size: 16 })], { width: 52 }),
+        cell([p(e.ip ?? '', { size: 16 })], { width: 22 })
+      ] }))
+    })
+  )
+
+  const headerChildren = letterheadParagraphs(d.letterhead, rtl, font, color)
+  const footer = new Footer({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [
+    new TextRun({ text: `SHA-256 ${d.contentHash.slice(0, 16)}…   `, size: 14, color: '777777', font }),
+    new TextRun({ children: [PageNumber.CURRENT, ' / ', PageNumber.TOTAL_PAGES], size: 14, color: '777777', font })
+  ] })] })
+  const section = (children: (Paragraph | Table)[]) => ({
+    properties: { page: { margin: { top: 1300, bottom: 1100, left: 1200, right: 1200 } } },
+    headers: headerChildren.length ? { default: new Header({ children: headerChildren }) } : undefined,
+    footers: { default: footer },
+    children
+  })
+  const doc = new Document({ creator: d.letterhead?.firm_name ?? 'TrustiqLegal', title: d.title, sections: [section(body), section(page)] })
+  return Packer.toBuffer(doc)
+}
