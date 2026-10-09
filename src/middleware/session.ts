@@ -9,12 +9,12 @@ export const SESSION_COOKIE = 'tq_session'
 export const SESSION_DAYS = 14
 const TOUCH_INTERVAL_MS = 10 * 60 * 1000
 
-const USER_COLUMNS = `u.id, u.org_id, u.email, u.name, u.role, u.locale, u.client_id, (u.totp_enabled_at IS NOT NULL) AS two_factor,
+const USER_COLUMNS = `u.id, u.org_id, u.email, u.name, u.role, u.locale, u.hijri_dates, u.client_id, (u.totp_enabled_at IS NOT NULL) AS two_factor,
   o.name AS org_name, o.plan, o.trial_ends_at, o.plan_expires_at, o.default_jurisdiction, o.default_currency`
 
 function setUserContext(c: Ctx, row: any) {
   c.set('user', {
-    id: row.id, org_id: row.org_id, email: row.email, name: row.name, role: row.role, locale: row.locale,
+    id: row.id, org_id: row.org_id, email: row.email, name: row.name, role: row.role, locale: row.locale, hijri_dates: row.hijri_dates ?? 'auto',
     client_id: row.client_id ?? null, two_factor: !!row.two_factor
   })
   c.set('org', {

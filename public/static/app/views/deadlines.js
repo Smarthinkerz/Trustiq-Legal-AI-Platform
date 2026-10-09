@@ -25,11 +25,11 @@ export async function deadlinesView(root, { isCurrent }) {
     return html`
       <div class="rounded-xl bg-amber-50 border border-amber-200 p-5">
         <div class="text-xs uppercase tracking-wide text-amber-700">${t('deadlines.due')}</div>
-        <div class="text-2xl font-bold text-amber-900 mt-1" data-due="${r.due}">${fmtDateLong(r.due)}</div>
+        <div class="text-2xl font-bold text-amber-900 mt-1" data-due="${r.due}">${fmtDateLong(r.due, { hijri: false })}</div>
         <div class="text-amber-800 mt-1" dir="auto">${fmtHijri(r.due)}</div>
       </div>
       <ol class="mt-4 space-y-2 text-sm">
-        <li class="flex gap-2"><i class="fas fa-flag text-slate-400 mt-1"></i><span>${t('deadlines.step_start', { date: fmtDate(r.start), hijri: fmtHijri(r.start) })}</span></li>
+        <li class="flex gap-2"><i class="fas fa-flag text-slate-400 mt-1"></i><span>${t('deadlines.step_start', { date: fmtDate(r.start, { hijri: false }), hijri: fmtHijri(r.start) })}</span></li>
         ${r.steps.map((s) => html`<li class="flex gap-2">${s.code === 'counted'
           ? html`<i class="fas fa-calculator text-slate-400 mt-1"></i><span>${t('deadlines.step_counted', { period: periodLabel(lastInput), date: fmtDate(s.date) })}</span>`
           : s.code === 'holiday'

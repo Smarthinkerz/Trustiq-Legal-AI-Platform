@@ -719,6 +719,13 @@ ALTER TABLE invoices ADD COLUMN issued_at TIMESTAMPTZ;
 UPDATE invoices SET issued_at = issue_date::timestamptz WHERE issue_date IS NOT NULL;
 ALTER TABLE clients ADD COLUMN vat_number TEXT;
 `
+  },
+  {
+    version: 12,
+    name: 'hijri_dates',
+    sql: `
+ALTER TABLE users ADD COLUMN hijri_dates TEXT NOT NULL DEFAULT 'auto' CHECK (hijri_dates IN ('auto', 'on', 'off'));
+`
   }
 ]
 
