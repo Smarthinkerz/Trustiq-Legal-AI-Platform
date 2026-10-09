@@ -39,7 +39,7 @@ export async function mePayload(c: Ctx) {
     user.client_id ? db.one('SELECT id, name, name_ar FROM clients WHERE id = $1', [user.client_id]) : Promise.resolve(null)
   ])
   return {
-    user,
+    user: { ...user, show_hijri: user.hijri_dates === 'on' || (user.hijri_dates === 'auto' && org.default_jurisdiction === 'ksa') },
     org: { ...org, trial_expired: trialExpired(org), subscription_expired: subscriptionExpired(org) },
     plan: { id: org.plan, ...planOf(org) },
     usage,
@@ -164,12 +164,13 @@ authRoutes.post('/logout', async (c) => {
 
 authRoutes.get('/me', async (c) => c.json(await mePayload(c)))
 
-authRoutes.patch('/me', jsonBody(z.object({ name: name.optional(), locale: locale.optional(), notify_email: z.boolean().optional() })), async (c) => {
+authRoutes.patch('/me', jsonBody(z.object({ name: name.optional(), locale: locale.optional(), notify_email: z.boolean().optional(), hijri_dates: z.enum(['auto', 'on', 'off']).optional() })), async (c) => {
   const { user } = auth(c)
   const body = c.req.valid('json')
   await c.get('deps').db.query(
-    'UPDATE users SET name = COALESCE($2, name), locale = COALESCE($3, locale), notify_email = COALESCE($4, notify_email), updated_at = now() WHERE id = $1',
-    [user.id, body.name ?? null, body.locale ?? null, body.notify_email ?? null]
+    `UPDATE users SET name = COALESCE($2, name), locale = COALESCE($3, locale), notify_email = COALESCE($4, notify_email),
+            hijri_dates = COALESCE($5, hijri_dates), updated_at = now() WHERE id = $1`,
+    [user.id, body.name ?? null, body.locale ?? null, body.notify_email ?? null, body.hijri_dates ?? null]
   )
   await loadUserContext(c, user.id)
   return c.json(await mePayload(c))

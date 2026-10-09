@@ -20,6 +20,8 @@ export type AuthUser = {
   name: string
   role: Role
   locale: 'en' | 'ar'
+  // Show Hijri dates next to Gregorian ones; 'auto' means on for Saudi firms.
+  hijri_dates: 'auto' | 'on' | 'off'
   // Set only for client-portal users.
   client_id: string | null
   two_factor: boolean

@@ -57,6 +57,7 @@ async function profile(root, { isCurrent, rerender, query } = {}) {
           ${inputField({ name: 'name', label: t('auth.full_name'), value: user.name, required: true })}
           ${inputField({ name: 'email', label: t('auth.email'), value: user.email, attrs: 'disabled dir="ltr"', hint: t('settings.email_hint') })}
           ${selectField({ name: 'locale', label: t('settings.language'), options: [{ value: 'en', label: 'English' }, { value: 'ar', label: 'العربية' }], value: user.locale })}
+          ${selectField({ name: 'hijri_dates', label: t('settings.hijri_dates'), options: [{ value: 'auto', label: t('settings.hijri_auto') }, { value: 'on', label: t('settings.hijri_on') }, { value: 'off', label: t('settings.hijri_off') }], value: user.hijri_dates || 'auto', hint: t('settings.hijri_hint') })}
           <div class="flex justify-end"><button type="submit" class="btn btn-primary">${t('common.save')}</button></div>
         </form>
       </section>
@@ -176,7 +177,7 @@ async function profile(root, { isCurrent, rerender, query } = {}) {
         clearFieldErrors(form)
         const data = formData(form)
         try {
-          store.me = await api.patch('/api/auth/me', { name: data.name, locale: data.locale })
+          store.me = await api.patch('/api/auth/me', { name: data.name, locale: data.locale, hijri_dates: data.hijri_dates })
           toast(t('common.saved'))
           if (data.locale !== getLang()) applyLanguage(data.locale)
           else remount()

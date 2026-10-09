@@ -1,8 +1,11 @@
-import { getLang } from './i18n.js'
+import { getLang, setHijri } from './i18n.js'
 
 // Global client state. `me` is the /api/auth/me payload; `ref` is /api/reference.
+let me = null
 export const store = {
-  me: null,
+  get me() { return me },
+  // Setting `me` also applies the user's date display preference.
+  set me(v) { me = v; setHijri(v?.user?.show_hijri) },
   ref: null
 }
 

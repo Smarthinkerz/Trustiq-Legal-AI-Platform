@@ -1,6 +1,6 @@
 import { api } from '../api.js'
 import { bind, formData, html, qs, raw, render } from '../dom.js'
-import { fmtDate, fmtDateTime, fmtMonth, fmtTime, t, weekdayNames } from '../i18n.js'
+import { fmtDate, fmtDateTime, fmtMonth, fmtTime, fmtHijri, fmtHijriMonths, hijriDay, showHijri, t, weekdayNames } from '../i18n.js'
 import { readOnly } from '../store.js'
 import {
   busy, clearFieldErrors, confirmDialog, EVENT_COLORS, eventBadge, inputField, modal, pageHeader, selectField, showError,
@@ -121,7 +121,7 @@ export async function calendarView(root, { query, isCurrent, rerender }) {
             <a class="btn btn-ghost btn-sm" href="#/calendar?month=${ym(next)}" aria-label="${t('events.next')}"><i class="fas fa-chevron-right rtl:rotate-180"></i></a>
             <a class="btn btn-outline btn-sm" href="#/calendar">${t('events.today')}</a>
           </div>
-          <h2 class="font-semibold">${fmtMonth(first)}</h2>
+          <h2 class="font-semibold">${fmtMonth(first)}${showHijri() ? html` <span class="text-sm font-normal text-slate-500">· ${fmtHijriMonths(localDate(first), localDate(new Date(y, mo, 0)))}</span>` : ''}</h2>
           <span class="w-24"></span>
         </div>
         <div class="grid grid-cols-7 text-center text-xs font-semibold text-slate-500 bg-slate-50 border-b border-slate-100">
@@ -133,7 +133,7 @@ export async function calendarView(root, { query, isCurrent, rerender }) {
             const evs = byDay[key] || []
             const inMonth = d.getMonth() === mo - 1
             return html`<div class="cal-cell ${inMonth ? '' : 'bg-slate-50/60 text-slate-400'} ${ro ? '' : 'cursor-pointer hover:bg-brand-50/40'}" ${ro ? '' : raw(`data-action="new-on" data-date="${key}"`)}>
-              <div class="mb-1 text-end"><span class="inline-flex w-6 h-6 items-center justify-center rounded-full ${key === today ? 'bg-brand-500 text-white font-bold' : ''}">${d.getDate()}</span></div>
+              <div class="mb-1 flex items-center justify-between gap-1">${showHijri() ? html`<span class="text-[10px] text-slate-400" title="${fmtHijri(key)}">${hijriDay(key)}</span>` : html`<span></span>`}<span class="inline-flex w-6 h-6 items-center justify-center rounded-full ${key === today ? 'bg-brand-500 text-white font-bold' : ''}">${d.getDate()}</span></div>
               ${evs.slice(0, 3).map((e) => html`<button class="cal-event ${EVENT_COLORS[e.kind]} ${e.completed_at ? 'line-through opacity-60' : ''}" data-action="edit" data-id="${e.id}" title="${e.title}">${e.all_day ? '' : fmtTime(e.starts_at) + ' '}${e.title}</button>`)}
               ${evs.length > 3 ? html`<div class="text-[11px] text-slate-500">+${evs.length - 3}</div>` : ''}
             </div>`

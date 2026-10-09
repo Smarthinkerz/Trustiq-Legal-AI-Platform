@@ -6,6 +6,11 @@ let lang = 'en'
 
 export const getLang = () => lang
 
+// When on, dates are shown with their Hijri (Umm al-Qura) equivalent.
+let hijri = false
+export const setHijri = (on) => { hijri = !!on }
+export const showHijri = () => hijri
+
 export function setLang(next) {
   lang = next === 'ar' ? 'ar' : 'en'
   document.documentElement.lang = lang
@@ -32,27 +37,55 @@ export function t(key, vars) {
 // Arabic UI uses Latin digits, which is the norm in GCC legal software and court filings.
 const locale = () => (lang === 'ar' ? 'ar-OM-u-nu-latn' : 'en-GB')
 
-export function fmtDate(v) {
+const isDay = (v) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)
+// Calendar day of a value: 'YYYY-MM-DD' strings as-is, timestamps in the viewer's time zone.
+const dayOf = (v) => {
+  if (isDay(v)) return v
+  const d = new Date(v)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+const hijriFormat = (month) => new Intl.DateTimeFormat(`${lang === 'ar' ? 'ar' : 'en-GB'}-u-ca-islamic-umalqura-nu-latn`, { day: 'numeric', month, year: 'numeric', timeZone: 'UTC' })
+
+// Pass { hijri: false } where the Hijri date is already shown separately.
+export function fmtDate(v, { hijri: withHijri = true } = {}) {
   if (!v) return ''
-  const d = typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? new Date(v + 'T00:00:00') : new Date(v)
-  return new Intl.DateTimeFormat(locale(), { day: 'numeric', month: 'short', year: 'numeric' }).format(d)
+  const d = isDay(v) ? new Date(v + 'T00:00:00') : new Date(v)
+  const g = new Intl.DateTimeFormat(locale(), { day: 'numeric', month: 'short', year: 'numeric' }).format(d)
+  return hijri && withHijri ? `${g} · ${hijriFormat('short').format(new Date(dayOf(v) + 'T00:00:00Z'))}` : g
 }
 
-// A 'YYYY-MM-DD' date in the Hijri (Umm al-Qura) calendar.
+// A date in the Hijri (Umm al-Qura) calendar.
 export function fmtHijri(v) {
   if (!v) return ''
-  return new Intl.DateTimeFormat(`${lang === 'ar' ? 'ar' : 'en'}-u-ca-islamic-umalqura-nu-latn`, { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(v + 'T00:00:00Z'))
+  return hijriFormat('long').format(new Date(dayOf(v) + 'T00:00:00Z'))
+}
+
+// The Hijri month(s) covering a range of days, e.g. "Rabiʻ II – Jumada I 1448 AH".
+export function fmtHijriMonths(fromDay, toDay) {
+  const f = hijriFormat('long')
+  const part = (d, type) => f.formatToParts(new Date(d + 'T00:00:00Z')).find((p) => p.type === type)?.value
+  const a = { m: part(fromDay, 'month'), y: part(fromDay, 'year') }, b = { m: part(toDay, 'month'), y: part(toDay, 'year') }
+  const era = part(toDay, 'era') ?? ''
+  if (a.m === b.m && a.y === b.y) return `${b.m} ${b.y} ${era}`.trim()
+  return `${a.m}${a.y !== b.y ? ` ${a.y}` : ''} – ${b.m} ${b.y} ${era}`.trim()
+}
+
+// Day of the Hijri month, for calendar grids.
+export function hijriDay(v) {
+  return new Intl.DateTimeFormat('en-u-ca-islamic-umalqura-nu-latn', { day: 'numeric', timeZone: 'UTC' }).format(new Date(dayOf(v) + 'T00:00:00Z'))
 }
 
 // A 'YYYY-MM-DD' date with its weekday, e.g. "Tuesday, 3 November 2026".
-export function fmtDateLong(v) {
+export function fmtDateLong(v, { hijri: withHijri = true } = {}) {
   if (!v) return ''
-  return new Intl.DateTimeFormat(locale(), { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(v + 'T00:00:00Z'))
+  const g = new Intl.DateTimeFormat(locale(), { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(v + 'T00:00:00Z'))
+  return hijri && withHijri ? `${g} · ${fmtHijri(v)}` : g
 }
 
-export function fmtDateTime(v) {
+export function fmtDateTime(v, { hijri: withHijri = true } = {}) {
   if (!v) return ''
-  return new Intl.DateTimeFormat(locale(), { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(v))
+  const g = new Intl.DateTimeFormat(locale(), { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(v))
+  return hijri && withHijri ? `${g} · ${hijriFormat('short').format(new Date(dayOf(v) + 'T00:00:00Z'))}` : g
 }
 
 export function fmtTime(v) {

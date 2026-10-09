@@ -64,3 +64,21 @@ describe('Middle East and North Africa jurisdictions', () => {
     expect(String(ctx.ai.calls[0]![0]!.content)).toContain('قانون خليجي موحد')
   })
 })
+
+describe('Hijri date preference', () => {
+  it('is on automatically for Saudi firms and can be overridden per user', async () => {
+    const { c } = await registered(ctx.app)
+    let me = await c.get('/api/auth/me')
+    expect(me.data.user.hijri_dates).toBe('auto')
+    expect(me.data.user.show_hijri).toBe(false)
+    await c.patch('/api/org', { default_jurisdiction: 'ksa' })
+    me = await c.get('/api/auth/me')
+    expect(me.data.user.show_hijri).toBe(true)
+    const off = await c.patch('/api/auth/me', { hijri_dates: 'off' })
+    expect(off.data.user.show_hijri).toBe(false)
+    await c.patch('/api/org', { default_jurisdiction: 'oman' })
+    const on = await c.patch('/api/auth/me', { hijri_dates: 'on' })
+    expect(on.data.user.show_hijri).toBe(true)
+    expect((await c.patch('/api/auth/me', { hijri_dates: 'sometimes' })).status).toBe(400)
+  })
+})
