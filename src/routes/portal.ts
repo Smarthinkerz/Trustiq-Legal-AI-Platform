@@ -9,6 +9,7 @@ import { contentDisposition, renderDocx, safeFileName } from '../services/export
 import { insertDocument } from './documents'
 import { invoiceDocxResponse } from './billing'
 import { issueSigningToken, signingUrl } from '../services/signatures'
+import { detectImage, loadDocumentRequest } from '../services/document-requests'
 
 // Everything here is scoped to the signed-in portal user's own client record.
 function portalUser(c: Ctx) {
@@ -123,6 +124,59 @@ portalRoutes.post('/documents', async (c) => {
   await audit(c, 'portal.document_uploaded', 'document', document.id)
   await notifyFirm(c, org.id, clientId, caseId, `New document from client: ${title}`, `${user.name} uploaded "${title}" in the client portal.`)
   return c.json({ document: { id: document.id, title: document.title } }, 201)
+})
+
+portalRoutes.get('/document-requests', async (c) => {
+  const { org, clientId } = portalUser(c)
+  const { db } = c.get('deps')
+  const rows = await db.query(
+    `SELECT id FROM document_requests WHERE org_id = $1 AND client_id = $2 AND (status = 'open' OR completed_at > now() - interval '30 days')
+      ORDER BY (status = 'open') DESC, created_at DESC LIMIT 50`, [org.id, clientId])
+  const items = []
+  for (const r of rows) {
+    const d = (await loadDocumentRequest(db, org.id, r.id, clientId))!
+    const k = d.request
+    items.push({
+      id: k.id, title: k.title, message: k.message, due_date: k.due_date, status: k.status, case_id: k.case_id, case_reference: k.case_reference, created_at: k.created_at,
+      items: d.items.map((i: any) => ({ id: i.id, label: i.label, note: i.note, status: i.status, reject_reason: i.reject_reason, file_name: i.file_name, uploaded_at: i.uploaded_at }))
+    })
+  }
+  return c.json({ items })
+})
+
+portalRoutes.post('/document-requests/:id/items/:itemId', async (c) => {
+  const { user, org, clientId } = portalUser(c)
+  const { db, config } = c.get('deps')
+  const id = uuidParam(c.req.param('id'), 'Request')
+  const itemId = uuidParam(c.req.param('itemId'), 'Item')
+  const item = await db.one(
+    `SELECT i.label, i.status, r.status AS request_status, r.case_id, r.title FROM document_request_items i JOIN document_requests r ON r.id = i.request_id
+      WHERE i.id = $1 AND i.request_id = $2 AND r.org_id = $3 AND r.client_id = $4`, [itemId, id, org.id, clientId])
+  if (!item) throw notFound('Requested document')
+  if (item.request_status !== 'open' || item.status === 'accepted') throw new HttpError(409, 'conflict', 'This document is no longer needed.')
+  const form = await c.req.formData().catch(() => { throw badRequest('Expected a multipart form upload.') })
+  const file = form.get('file')
+  if (!(file instanceof File) || file.size === 0) throw badRequest('Choose a file to upload.')
+  if (file.size > config.maxUploadBytes) throw new HttpError(413, 'file_too_large', 'This file is too large.')
+  const bytes = new Uint8Array(await file.arrayBuffer())
+  const kind = detectKind(bytes, file.name)
+  const image = kind ? null : detectImage(bytes)
+  if (!kind && !image) throw new HttpError(415, 'unsupported_file', 'Upload a PDF, Word (.docx), photo (JPG or PNG) or plain-text file.')
+  // Scans and protected PDFs are still accepted here: the firm asked for this file, readable text or not.
+  const text = kind ? cleanText(await extractText(bytes, kind).catch(() => '')) : ''
+  const document = await insertDocument(db, {
+    orgId: org.id, userId: user.id, title: item.label.slice(0, 300), docType: 'correspondence', language: 'en', jurisdiction: null,
+    source: 'upload', content: text.slice(0, 2_000_000), caseId: item.case_id, clientId, uploadedByClient: true,
+    file: { name: file.name.slice(0, 255), mime: kind ? ACCEPTED_TYPES[kind] : image!.mime, bytes }
+  })
+  await db.query(
+    `UPDATE document_request_items SET status = 'uploaded', document_id = $2, uploaded_at = now(), reviewed_at = NULL, reject_reason = NULL WHERE id = $1`,
+    [itemId, document.id])
+  await db.query('UPDATE document_requests SET updated_at = now() WHERE id = $1', [id])
+  await audit(c, 'portal.requested_document_uploaded', 'document_request', id, { item: itemId, document: document.id })
+  await notifyFirm(c, org.id, clientId, item.case_id, `Requested document received: ${item.label}`,
+    `${user.name} uploaded "${item.label}" for the request "${item.title}". Review it in the client's document requests.`)
+  return c.json({ ok: true, document: { id: document.id } }, 201)
 })
 
 portalRoutes.get('/invoices/:id/download', async (c) => {
