@@ -2,7 +2,7 @@ import nodemailer from 'nodemailer'
 import type { Config } from '../config'
 import type { Logger } from './logger'
 
-export type Mail = { to: string; subject: string; text: string; html?: string }
+export type Mail = { to: string; subject: string; text: string; html?: string; replyTo?: string }
 export interface Mailer {
   configured: boolean
   send(mail: Mail): Promise<void>

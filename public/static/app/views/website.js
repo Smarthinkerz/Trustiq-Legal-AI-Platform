@@ -2,6 +2,7 @@ import { api } from '../api.js'
 import { bind, formData, html, qs, raw, render } from '../dom.js'
 import { fmtDate, fmtNumber, fmtRelative, getLang, t } from '../i18n.js'
 import { navigate, setLeaveGuard } from '../main.js'
+import { conflictItem, withConflictGate } from './conflicts.js'
 import { aiEnabled, can, canManageTeam, readOnly, refLabel, refOptions, store } from '../store.js'
 import {
   busy, confirmDialog, emptyState, inputField, modal, selectField, showError, spinner, submitButton, textareaField, toast
@@ -18,6 +19,40 @@ const SOURCE_ICONS = { form: 'fa-envelope-open-text', chat: 'fa-comments', manua
 
 const canWrite = () => can('owner', 'admin', 'lawyer') && !readOnly()
 const leadBadge = (s) => html`<span class="badge ${LEAD_COLORS[s] || ''}">${t(`web.lead_${s}`)}</span>`
+const URGENCY_COLORS = { urgent: 'bg-red-100 text-red-700', soon: 'bg-amber-100 text-amber-800', routine: 'bg-slate-100 text-slate-600' }
+
+// The AI intake and conflict check shown on each enquiry.
+function intakePanel(l) {
+  const i = l.intake
+  const cf = l.conflicts
+  const blocking = cf?.blocking || []
+  const existing = cf?.existing_clients || []
+  if (!i && !blocking.length && !existing.length) return ''
+  const summary = getLang() === 'ar' ? i?.summary_ar || i?.summary_en : i?.summary_en || i?.summary_ar
+  return html`<div class="rounded-lg border border-brand-100 bg-brand-50/40 p-3 space-y-2 text-sm">
+    ${blocking.length ? html`<div class="rounded-md bg-red-50 border border-red-200 text-red-800 p-2">
+      <p class="font-semibold"><i class="fas fa-triangle-exclamation me-1"></i>${t('intake.conflict')}</p>
+      <ul class="mt-1 space-y-0.5 text-xs">${blocking.map(conflictItem)}</ul></div>` : ''}
+    ${existing.length ? html`<p class="text-xs text-amber-800"><i class="fas fa-address-book me-1"></i>${t('intake.existing_client')}:
+      ${existing.map((c, n) => html`${n ? ', ' : ''}<a class="underline" href="#/clients/${c.id}">${c.name}</a>`)}</p>` : ''}
+    ${i ? html`
+      <div class="flex flex-wrap items-center gap-2">
+        <span class="text-xs font-semibold text-brand-800"><i class="fas fa-wand-magic-sparkles me-1"></i>${t('intake.title')}</span>
+        <span class="badge ${URGENCY_COLORS[i.urgency]}">${t(`intake.urgency_${i.urgency}`)}</span>
+        ${i.practice_area ? html`<span class="badge bg-white border border-slate-200 text-slate-700">${refLabel('practice_areas', i.practice_area)}</span>` : ''}
+        ${i.jurisdiction ? html`<span class="badge bg-white border border-slate-200 text-slate-700">${refLabel('jurisdictions', i.jurisdiction)}</span>` : ''}
+      </div>
+      ${i.urgency_reason ? html`<p class="text-xs text-red-700">${i.urgency_reason}</p>` : ''}
+      ${summary ? html`<p dir="auto">${summary}</p>` : ''}
+      ${i.opposing_parties.length ? html`<p class="text-xs"><span class="text-slate-500">${t('intake.opposing')}:</span> <span dir="auto">${i.opposing_parties.join('، ')}</span></p>` : ''}
+      ${i.amount ? html`<p class="text-xs"><span class="text-slate-500">${t('intake.amount')}:</span> <span dir="auto">${i.amount}</span></p>` : ''}
+      ${i.key_dates.length ? html`<ul class="text-xs space-y-0.5">${i.key_dates.map((d) => html`<li><i class="fas fa-calendar-day text-slate-400 me-1"></i><span dir="ltr">${d.date}</span> – <span dir="auto">${d.what}</span></li>`)}</ul>` : ''}
+      ${i.red_flags.length ? html`<ul class="text-xs text-red-700 space-y-0.5">${i.red_flags.map((f) => html`<li><i class="fas fa-flag me-1"></i>${f}</li>`)}</ul>` : ''}
+      ${i.questions.length ? html`<details class="text-xs"><summary class="cursor-pointer text-brand-700">${t('intake.questions', { n: i.questions.length })}</summary>
+        <ol class="list-decimal ms-5 mt-1 space-y-0.5" dir="auto">${i.questions.map((q) => html`<li>${q}</li>`)}</ol></details>` : ''}
+      <p class="text-[11px] text-slate-400">${t('intake.disclaimer')}</p>` : ''}
+  </div>`
+}
 
 export async function websiteView(root, ctx) {
   const tabs = TABS.filter(([, , ok]) => ok())
@@ -69,13 +104,16 @@ async function leadsTab(root, ctx) {
         ${l.phone ? html`<a class="text-emerald-700 hover:underline" rel="noopener" target="_blank" href="https://wa.me/${l.phone.replace(/\D/g, '')}"><i class="fab fa-whatsapp me-1"></i>WhatsApp</a>` : ''}
       </div>
       ${l.message ? html`<p class="text-sm text-slate-700 whitespace-pre-line max-h-48 overflow-y-auto bg-slate-50 rounded-lg p-3" dir="auto">${l.message}</p>` : ''}
+      ${intakePanel(l)}
       ${l.notes ? html`<p class="text-sm text-slate-600 border-s-2 border-amber-300 ps-3 whitespace-pre-line" dir="auto">${l.notes}</p>` : ''}
       ${l.status === 'converted' ? html`<p class="text-sm text-emerald-700 flex flex-wrap gap-x-4">
           ${l.client_id ? html`<a class="hover:underline" href="#/clients/${l.client_id}"><i class="fas fa-address-book me-1"></i>${l.client_name || t('nav.clients')}</a>` : ''}
           ${l.case_id ? html`<a class="hover:underline" href="#/cases/${l.case_id}"><i class="fas fa-folder-open me-1"></i>${l.case_reference}</a>` : ''}</p>` : ''}
       ${!readOnly() ? html`<div class="flex flex-wrap gap-2 pt-1">
         ${l.status !== 'converted' && canWrite() ? html`<button class="btn btn-primary btn-sm" data-action="convert" data-id="${l.id}"><i class="fas fa-user-plus"></i>${t('web.convert')}</button>` : ''}
+        ${l.email && l.status !== 'converted' && canWrite() && aiEnabled() ? html`<button class="btn btn-outline btn-sm" data-action="reply" data-id="${l.id}"><i class="fas fa-reply"></i>${t('intake.reply')}</button>` : ''}
         ${l.status === 'new' ? html`<button class="btn btn-outline btn-sm" data-action="status" data-status="contacted" data-id="${l.id}"><i class="fas fa-phone-volume"></i>${t('web.mark_contacted')}</button>` : ''}
+        ${l.message && l.status !== 'converted' && canWrite() && aiEnabled() ? html`<button class="btn btn-ghost btn-sm" data-action="analyse" data-id="${l.id}"><i class="fas fa-wand-magic-sparkles"></i>${l.intake ? t('intake.reanalyse') : t('intake.analyse')}</button>` : ''}
         ${['new', 'contacted'].includes(l.status) ? html`<button class="btn btn-ghost btn-sm" data-action="status" data-status="declined" data-id="${l.id}"><i class="fas fa-ban"></i>${t('web.decline')}</button>` : ''}
         ${l.status === 'declined' ? html`<button class="btn btn-ghost btn-sm" data-action="status" data-status="new" data-id="${l.id}"><i class="fas fa-rotate-left"></i>${t('web.reopen')}</button>` : ''}
         <button class="btn btn-ghost btn-sm" data-action="notes" data-id="${l.id}"><i class="fas fa-note-sticky"></i>${t('web.notes')}</button>
@@ -134,13 +172,18 @@ async function leadsTab(root, ctx) {
           }
         })
       },
-      convert: (btn) => openConvertDialog(byId(btn.dataset.id), () => ctx.rerender())
+      convert: (btn) => openConvertDialog(byId(btn.dataset.id), () => ctx.rerender()),
+      analyse: (btn) => busy(btn, async () => {
+        try { await api.post(`/api/website/leads/${btn.dataset.id}/intake`); ctx.rerender() } catch (err) { showError(err) }
+      }),
+      reply: (btn) => openReplyDialog(byId(btn.dataset.id), () => ctx.rerender())
     }
   })
 }
 
 // Conflict check, then create or link the client and optionally open a case.
 async function openConvertDialog(lead, onDone) {
+  const intake = lead.intake
   const m = modal({ title: t('web.convert_title'), size: 'lg', body: spinner() })
   const body = m.el.querySelector('.p-5')
   let conflicts = { clients: [], cases: [], conflict: false }
@@ -180,9 +223,10 @@ async function openConvertDialog(lead, onDone) {
       <section class="space-y-3">
         <label class="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" name="open_case" checked data-change="case" />${t('web.open_case')}</label>
         <div class="grid sm:grid-cols-2 gap-3 ps-6" data-case>
-          ${inputField({ name: 'case_title', label: t('web.case_title'), value: lead.practice_area ? `${refLabel('practice_areas', lead.practice_area)} – ${lead.name}` : lead.name, required: true, cls: 'sm:col-span-2' })}
-          ${selectField({ name: 'case_practice_area', label: t('web.practice_area'), options: refOptions('practice_areas'), value: lead.practice_area || '', empty: '—' })}
-          ${selectField({ name: 'case_jurisdiction', label: t('common.jurisdiction'), options: jurisdictions, value: store.me.org.default_jurisdiction })}
+          ${inputField({ name: 'case_title', label: t('web.case_title'), value: intake?.case_title || (lead.practice_area ? `${refLabel('practice_areas', lead.practice_area)} – ${lead.name}` : lead.name), required: true, cls: 'sm:col-span-2' })}
+          ${selectField({ name: 'case_practice_area', label: t('web.practice_area'), options: refOptions('practice_areas'), value: lead.practice_area || intake?.practice_area || '', empty: '—' })}
+          ${selectField({ name: 'case_jurisdiction', label: t('common.jurisdiction'), options: jurisdictions, value: intake?.jurisdiction || store.me.org.default_jurisdiction })}
+          ${inputField({ name: 'case_opposing', label: t('cases.opposing_party'), value: intake?.opposing_parties?.join(', ') || '', cls: 'sm:col-span-2', attrs: 'dir="auto"', hint: intake?.opposing_parties?.length ? t('intake.from_enquiry') : '' })}
         </div>
         <p class="hint ps-6">${t('web.case_hint')}</p>
       </section>
@@ -210,9 +254,9 @@ async function openConvertDialog(lead, onDone) {
       const payload = f.mode === 'existing'
         ? { client_id: f.client_id }
         : { client: { name: f.name, kind: f.kind, email: f.email, phone: f.phone } }
-      if (f.open_case) payload.case = { title: f.case_title, practice_area: f.case_practice_area, jurisdiction: f.case_jurisdiction }
+      if (f.open_case) payload.case = { title: f.case_title, practice_area: f.case_practice_area, jurisdiction: f.case_jurisdiction, opposing_party: f.case_opposing }
       try {
-        const r = await api.post(`/api/website/leads/${lead.id}/convert`, payload)
+        const r = await withConflictGate((override) => api.post(`/api/website/leads/${lead.id}/convert`, { ...payload, conflict_override: override }))
         m.close()
         toast(t('web.converted'))
         if (r.case) navigate(`/cases/${r.case.id}`)
@@ -221,6 +265,49 @@ async function openConvertDialog(lead, onDone) {
       } catch (err) { showError(err, form) }
     })
   })
+}
+
+// AI-drafted first reply; the lawyer edits it, then it is emailed with their address as reply-to.
+function openReplyDialog(lead, onDone) {
+  const lang = lead.language === 'ar' ? 'ar' : 'en'
+  const m = modal({
+    title: t('intake.reply_title', { name: lead.name }),
+    size: 'lg',
+    body: html`<form data-form="reply" class="space-y-4" novalidate>
+      <div class="flex flex-wrap items-center justify-between gap-2 text-sm">
+        <span class="text-slate-600">${t('intake.to')}: <span dir="ltr">${lead.email}</span></span>
+        <div class="flex items-center gap-2">
+          ${selectField({ name: 'language', label: '', options: [{ value: 'en', label: 'English' }, { value: 'ar', label: 'العربية' }], value: lang, cls: 'w-32', attrs: `aria-label="${t('intake.reply_language')}"` })}
+          <button type="button" class="btn btn-outline btn-sm" data-action="draft"><i class="fas fa-wand-magic-sparkles"></i>${t('intake.draft')}</button>
+        </div>
+      </div>
+      ${inputField({ name: 'subject', label: t('intake.subject'), required: true, attrs: 'dir="auto" maxlength="200"' })}
+      ${textareaField({ name: 'body', label: t('intake.message'), rows: 12, required: true })}
+      <p class="hint">${t('intake.reply_hint')}</p>
+      <div class="flex justify-end gap-2 pt-4 border-t border-slate-100">
+        <button type="button" class="btn btn-outline" data-action="close-modal">${t('common.cancel')}</button>
+        <button type="submit" class="btn btn-primary"><i class="fas fa-paper-plane"></i>${t('intake.send')}</button>
+      </div>
+    </form>`,
+    actions: {
+      draft: (btn) => busy(btn, async () => {
+        const form = m.el.querySelector('form')
+        try {
+          const { draft } = await api.post(`/api/website/leads/${lead.id}/reply-draft`, { language: form.elements.language.value })
+          form.elements.subject.value = draft.subject
+          form.elements.body.value = draft.body
+        } catch (err) { showError(err) }
+      })
+    },
+    forms: {
+      reply: (form) => busy(submitButton(form), async () => {
+        const d = formData(form)
+        try { await api.post(`/api/website/leads/${lead.id}/reply`, { subject: d.subject, body: d.body }); m.close(); toast(t('intake.sent')); onDone() } catch (err) { showError(err, form) }
+      })
+    }
+  })
+  // Start with a draft so the lawyer only has to review it.
+  m.el.querySelector('[data-action=draft]').click()
 }
 
 // ---------------- Blog ----------------

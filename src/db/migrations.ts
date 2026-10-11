@@ -866,6 +866,18 @@ CREATE TABLE invoice_payments (
 CREATE UNIQUE INDEX invoice_payments_charge_key ON invoice_payments (charge_id) WHERE charge_id IS NOT NULL;
 CREATE INDEX invoice_payments_invoice_idx ON invoice_payments (invoice_id, created_at DESC);
 `
+  },
+  {
+    version: 19,
+    name: 'lead_intake',
+    sql: `
+ALTER TABLE leads ADD COLUMN intake JSONB;
+ALTER TABLE leads ADD COLUMN intake_model TEXT;
+ALTER TABLE leads ADD COLUMN intake_at TIMESTAMPTZ;
+ALTER TABLE leads ADD COLUMN urgency TEXT CHECK (urgency IN ('urgent', 'soon', 'routine'));
+ALTER TABLE leads ADD COLUMN conflicts JSONB;
+ALTER TABLE leads ADD COLUMN replied_at TIMESTAMPTZ;
+`
   }
 ]
 
