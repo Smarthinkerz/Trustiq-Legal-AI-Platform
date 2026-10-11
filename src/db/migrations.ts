@@ -786,6 +786,16 @@ CREATE TABLE hearing_records (
 );
 CREATE INDEX hearing_records_case_idx ON hearing_records (case_id, created_at DESC);
 `
+  },
+  {
+    version: 15,
+    name: 'matter_budgets',
+    sql: `
+ALTER TABLE cases ADD COLUMN fee_arrangement TEXT NOT NULL DEFAULT 'hourly' CHECK (fee_arrangement IN ('hourly', 'fixed', 'capped', 'contingency'));
+ALTER TABLE cases ADD COLUMN fee_amount NUMERIC(18,3);
+ALTER TABLE cases ADD COLUMN budget_amount NUMERIC(18,3);
+ALTER TABLE cases ADD COLUMN budget_alert_level INTEGER NOT NULL DEFAULT 0;
+`
   }
 ]
 

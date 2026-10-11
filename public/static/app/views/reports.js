@@ -8,7 +8,10 @@ import { fmtHours } from './billing.js'
 const bar = (value, max, cls = 'bg-brand-500') => html`<div class="h-2 rounded bg-slate-100 overflow-hidden"><div class="h-full ${cls}" style="width:${max ? Math.max(2, Math.round((value / max) * 100)) : 0}%"></div></div>`
 
 export async function reportsView(root, { query, isCurrent }) {
-  const r = await api.get('/api/reports' + qs({ from: query.get('from'), to: query.get('to') }))
+  const [r, matters] = await Promise.all([
+    api.get('/api/reports' + qs({ from: query.get('from'), to: query.get('to') })),
+    api.get('/api/reports/matters' + qs({ include_closed: query.get('closed') === '1' ? 'true' : '' }))
+  ])
   if (!isCurrent()) return
   const cur = store.me.org.default_currency
   const maxUser = Math.max(0, ...r.by_user.map((u) => u.minutes))
@@ -71,12 +74,37 @@ export async function reportsView(root, { query, isCurrent }) {
         ${r.by_practice_area.length ? html`<ul class="space-y-2">${r.by_practice_area.map((a) => html`<li>
           <div class="flex justify-between text-sm mb-1"><span>${a.key === 'other' ? t('doctype.other') : refLabel('practice_areas', a.key)}</span><span>${fmtNumber(a.n)}</span></div>${bar(a.n, maxArea, 'bg-emerald-500')}</li>`)}</ul>` : html`<p class="text-sm text-slate-500">—</p>`}
       </section>
+      <section class="card lg:col-span-2">
+        <div class="px-5 py-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2">
+          <div><h2 class="font-semibold">${t('fees.report_title')}</h2><p class="text-xs text-slate-500">${t('fees.report_help')}</p></div>
+          <label class="text-sm flex items-center gap-2"><input type="checkbox" data-change="closed" ${query.get('closed') === '1' ? 'checked' : ''} />${t('fees.include_closed')}</label>
+        </div>
+        ${matters.items.length ? html`<div class="overflow-x-auto"><table class="table text-sm">
+          <thead><tr><th>${t('cases.reference')}</th><th>${t('fees.arrangement')}</th><th class="text-end">${t('fees.hours')}</th><th class="text-end">${t('fees.recorded')}</th>
+            <th class="w-36">${t('fees.budget_used')}</th><th class="text-end">${t('fees.unbilled')}</th><th class="text-end">${t('fees.invoiced')}</th><th class="text-end">${t('fees.collected')}</th>
+            <th class="text-end">${t('fees.realization')}</th><th class="text-end">${t('fees.effective_rate')}</th></tr></thead>
+          <tbody>${matters.items.map((m) => html`<tr>
+            <td><a class="hover:underline" href="#/cases/${m.id}"><span class="font-mono text-xs text-slate-500">${m.reference}</span> <span class="block truncate max-w-[14rem]" dir="auto">${m.title}</span></a></td>
+            <td class="text-xs">${t(`fees.arr_${m.fee_arrangement}`)}</td>
+            <td class="text-end font-mono">${fmtHours(m.billable_minutes)}</td>
+            <td class="text-end whitespace-nowrap">${fmtMoney(m.recorded_value, m.currency)}</td>
+            <td>${m.used_pct != null ? html`<div class="text-xs mb-1 ${m.budget_state === 'over' ? 'text-red-600 font-semibold' : m.budget_state === 'warning' ? 'text-amber-700' : 'text-slate-600'}">${m.used_pct}%</div>${bar(Math.min(m.used_pct, 100), 100, m.budget_state === 'over' ? 'bg-red-500' : m.budget_state === 'warning' ? 'bg-amber-500' : 'bg-emerald-500')}` : html`<span class="text-xs text-slate-400">—</span>`}</td>
+            <td class="text-end whitespace-nowrap ${m.unbilled_time + m.unbilled_expenses > 0 ? 'text-amber-700' : ''}">${fmtMoney(m.unbilled_time + m.unbilled_expenses, m.currency)}</td>
+            <td class="text-end whitespace-nowrap">${fmtMoney(m.invoiced_net, m.currency)}</td>
+            <td class="text-end whitespace-nowrap">${fmtMoney(m.collected, m.currency)}</td>
+            <td class="text-end">${m.realization_pct != null ? `${m.realization_pct}%` : '—'}</td>
+            <td class="text-end whitespace-nowrap">${m.effective_rate != null ? fmtMoney(m.effective_rate, m.currency) : '—'}</td>
+          </tr>`)}</tbody></table></div>` : html`<p class="px-5 py-6 text-sm text-slate-500">${t('fees.report_empty')}</p>`}
+      </section>
       ${r.ai_usage.length ? html`<section class="card card-pad lg:col-span-2">
         <h2 class="font-semibold mb-3">${t('reports.ai_usage')}</h2>
         <div class="flex flex-wrap gap-3">${r.ai_usage.map((a) => html`<div class="rounded-lg bg-slate-50 px-4 py-2 text-sm"><span class="text-slate-500">${t(`ai_feature.${a.feature.split(':')[0]}`)}${a.feature.includes(':') ? ` · ${a.feature.split(':')[1]}` : ''}</span> <strong>${fmtNumber(a.n)}</strong></div>`)}</div>
       </section>` : ''}
     </div>`)
   bind(root, {
+    changes: {
+      closed: (el) => { location.hash = '#/reports' + qs({ from: query.get('from'), to: query.get('to'), closed: el.checked ? '1' : '' }) }
+    },
     forms: {
       range: (form) => { location.hash = '#/reports' + qs({ from: form.elements.from.value, to: form.elements.to.value }) }
     }

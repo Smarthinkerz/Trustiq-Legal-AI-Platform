@@ -18,6 +18,43 @@ import { hearingHistoryCard, openOutcomeForm } from './hearings.js'
 
 export const CASE_STATUSES = ['active', 'pending', 'under_review', 'on_hold', 'closed']
 export const PRIORITIES = ['low', 'medium', 'high', 'urgent']
+const FEE_ARRANGEMENTS = ['hourly', 'fixed', 'capped', 'contingency']
+
+function syncFeeFields(sel) {
+  const form = sel.form
+  const a = sel.value
+  form.querySelector('[data-fee]').hidden = a === 'hourly'
+  form.querySelector('[data-budget]').hidden = a !== 'hourly'
+  form.querySelector('[data-fee] label').textContent = t(a === 'contingency' ? 'fees.percent' : a === 'capped' ? 'fees.cap' : 'fees.amount')
+  form.querySelector('[data-fee-hint]').textContent = t(`fees.hint_${a}`)
+}
+
+const money = (n, cur) => (n == null ? '—' : fmtMoney(n, cur))
+function financialsCard(f) {
+  const color = f.budget_state === 'over' ? 'bg-red-500' : f.budget_state === 'warning' ? 'bg-amber-500' : 'bg-emerald-500'
+  const row = (label, value, cls = '') => html`<div class="flex justify-between gap-3 text-sm"><dt class="text-slate-500">${label}</dt><dd class="font-medium text-end ${cls}">${value}</dd></div>`
+  return html`<section class="card card-pad space-y-4">
+    <div class="flex items-center justify-between gap-2"><h2 class="font-semibold"><i class="fas fa-scale-balanced text-slate-400 me-1"></i>${t('fees.title')}</h2>
+      <span class="badge bg-slate-100 text-slate-700">${t(`fees.arr_${f.fee_arrangement}`)}${f.fee_arrangement === 'contingency' && f.fee_amount != null ? ` · ${f.fee_amount}%` : ''}</span></div>
+    ${f.limit != null ? html`<div>
+      <div class="flex justify-between text-xs mb-1"><span class="text-slate-600">${t(f.fee_arrangement === 'hourly' ? 'fees.budget_used' : 'fees.fee_used')}</span>
+        <span class="font-semibold ${f.budget_state === 'over' ? 'text-red-600' : ''}">${f.used_pct}%</span></div>
+      <div class="h-2.5 rounded-full bg-slate-100 overflow-hidden"><div class="h-full ${color}" style="width:${Math.min(100, f.used_pct)}%"></div></div>
+      <p class="text-xs text-slate-500 mt-1">${money(f.recorded_value, f.currency)} / ${money(f.limit, f.currency)}</p>
+    </div>` : f.fee_arrangement === 'hourly' ? html`<p class="text-xs text-slate-500">${t('fees.no_budget')}</p>` : ''}
+    <dl class="space-y-1.5">
+      ${row(t('fees.hours'), fmtHours(f.billable_minutes))}
+      ${row(t('fees.recorded'), money(f.recorded_value, f.currency))}
+      ${row(t('fees.unbilled'), money(f.unbilled_time + f.unbilled_expenses, f.currency), f.unbilled_time + f.unbilled_expenses > 0 ? 'text-amber-700' : '')}
+      ${row(t('fees.invoiced'), money(f.invoiced_net, f.currency))}
+      ${row(t('fees.collected'), money(f.collected, f.currency))}
+      ${f.outstanding ? row(t('fees.outstanding'), money(f.outstanding, f.currency), 'text-red-600') : ''}
+      ${f.realization_pct != null ? row(t('fees.realization'), `${f.realization_pct}%`) : ''}
+      ${f.effective_rate != null ? row(t('fees.effective_rate'), `${money(f.effective_rate, f.currency)} / ${t('fees.per_hour')}`) : ''}
+      ${f.write_down ? row(t('fees.write_down'), money(f.write_down, f.currency), 'text-red-600') : ''}
+    </dl>
+  </section>`
+}
 
 export async function openCaseForm({ kase, clientId, clientName, onSaved } = {}) {
   const members = await loadMembers().catch(() => [])
@@ -43,15 +80,26 @@ export async function openCaseForm({ kase, clientId, clientName, onSaved } = {})
           ${inputField({ name: 'estimated_value', label: t('cases.value'), type: 'number', value: k.estimated_value, attrs: 'data-type="number" min="0" step="0.001"', cls: 'col-span-2' })}
           ${selectField({ name: 'currency', label: t('cases.currency'), options: (store.ref.currencies || []).map((c) => ({ value: c, label: c })), value: k.currency || org.default_currency })}
         </div>
+        <fieldset class="sm:col-span-2 rounded-lg border border-slate-200 p-4 grid sm:grid-cols-3 gap-3">
+          <legend class="px-1 text-sm font-semibold">${t('fees.title')}</legend>
+          ${selectField({ name: 'fee_arrangement', label: t('fees.arrangement'), options: FEE_ARRANGEMENTS.map((a) => ({ value: a, label: t(`fees.arr_${a}`) })), value: k.fee_arrangement || 'hourly', attrs: 'data-change="fee-arr"' })}
+          <div data-fee>${inputField({ name: 'fee_amount', label: t('fees.amount'), type: 'number', value: k.fee_amount, attrs: 'data-type="number" min="0" step="0.001"' })}</div>
+          <div data-budget>${inputField({ name: 'budget_amount', label: t('fees.budget'), type: 'number', value: k.budget_amount, attrs: 'data-type="number" min="0" step="0.001"' })}</div>
+          <p class="hint sm:col-span-3" data-fee-hint></p>
+        </fieldset>
         ${textareaField({ name: 'description', label: t('common.description'), value: k.description, rows: 4, cls: 'sm:col-span-2' })}
         <div class="sm:col-span-2">${formActions(kase ? t('common.save') : t('cases.create'))}</div>
       </form>`,
-    onMount: (el) => wirePickers(el),
+    onMount: (el) => { wirePickers(el); syncFeeFields(el.querySelector('[name=fee_arrangement]')) },
+    changes: { 'fee-arr': syncFeeFields },
     forms: {
       save: (form) => busy(submitButton(form), async () => {
         clearFieldErrors(form)
         const data = formData(form)
         if (!data.opened_on) delete data.opened_on
+        // Only the amount that applies to the arrangement is kept.
+        if (data.fee_arrangement === 'hourly') data.fee_amount = null
+        else data.budget_amount = null
         try {
           const res = kase ? await api.patch(`/api/cases/${kase.id}`, data) : await api.post('/api/cases', data)
           m.close()
@@ -135,13 +183,14 @@ export async function casesListView(root, { query, isCurrent }) {
 }
 
 export async function caseDetailView(root, { params, isCurrent, rerender }) {
-  const [data, tasks, time, docRequests, hearings, awaitingAll] = await Promise.all([
+  const [data, tasks, time, docRequests, hearings, awaitingAll, fin] = await Promise.all([
     api.get(`/api/cases/${params.id}`),
     api.get(`/api/tasks?case_id=${params.id}&status=active&pageSize=100`),
     api.get(`/api/billing/time?case_id=${params.id}&pageSize=10`),
     api.get(`/api/document-requests?case_id=${params.id}`),
     api.get(`/api/hearings?case_id=${params.id}`),
-    api.get('/api/hearings/awaiting').catch(() => ({ items: [] }))
+    api.get('/api/hearings/awaiting').catch(() => ({ items: [] })),
+    api.get(`/api/cases/${params.id}/financials`).catch(() => null)
   ])
   const awaiting = readOnly() ? [] : awaitingAll.items.filter((e) => e.case_id === params.id)
   if (!isCurrent()) return
@@ -232,6 +281,7 @@ export async function caseDetailView(root, { params, isCurrent, rerender }) {
       </div>
 
       <div class="space-y-6">
+        ${fin ? financialsCard(fin.financials) : ''}
         <section class="card">
           <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100">
             <h2 class="font-semibold">${t('cases.events')}</h2>

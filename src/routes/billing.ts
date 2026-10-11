@@ -9,6 +9,7 @@ import { computeTotals, orgBilling, recalcInvoice, roundMoney, timeAmount } from
 import { contentDisposition, renderInvoiceDocx, safeFileName } from '../services/export'
 import { ACCEPTED_TYPES } from '../services/extract'
 import { invoiceZatcaQr, isSaudiVatNumber, zatcaApplies } from '../services/zatca'
+import { checkBudgetAlert } from '../services/matter-finance'
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use a date in YYYY-MM-DD format')
 const money = z.number().min(0).max(1e12)
@@ -132,6 +133,8 @@ billingRoutes.post('/time', jsonBody(z.object({ ...timeFields, billable: timeFie
      VALUES ($1, $2, $3, COALESCE($4::date, CURRENT_DATE), $5, $6, $7, $8) RETURNING *`,
     [org.id, b.case_id, user.id, b.work_date ?? null, b.minutes, b.description, rate, b.billable])
   await audit(c, 'billing.time_logged', 'time_entry', entry!.id, { minutes: b.minutes })
+  const { mailer, config, log } = c.get('deps')
+  await checkBudgetAlert({ db, mailer, config, log }, org.id, b.case_id).catch((err) => log.warn('budget alert check failed', { err }))
   return c.json({ entry }, 201)
 })
 

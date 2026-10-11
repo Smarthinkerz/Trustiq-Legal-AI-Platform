@@ -6,6 +6,7 @@ import { badRequest, notFound } from '../lib/errors'
 import { buildUpdate, jsonBody, likePattern, optText, optUuid, pageSchema, paged, queryParams, uuidParam } from '../lib/http'
 import { CURRENCIES, JURISDICTION_CODES, PRACTICE_AREA_IDS } from '../services/reference'
 import { assertCanOpenCase } from '../services/usage'
+import { FEE_ARRANGEMENTS, matterFinancials } from '../services/matter-finance'
 
 const STATUSES = ['active', 'pending', 'under_review', 'on_hold', 'closed'] as const
 const PRIORITIES = ['low', 'medium', 'high', 'urgent'] as const
@@ -23,6 +24,10 @@ const caseFields = {
   description: optText(10_000),
   estimated_value: z.number().min(0).max(1e13).nullish().transform((v) => v ?? null),
   currency: z.enum(CURRENCIES),
+  // Fixed fee, fee cap, or contingency percentage, depending on the arrangement; the budget is for hourly matters.
+  fee_arrangement: z.enum(FEE_ARRANGEMENTS),
+  fee_amount: z.number().min(0).max(1e13).nullish().transform((v) => v ?? null),
+  budget_amount: z.number().min(0).max(1e13).nullish().transform((v) => v ?? null),
   assigned_to: optUuid,
   // Never cleared: a null/blank value leaves the stored date unchanged.
   opened_on: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish().transform((v) => v ?? undefined)
@@ -31,10 +36,11 @@ const createSchema = z.object({
   ...caseFields,
   status: caseFields.status.default('active'),
   priority: caseFields.priority.default('medium'),
-  currency: caseFields.currency.optional()
+  currency: caseFields.currency.optional(),
+  fee_arrangement: caseFields.fee_arrangement.default('hourly')
 })
 const updateSchema = z.object(caseFields).partial()
-const UPDATABLE = ['title', 'title_ar', 'client_id', 'practice_area', 'jurisdiction', 'court', 'opposing_party', 'status', 'priority', 'description', 'estimated_value', 'currency', 'assigned_to', 'opened_on'] as const
+const UPDATABLE = ['title', 'title_ar', 'client_id', 'practice_area', 'jurisdiction', 'court', 'opposing_party', 'status', 'priority', 'description', 'estimated_value', 'currency', 'assigned_to', 'opened_on', 'fee_arrangement', 'fee_amount', 'budget_amount'] as const
 
 async function assertRefs(db: Queryable, orgId: string, refs: { client_id?: string | null; assigned_to?: string | null }) {
   if (refs.client_id && !(await db.query('SELECT 1 FROM clients WHERE id = $1 AND org_id = $2', [refs.client_id, orgId])).length) {
@@ -116,10 +122,11 @@ casesRoutes.post('/', jsonBody(createSchema), async (c) => {
     const reference = `${new Date().getFullYear()}-${String(seq!.case_seq).padStart(4, '0')}`
     const row = await q.one(
       `INSERT INTO cases (org_id, reference, title, title_ar, client_id, practice_area, jurisdiction, court, opposing_party, status, priority,
-                          description, estimated_value, currency, assigned_to, opened_on, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, COALESCE($16::date, CURRENT_DATE), $17) RETURNING *`,
+                          description, estimated_value, currency, assigned_to, opened_on, created_by, fee_arrangement, fee_amount, budget_amount)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, COALESCE($16::date, CURRENT_DATE), $17, $18, $19, $20) RETURNING *`,
       [org.id, reference, b.title, b.title_ar, b.client_id, b.practice_area, b.jurisdiction, b.court, b.opposing_party, b.status, b.priority,
-       b.description, b.estimated_value, b.currency ?? org.default_currency, b.assigned_to ?? user.id, b.opened_on ?? null, user.id])
+       b.description, b.estimated_value, b.currency ?? org.default_currency, b.assigned_to ?? user.id, b.opened_on ?? null, user.id,
+       b.fee_arrangement, b.fee_amount, b.budget_amount])
     await caseActivity(q, org.id, row!.id, user.id, 'created', 'Case opened')
     return row
   })
@@ -139,12 +146,22 @@ casesRoutes.patch('/:id', jsonBody(updateSchema), async (c) => {
   const { sets, values } = buildUpdate(b, UPDATABLE, 3)
   if (b.status === 'closed' && current.status !== 'closed') sets.push('closed_on = CURRENT_DATE')
   if (b.status && b.status !== 'closed') sets.push('closed_on = NULL')
+  // A new fee or budget starts the 80% / 100% alerts again.
+  if (b.fee_arrangement !== undefined || b.fee_amount !== undefined || b.budget_amount !== undefined) sets.push('budget_alert_level = 0')
   const kase = await db.one(`UPDATE cases SET ${[...sets, 'updated_at = now()'].join(', ')} WHERE id = $1 AND org_id = $2 RETURNING *`, [id, org.id, ...values])
   if (b.status && b.status !== current.status) {
     await caseActivity(db, org.id, id, user.id, 'status_change', `Status changed from ${current.status} to ${b.status}`)
   }
   await audit(c, 'case.updated', 'case', id, { fields: Object.keys(b) })
   return c.json({ case: kase })
+})
+
+casesRoutes.get('/:id/financials', async (c) => {
+  const { org } = auth(c)
+  const id = uuidParam(c.req.param('id'), 'Case')
+  const [financials] = await matterFinancials(c.get('deps').db, org.id, { caseIds: [id], includeClosed: true })
+  if (!financials) throw notFound('Case')
+  return c.json({ financials })
 })
 
 casesRoutes.post('/:id/notes', jsonBody(z.object({ body: z.string().trim().min(1).max(10_000) })), async (c) => {
