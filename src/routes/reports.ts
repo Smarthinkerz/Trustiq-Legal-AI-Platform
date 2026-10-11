@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { auth, requireRole, type AppEnv } from '../context'
 import { queryParams } from '../lib/http'
+import { matterFinancials } from '../services/matter-finance'
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 
@@ -57,6 +58,16 @@ reportsRoutes.get('/', queryParams(z.object({ from: isoDate.optional(), to: isoD
     db.query(`SELECT feature, count(*)::int AS n FROM ai_usage WHERE org_id = $1 AND created_at::date BETWEEN $2 AND $3 GROUP BY feature ORDER BY n DESC`, p)
   ])
   return c.json({ from, to, by_user: byUser, by_case: byCase, invoices: invoiceTotals, aging, cases_by_month: casesByMonth, by_practice_area: byArea, by_status: byStatus, ai_usage: ai })
+})
+
+// Every matter's fees, budget use, billing and collection, for the profitability table.
+reportsRoutes.get('/matters', queryParams(z.object({ include_closed: z.enum(['true', 'false']).default('false') })), async (c) => {
+  requireRole(c, 'owner', 'admin')
+  const { org } = auth(c)
+  const items = await matterFinancials(c.get('deps').db, org.id, { includeClosed: c.req.valid('query').include_closed === 'true' })
+  // Most at risk first: over budget, then highest budget use, then most unbilled work.
+  items.sort((a, b) => (b.used_pct ?? -1) - (a.used_pct ?? -1) || (b.unbilled_time ?? 0) - (a.unbilled_time ?? 0))
+  return c.json({ items: items.filter((i) => i.minutes > 0 || i.invoiced > 0 || i.limit != null) })
 })
 
 export default reportsRoutes
