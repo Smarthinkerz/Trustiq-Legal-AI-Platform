@@ -122,8 +122,13 @@ export async function portalHomeView(root, { isCurrent, rerender }) {
             <div class="flex items-center justify-between gap-2"><span class="font-mono text-xs">${i.number}</span>${invoiceBadge(i)}</div>
             <div class="flex items-center justify-between gap-2 mt-1">
               <div class="text-sm font-semibold">${fmtMoney(Number(i.total), i.currency)}<div class="text-xs font-normal text-slate-500">${t('billing.due')}: ${fmtDate(isoDay(i.due_date))}</div></div>
-              <button class="btn btn-ghost btn-sm" data-action="download-invoice" data-id="${i.id}" aria-label="${t('portal.download')}"><i class="fas fa-download"></i></button>
-            </div></li>`)}</ul>` : html`<p class="px-5 py-6 text-sm text-slate-500">${t('portal.no_invoices')}</p>`}
+              <div class="flex items-center gap-1">
+                ${i.can_pay ? html`<button class="btn btn-primary btn-sm" data-action="pay-invoice" data-id="${i.id}"><i class="fas fa-credit-card"></i>${t('portal.pay_now')}</button>` : ''}
+                <button class="btn btn-ghost btn-sm" data-action="download-invoice" data-id="${i.id}" aria-label="${t('portal.download')}"><i class="fas fa-download"></i></button>
+              </div>
+            </div>
+            ${Number(i.amount_paid) > 0 && i.status === 'issued' ? html`<div class="text-xs text-slate-500 mt-1">${t('portal.balance_due', { amount: fmtMoney(Number(i.total) - Number(i.amount_paid), i.currency) })}</div>` : ''}
+            </li>`)}</ul>` : html`<p class="px-5 py-6 text-sm text-slate-500">${t('portal.no_invoices')}</p>`}
         </section>
         <section class="card card-pad text-sm space-y-2">
           <h2 class="font-semibold">${t('portal.contact_firm')}</h2>
@@ -140,7 +145,10 @@ export async function portalHomeView(root, { isCurrent, rerender }) {
         try { const { url } = await api.post(`/api/portal/signatures/${el.dataset.id}/open`); location.href = url } catch (err) { showError(err) }
       }),
       'download-doc': (el) => download(`/api/portal/documents/${el.dataset.id}/download`),
-      'download-invoice': (el) => download(`/api/portal/invoices/${el.dataset.id}/download`)
+      'download-invoice': (el) => download(`/api/portal/invoices/${el.dataset.id}/download`),
+      'pay-invoice': (el) => busy(el, async () => {
+        try { const { url } = await api.post(`/api/portal/invoices/${el.dataset.id}/pay`); location.href = `${url}?lang=${getLang()}` } catch (err) { showError(err) }
+      })
     },
     changes: {
       'request-file': async (el) => {

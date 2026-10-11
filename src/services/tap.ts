@@ -26,11 +26,15 @@ export interface TapClient {
   configured: boolean
   createCharge(body: Record<string, unknown>): Promise<TapCharge>
   retrieveCharge(id: string): Promise<TapCharge>
+  // False when Tap rejects the key itself; throws when Tap cannot be reached.
+  verifyKey(): Promise<boolean>
 }
 
-export function createTapClient(config: Config, log: Logger, fetchImpl: typeof fetch = fetch): TapClient {
-  const { secretKey, apiUrl } = config.tap
-  if (secretKey && !secretKey.startsWith('sk_')) log.warn('TAP_SECRET_KEY does not start with sk_ – it looks like a publishable key')
+// secretKeyOverride is used for a firm's own Tap account (invoice payments) instead of the platform's.
+export function createTapClient(config: Config, log: Logger, fetchImpl: typeof fetch = fetch, secretKeyOverride?: string): TapClient {
+  const { apiUrl } = config.tap
+  const secretKey = secretKeyOverride ?? config.tap.secretKey
+  if (secretKey && !secretKeyOverride && !secretKey.startsWith('sk_')) log.warn('TAP_SECRET_KEY does not start with sk_ – it looks like a publishable key')
   const call = async (method: string, path: string, body?: unknown): Promise<TapCharge> => {
     if (!secretKey) throw unavailable('payments_not_configured', 'Online payments are not enabled for this deployment.')
     let res: Response
@@ -56,9 +60,34 @@ export function createTapClient(config: Config, log: Logger, fetchImpl: typeof f
   return {
     configured: !!secretKey,
     createCharge: (body) => call('POST', '/charges', body),
-    retrieveCharge: (id) => call('GET', `/charges/${encodeURIComponent(id)}`)
+    retrieveCharge: (id) => call('GET', `/charges/${encodeURIComponent(id)}`),
+    async verifyKey() {
+      if (!secretKey) return false
+      let res: Response
+      try {
+        res = await fetchImpl(`${apiUrl}/charges/list`, {
+          method: 'POST',
+          headers: { authorization: `Bearer ${secretKey}`, 'content-type': 'application/json', accept: 'application/json' },
+          body: JSON.stringify({ limit: 1 }),
+          signal: AbortSignal.timeout(20_000)
+        })
+      } catch (err) {
+        log.error('tap key check failed', { err })
+        throw unavailable('payments_unavailable', 'The payment provider could not be reached. Please try again.')
+      }
+      if (res.status === 401 || res.status === 403) return false
+      if (!res.ok) {
+        log.error('tap key check error', { status: res.status })
+        throw new HttpError(502, 'payments_error', 'The payment provider returned an error. Please try again.')
+      }
+      return true
+    }
   }
 }
+
+// Tap's three-decimal currencies; everything else it settles uses two.
+export const TAP_CURRENCIES = ['OMR', 'AED', 'SAR', 'QAR', 'KWD', 'BHD', 'EGP', 'JOD', 'USD', 'EUR', 'GBP'] as const
+export const tapDecimals = (currency: string) => (['KWD', 'BHD', 'OMR', 'JOD'].includes(currency) ? 3 : 2)
 
 export type PaymentStatus = 'initiated' | 'paid' | 'failed' | 'cancelled'
 
@@ -72,14 +101,14 @@ export function mapTapStatus(status: string): PaymentStatus {
 
 // Webhook signatures: the Hub scheme signs the raw body with TAP_WEBHOOK_SECRET; Tap's native scheme
 // signs selected charge fields with the secret key. Either is accepted, compared in constant time.
-export function verifyTapSignature(opts: { rawBody: string; header: string | undefined; webhookSecret: string; secretKey?: string; payload: any }): boolean {
+export function verifyTapSignature(opts: { rawBody: string; header: string | undefined; webhookSecret?: string; secretKey?: string; payload: any }): boolean {
   const given = (opts.header ?? '').trim().toLowerCase()
   if (!/^[0-9a-f]{64}$/.test(given)) return false
   const eq = (hex: string) => timingSafeEqual(Buffer.from(hex, 'hex'), Buffer.from(given, 'hex'))
-  if (eq(createHmac('sha256', opts.webhookSecret).update(opts.rawBody).digest('hex'))) return true
+  if (opts.webhookSecret && eq(createHmac('sha256', opts.webhookSecret).update(opts.rawBody).digest('hex'))) return true
   if (opts.secretKey && opts.payload) {
     const p = opts.payload
-    const amount = Number(p.amount).toFixed(['KWD', 'BHD', 'OMR', 'JOD'].includes(p.currency) ? 3 : 2)
+    const amount = Number(p.amount).toFixed(tapDecimals(p.currency))
     const s = `x_id${p.id}x_amount${amount}x_currency${p.currency}x_gateway_reference${p.reference?.gateway ?? ''}` +
       `x_payment_reference${p.reference?.payment ?? ''}x_status${p.status}x_created${p.transaction?.created ?? ''}`
     if (eq(createHmac('sha256', opts.secretKey).update(s).digest('hex'))) return true

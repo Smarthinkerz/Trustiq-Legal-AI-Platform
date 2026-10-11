@@ -65,9 +65,22 @@ export function fakeTap(): FakeTap {
       const c = tap.charges.get(id)
       if (!c) throw new Error('unknown charge')
       return c
-    }
+    },
+    async verifyKey() { return true }
   }
   return tap
+}
+
+// A firm's own Tap account: one fake shared by every key, recording which keys were used.
+// Keys containing "Rejected" fail verification.
+export function fakeFirmTap() {
+  const tap = fakeTap()
+  const keys: string[] = []
+  const forKey = (key: string): TapClient => {
+    keys.push(key)
+    return { ...tap, verifyKey: async () => !key.includes('Rejected') }
+  }
+  return { tap, keys, forKey }
 }
 
 export async function setup(env: Record<string, string> = {}, opts: { googleFetch?: typeof fetch } = {}) {
@@ -81,14 +94,15 @@ export async function setup(env: Record<string, string> = {}, opts: { googleFetc
   const mailer: Mailer = { configured: true, async send(m) { mails.push(m) } }
   const ai = fakeAi()
   const tap = fakeTap()
+  const firmTap = fakeFirmTap()
   const web = fakeWeb()
   const log = createLogger('error', true)
   const app = createApp({
-    config, db, ai, mailer, tap, webFetch: web.fetch, googleFetch: opts.googleFetch,
+    config, db, ai, mailer, tap, firmTap: firmTap.forKey, webFetch: web.fetch, googleFetch: opts.googleFetch,
     log,
     limiters: { auth: new RateLimiter(1000, 60_000), api: new RateLimiter(10_000, 60_000), ai: new RateLimiter(1000, 60_000), webhook: new RateLimiter(1000, 60_000), apiKey: new RateLimiter(1000, 60_000) }
   })
-  return { app, db, ai, mails, config, tap, web, log, runImports: () => runLibraryImports({ db, config, ai, log, webFetch: web.fetch }) }
+  return { app, db, ai, mails, config, tap, firmTap, web, log, runImports: () => runLibraryImports({ db, config, ai, log, webFetch: web.fetch }) }
 }
 
 type App = Awaited<ReturnType<typeof setup>>['app']
