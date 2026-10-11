@@ -10,6 +10,8 @@ import type { Queryable } from '../db'
 import type { Mailer } from '../lib/mailer'
 import type { Config } from '../config'
 import type { Logger } from '../lib/logger'
+import { conflictOverride, gateConflicts } from '../lib/conflict-gate'
+import { logConflictCheck, opposingConflicts } from '../services/conflicts'
 
 const clientFields = {
   kind: z.enum(['individual', 'company']),
@@ -22,7 +24,7 @@ const clientFields = {
   address: optText(500),
   notes: optText(5000)
 }
-const createSchema = z.object({ ...clientFields, kind: clientFields.kind.default('individual') })
+const createSchema = z.object({ ...clientFields, kind: clientFields.kind.default('individual'), conflict_override: conflictOverride })
 const updateSchema = z.object({ ...clientFields, archived: z.boolean() }).partial()
 const UPDATABLE = ['kind', 'name', 'name_ar', 'email', 'phone', 'id_number', 'vat_number', 'address', 'notes'] as const
 
@@ -65,12 +67,17 @@ clientsRoutes.get('/:id', async (c) => {
 clientsRoutes.post('/', jsonBody(createSchema), async (c) => {
   const { user, org } = auth(c)
   const b = c.req.valid('json')
+  const { db } = c.get('deps')
+  // Blocking: the new client is an opposing party in one of the firm's matters.
+  const blocking = await opposingConflicts(db, org.id, [b.name, b.name_ar])
+  const gate = gateConflicts(c, blocking, b.conflict_override)
   const client = await c.get('deps').db.one(
     `INSERT INTO clients (org_id, kind, name, name_ar, email, phone, id_number, vat_number, address, notes, created_by)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
     [org.id, b.kind, b.name, b.name_ar, b.email, b.phone, b.id_number, b.vat_number, b.address, b.notes, user.id])
-  await audit(c, 'client.created', 'client', client!.id)
-  return c.json({ client }, 201)
+  await logConflictCheck(db, { orgId: org.id, userId: user.id, subjectType: 'client', subjectId: client!.id, subjectName: b.name, matches: blocking, ...gate })
+  await audit(c, 'client.created', 'client', client!.id, gate.decision === 'override' ? { conflict_override: gate.reason } : undefined)
+  return c.json({ client, conflict_check: { decision: gate.decision, matches: blocking } }, 201)
 })
 
 clientsRoutes.patch('/:id', jsonBody(updateSchema), async (c) => {

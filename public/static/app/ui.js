@@ -39,7 +39,8 @@ export function errorMessage(err) {
 }
 
 export function showError(err, form) {
-  if (form && err instanceof ApiError && err.details) setFieldErrors(form, err.details)
+  if (err?.cancelled) return
+  if (form && err instanceof ApiError && Array.isArray(err.details)) setFieldErrors(form, err.details)
   let msg = errorMessage(err)
   if (err instanceof ApiError && err.status >= 500 && err.requestId) msg += ` (${t('error.reference')}: ${err.requestId.slice(0, 8)})`
   toast(msg, 'error')

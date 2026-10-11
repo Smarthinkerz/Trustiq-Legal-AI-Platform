@@ -11,12 +11,15 @@ import { openImportDialog } from './import.js'
 import { invoiceBadge, openInvoiceWizard } from './billing.js'
 import { messageThread } from './portal.js'
 import { openRequest, openRequestForm, requestsCard } from './doc-requests.js'
+import { withConflictGate } from './conflicts.js'
 
-// Warns about possible conflicts of interest while a new client's name is typed.
-async function checkConflicts(name, box, excludeId) {
-  if (!name || name.trim().length < 3) { render(box, ''); return }
+// Warns about possible conflicts of interest while a new client's details are typed.
+async function checkConflicts(form, box, excludeId) {
+  const v = (n) => form.querySelector(`[name=${n}]`)?.value.trim() || ''
+  const name = v('name') || v('name_ar')
+  if (name.length < 3) { render(box, ''); return }
   try {
-    const r = await api.get('/api/workspace/conflicts' + qs({ name: name.trim(), exclude_client_id: excludeId }))
+    const r = await api.get('/api/workspace/conflicts' + qs({ name, name_ar: v('name_ar'), id_number: v('id_number'), email: v('email'), phone: v('phone'), exclude_client_id: excludeId }))
     if (!r.clients.length && !r.cases.length) {
       render(box, html`<p class="text-xs text-emerald-700"><i class="fas fa-circle-check"></i> ${t('conflicts.none')}</p>`)
       return
@@ -24,8 +27,8 @@ async function checkConflicts(name, box, excludeId) {
     render(box, html`<div class="rounded-lg ${r.conflict ? 'bg-red-50 text-red-800 border-red-200' : 'bg-amber-50 text-amber-900 border-amber-200'} border p-3 text-sm">
       <p class="font-semibold mb-1"><i class="fas fa-triangle-exclamation"></i> ${r.conflict ? t('conflicts.opposing') : t('conflicts.similar')}</p>
       <ul class="list-disc ps-5 space-y-0.5">
-        ${r.clients.map((c) => html`<li>${t('conflicts.existing_client')}: <a class="underline" href="#/clients/${c.id}" target="_blank" rel="noopener">${c.name}</a></li>`)}
-        ${r.cases.map((k) => html`<li>${k.reference} · ${k.title}${k.opposing_party ? html` – ${t('cases.opposing_party')}: <strong>${k.opposing_party}</strong>` : ''}${k.client_name ? ` (${k.client_name})` : ''}</li>`)}
+        ${r.cases.map((k) => html`<li>${t('conflicts.is_opposing')}: <a class="underline" href="#/cases/${k.id}" target="_blank" rel="noopener">${k.reference} · ${k.title}</a> – <strong dir="auto">${k.matched_party}</strong>${k.client_name ? ` (${t('cases.client')}: ${k.client_name})` : ''}</li>`)}
+        ${r.clients.map((c) => html`<li>${t('conflicts.existing_client')}: <a class="underline" href="#/clients/${c.id}" target="_blank" rel="noopener">${c.name}</a>${c.reason !== 'name' ? ` (${t(`conflicts.by_${c.reason}`)})` : ''}</li>`)}
       </ul></div>`)
   } catch { render(box, '') }
 }
@@ -51,14 +54,15 @@ export function openClientForm({ client, onSaved } = {}) {
       </form>`,
     onMount: (el) => {
       const box = el.querySelector('[data-conflicts]')
-      const run = debounce(() => checkConflicts(el.querySelector('[name=name]').value || el.querySelector('[name=name_ar]').value, box, client?.id), 500)
-      for (const n of ['name', 'name_ar', 'id_number']) el.querySelector(`[name=${n}]`).addEventListener('input', run)
+      const run = debounce(() => checkConflicts(el.querySelector('form'), box, client?.id), 500)
+      for (const n of ['name', 'name_ar', 'id_number', 'email', 'phone']) el.querySelector(`[name=${n}]`).addEventListener('input', run)
     },
     forms: {
       save: (form) => busy(submitButton(form), async () => {
         clearFieldErrors(form)
         try {
-          const res = client ? await api.patch(`/api/clients/${client.id}`, formData(form)) : await api.post('/api/clients', formData(form))
+          const res = client ? await api.patch(`/api/clients/${client.id}`, formData(form))
+            : await withConflictGate((override) => api.post('/api/clients', { ...formData(form), conflict_override: override }))
           m.close()
           toast(t('common.saved'))
           onSaved?.(res.client)
