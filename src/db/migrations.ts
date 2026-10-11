@@ -764,6 +764,28 @@ CREATE TABLE document_request_items (
 );
 CREATE INDEX document_request_items_request_idx ON document_request_items (request_id, position);
 `
+  },
+  {
+    version: 14,
+    name: 'hearing_records',
+    sql: `
+CREATE TABLE hearing_records (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  case_id UUID NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+  event_id UUID NOT NULL UNIQUE REFERENCES events(id) ON DELETE CASCADE,
+  outcome TEXT NOT NULL CHECK (outcome IN ('adjourned', 'reserved', 'judgment', 'settled', 'dismissed', 'other')),
+  summary TEXT NOT NULL,
+  next_steps TEXT,
+  next_event_id UUID REFERENCES events(id) ON DELETE SET NULL,
+  shared_with_client BOOLEAN NOT NULL DEFAULT false,
+  client_message TEXT,
+  created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX hearing_records_case_idx ON hearing_records (case_id, created_at DESC);
+`
   }
 ]
 

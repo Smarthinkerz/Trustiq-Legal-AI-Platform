@@ -6,6 +6,10 @@ import { badRequest, conflict } from '../lib/errors'
 import { optUuid } from '../lib/http'
 import { notFound } from '../lib/errors'
 import { buildUpdate, jsonBody, likePattern, optText, pageSchema, paged, queryParams, uuidParam } from '../lib/http'
+import type { Queryable } from '../db'
+import type { Mailer } from '../lib/mailer'
+import type { Config } from '../config'
+import type { Logger } from '../lib/logger'
 
 const clientFields = {
   kind: z.enum(['individual', 'company']),
@@ -174,21 +178,31 @@ clientsRoutes.post('/:id/messages', jsonBody(z.object({ body: z.string().trim().
   const { db, mailer, config, log } = c.get('deps')
   if (!(await db.query('SELECT 1 FROM clients WHERE id = $1 AND org_id = $2', [id, org.id])).length) throw notFound('Client')
   if (b.case_id && !(await db.query('SELECT 1 FROM cases WHERE id = $1 AND org_id = $2 AND client_id = $3', [b.case_id, org.id, id])).length) throw badRequest('Selected case does not belong to this client.')
-  const msg = await db.one(
-    'INSERT INTO client_messages (org_id, client_id, case_id, sender_id, from_client, body) VALUES ($1, $2, $3, $4, false, $5) RETURNING id, created_at',
-    [org.id, id, b.case_id, user.id, b.body])
-  if (mailer.configured) {
-    const recipients = await db.query(`SELECT email, locale FROM users WHERE org_id = $1 AND client_id = $2 AND deactivated_at IS NULL AND notify_email`, [org.id, id])
-    for (const r of recipients) {
-      await mailer.send({
-        to: r.email,
-        subject: r.locale === 'ar' ? `رسالة جديدة من ${org.name}` : `New message from ${org.name}`,
-        text: (r.locale === 'ar' ? `لديك رسالة جديدة في بوابة الموكلين:\n\n` : `You have a new message in your client portal:\n\n`) + `${b.body.slice(0, 2000)}\n\n${config.appUrl}/app#/portal`
-      }).catch((err) => log.warn('client message email failed', { err }))
-    }
-  }
+  const msg = await sendClientMessage({ db, mailer, config, log }, { orgId: org.id, orgName: org.name, clientId: id, caseId: b.case_id, senderId: user.id, body: b.body })
   await audit(c, 'portal.message_sent', 'client', id)
   return c.json({ message: msg }, 201)
 })
+
+// Posts a firm message to the client's portal thread and emails the client's portal users.
+export async function sendClientMessage(
+  deps: { db: Queryable; mailer: Mailer; config: Config; log: Logger },
+  m: { orgId: string; orgName: string; clientId: string; caseId: string | null; senderId: string; body: string }
+) {
+  const { db, mailer, config, log } = deps
+  const [msg] = await db.query(
+    'INSERT INTO client_messages (org_id, client_id, case_id, sender_id, from_client, body) VALUES ($1, $2, $3, $4, false, $5) RETURNING id, created_at',
+    [m.orgId, m.clientId, m.caseId, m.senderId, m.body])
+  if (mailer.configured) {
+    const recipients = await db.query(`SELECT email, locale FROM users WHERE org_id = $1 AND client_id = $2 AND deactivated_at IS NULL AND notify_email`, [m.orgId, m.clientId])
+    for (const r of recipients) {
+      await mailer.send({
+        to: r.email,
+        subject: r.locale === 'ar' ? `رسالة جديدة من ${m.orgName}` : `New message from ${m.orgName}`,
+        text: (r.locale === 'ar' ? `لديك رسالة جديدة في بوابة الموكلين:\n\n` : `You have a new message in your client portal:\n\n`) + `${m.body.slice(0, 2000)}\n\n${config.appUrl}/app#/portal`
+      }).catch((err) => log.warn('client message email failed', { err }))
+    }
+  }
+  return msg
+}
 
 export default clientsRoutes

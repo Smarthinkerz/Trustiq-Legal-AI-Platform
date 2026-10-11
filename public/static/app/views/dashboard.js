@@ -7,6 +7,7 @@ import { openCaseForm } from './cases.js'
 import { openUploadForm, openDraftForm } from './documents.js'
 import { openTaskForm, taskHandlers, taskRows } from './tasks.js'
 import { openTimeForm } from './billing.js'
+import { openOutcomeForm } from './hearings.js'
 
 const kpi = (icon, color, label, value, href, alert) => html`
   <a href="${href}" class="card card-pad flex items-center gap-4 hover:shadow-md transition ${alert ? 'ring-1 ring-red-200' : ''}">
@@ -28,7 +29,11 @@ function usageBar(label, used, limit) {
 }
 
 export async function dashboardView(root, { isCurrent, rerender }) {
-  const [d, tasks] = await Promise.all([api.get('/api/dashboard'), api.get('/api/tasks?scope=mine&status=active&pageSize=8')])
+  const [d, tasks, awaiting] = await Promise.all([
+    api.get('/api/dashboard'),
+    api.get('/api/tasks?scope=mine&status=active&pageSize=8'),
+    api.get('/api/hearings/awaiting').catch(() => ({ items: [] }))
+  ])
   if (!isCurrent()) return
   const { counts, usage } = d
   const plan = store.me.plan
@@ -60,6 +65,15 @@ export async function dashboardView(root, { isCurrent, rerender }) {
       ${kpi('fa-file-lines', 'bg-sky-50 text-sky-600', t('dash.documents'), counts.documents, '#/documents')}
       ${kpi('fa-triangle-exclamation', 'bg-red-50 text-red-600', t('dash.overdue'), counts.overdue_deadlines, '#/calendar', counts.overdue_deadlines > 0)}
     </div>
+
+    ${awaiting.items.length ? html`<section class="card mb-6 border-amber-300">
+      <div class="px-5 py-4 border-b border-slate-100"><h2 class="font-semibold"><i class="fas fa-gavel text-amber-600 me-2"></i>${t('hearing.awaiting', { n: awaiting.items.length })}</h2>
+        <p class="text-xs text-slate-500 mt-1">${t('hearing.awaiting_help')}</p></div>
+      <ul class="divide-y divide-slate-100">${awaiting.items.slice(0, 5).map((e) => html`<li class="px-5 py-3 flex flex-wrap items-center gap-3">
+        <div class="flex-1 min-w-0"><div class="text-sm font-medium truncate" dir="auto">${e.title}</div>
+          <div class="text-xs text-slate-500"><a class="hover:underline" href="#/cases/${e.case_id}">${e.case_reference}</a> · ${e.all_day ? fmtDate(e.starts_at) : fmtDateTime(e.starts_at)}</div></div>
+        ${ro ? '' : html`<button class="btn btn-primary btn-sm" data-action="record-outcome" data-id="${e.id}"><i class="fas fa-pen"></i>${t('hearing.record')}</button>`}</li>`)}</ul>
+    </section>` : ''}
 
     <div class="grid lg:grid-cols-3 gap-6">
       <div class="lg:col-span-2 space-y-6">
@@ -142,6 +156,7 @@ export async function dashboardView(root, { isCurrent, rerender }) {
     actions: {
       ...shared.actions,
       'add-task': () => openTaskForm({ onSaved: rerender }),
+      'record-outcome': (el) => openOutcomeForm({ ...awaiting.items.find((e) => e.id === el.dataset.id), kind: 'hearing' }, { onSaved: rerender }),
       'log-time': () => openTimeForm({ onSaved: () => toast(t('billing.time_logged')) }),
       'new-case': () => openCaseForm({ onSaved: (k) => (location.hash = `#/cases/${k.id}`) }),
       upload: () => openUploadForm({ onSaved: (doc) => (location.hash = `#/documents/${doc.id}`) }),
