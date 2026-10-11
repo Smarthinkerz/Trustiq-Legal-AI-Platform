@@ -1,6 +1,6 @@
 import { api, download } from '../api.js'
 import { bind, formData, html, qs, raw, render } from '../dom.js'
-import { fmtDate, fmtMoney, t } from '../i18n.js'
+import { fmtDate, fmtDateTime, fmtMoney, t } from '../i18n.js'
 import { can, readOnly, store } from '../store.js'
 import {
   busy, clearFieldErrors, confirmDialog, emptyState, formActions, inputField, modal, pageHeader, pagination, selectField,
@@ -311,7 +311,7 @@ async function expenses(root, { query, isCurrent, rerender }) {
 }
 
 async function settings(root, { isCurrent, rerender }) {
-  const { settings: s, rates } = await api.get('/api/billing/settings')
+  const { settings: s, rates, online_payments: op } = await api.get('/api/billing/settings')
   if (!isCurrent()) return
   const jurisdictionVat = s.vat_rate == null ? s.effective_vat_rate : null
   render(root, html`<div class="grid lg:grid-cols-2 gap-6 max-w-5xl">
@@ -328,6 +328,7 @@ async function settings(root, { isCurrent, rerender }) {
         <div class="sm:col-span-2 flex justify-end"><button type="submit" class="btn btn-primary">${t('common.save')}</button></div>
       </form>
     </section>
+    ${onlinePaymentsCard(op)}
     <section class="card">
       <div class="px-5 py-4 border-b border-slate-100"><h2 class="font-semibold">${t('billing.hourly_rates')}</h2><p class="text-xs text-slate-500">${t('billing.hourly_rates_help')}</p></div>
       <ul class="divide-y divide-slate-100">${rates.map((r) => html`<li class="px-5 py-3 flex items-center gap-3">
@@ -343,7 +344,22 @@ async function settings(root, { isCurrent, rerender }) {
         clearFieldErrors(form)
         const d = formData(form)
         try { await api.put('/api/billing/settings', { ...d, payment_terms_days: d.payment_terms_days ?? 30 }); toast(t('common.saved')); rerender() } catch (err) { showError(err, form) }
+      }),
+      'tap-key': (form) => busy(submitButton(form), async () => {
+        clearFieldErrors(form)
+        try { await api.put('/api/billing/online-payments', formData(form)); toast(t('pay.connected_toast')); rerender() } catch (err) { showError(err, form) }
       })
+    },
+    actions: {
+      'tap-replace': () => {
+        const f = root.querySelector('[data-replace-form]')
+        f?.classList.remove('hidden')
+        f?.querySelector('input')?.focus()
+      },
+      'tap-disconnect': async () => {
+        if (!(await confirmDialog(t('pay.confirm_disconnect')))) return
+        try { await api.del('/api/billing/online-payments'); toast(t('common.saved')); rerender() } catch (err) { showError(err) }
+      }
     },
     changes: {
       rate: async (el) => {
@@ -353,8 +369,76 @@ async function settings(root, { isCurrent, rerender }) {
   })
 }
 
+function onlinePaymentsCard(op) {
+  const manage = can('owner', 'admin') && !readOnly()
+  return html`<section class="card card-pad">
+    <h2 class="font-semibold mb-1 flex items-center gap-2"><i class="fas fa-credit-card text-brand-600"></i>${t('pay.title')}
+      ${op.connected ? html`<span class="badge ${op.mode === 'live' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}">${op.mode === 'live' ? t('pay.live') : t('pay.test')}</span>` : ''}</h2>
+    <p class="text-sm text-slate-500 mb-4">${t('pay.help')}</p>
+    ${!op.available ? html`<p class="text-sm rounded-lg bg-amber-50 border border-amber-200 text-amber-800 p-3">${t('pay.no_encryption')}</p>`
+      : op.connected ? html`<div class="text-sm space-y-3">
+          <p><i class="fas fa-circle-check text-green-600 me-1"></i>${t('pay.connected', { hint: op.key_hint })}</p>
+          ${op.mode === 'test' ? html`<p class="text-xs text-amber-700">${t('pay.test_hint')}</p>` : ''}
+          ${manage ? html`<div class="flex flex-wrap gap-2"><button class="btn btn-outline btn-sm" data-action="tap-replace">${t('pay.replace')}</button>
+            <button class="btn btn-danger-ghost btn-sm" data-action="tap-disconnect">${t('pay.disconnect')}</button></div>` : ''}
+        </div>
+        ${manage ? html`<form data-form="tap-key" class="hidden mt-4 space-y-3" data-replace-form novalidate>${tapKeyFields()}</form>` : ''}`
+      : manage ? html`${op.needs_reconnect ? html`<p class="text-sm rounded-lg bg-amber-50 border border-amber-200 text-amber-800 p-3 mb-3">${t('pay.needs_reconnect')}</p>` : ''}
+        <form data-form="tap-key" class="space-y-3" novalidate>${tapKeyFields()}</form>`
+      : html`<p class="text-sm text-slate-500">${t('pay.ask_admin')}</p>`}
+  </section>`
+}
+
+const tapKeyFields = () => html`
+  ${inputField({ name: 'secret_key', label: t('pay.secret_key'), type: 'password', required: true, placeholder: 'sk_live_…', hint: t('pay.secret_key_hint'), attrs: 'dir="ltr" autocomplete="off" spellcheck="false"' })}
+  <div class="flex justify-end"><button type="submit" class="btn btn-primary">${t('pay.connect')}</button></div>`
+
+function openPayLink(inv, onDone) {
+  let link = inv.pay_url
+  const m = modal({
+    title: t('pay.link_title'),
+    body: html`<div class="space-y-4">
+      <p class="text-sm text-slate-600">${t('pay.link_help')}</p>
+      <div class="flex gap-2"><input class="input font-mono text-xs" data-link readonly dir="ltr" value="${link || ''}" aria-label="${t('pay.link_title')}" />
+        <button type="button" class="btn btn-outline" data-action="copy"><i class="fas fa-copy"></i>${t('pay.copy')}</button></div>
+      <form data-form="send" class="space-y-3 pt-4 border-t border-slate-100" novalidate>
+        ${inputField({ name: 'email', label: t('pay.send_to'), type: 'email', value: inv.client_email || '', required: true, attrs: 'dir="ltr"' })}
+        ${formActions(t('pay.send'))}
+      </form>
+    </div>`,
+    actions: {
+      copy: async () => {
+        try { await navigator.clipboard.writeText(link); toast(t('pay.copied')) } catch { m.el.querySelector('[data-link]').select() }
+      }
+    },
+    forms: {
+      send: (form) => busy(submitButton(form), async () => {
+        try {
+          await api.post(`/api/billing/invoices/${inv.id}/pay-link`, { send: true, email: formData(form).email })
+          m.close(); toast(t('pay.sent')); onDone()
+        } catch (err) { showError(err, form) }
+      })
+    }
+  })
+  if (!link) {
+    api.post(`/api/billing/invoices/${inv.id}/pay-link`, {}).then((r) => {
+      link = r.url
+      const input = m.el.querySelector('[data-link]')
+      if (input) input.value = link
+    }).catch((err) => { m.close(); showError(err) })
+  }
+}
+
+const paymentRow = (p) => html`<li class="py-2 flex items-start justify-between gap-3 text-sm">
+  <div><div class="font-medium">${fmtMoney(Number(p.amount), p.currency)}
+    <span class="badge ${p.status === 'paid' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}">${t(`pay.status_${p.status}`)}</span></div>
+    <div class="text-xs text-slate-500">${p.method === 'online' ? t('pay.method_online') : t('pay.method_manual')}${p.recorded_by_name ? ` · ${p.recorded_by_name}` : ''} · ${fmtDateTime(p.paid_at || p.created_at)}</div>
+    ${p.charge_id ? html`<div class="text-xs text-slate-400 font-mono" dir="ltr">${p.charge_id}</div>` : ''}
+    ${p.needs_refund ? html`<div class="text-xs text-red-700 font-semibold">${t('pay.needs_refund')}</div>` : ''}</div>
+</li>`
+
 export async function invoiceView(root, { params, isCurrent, rerender }) {
-  const { invoice: inv, lines, zatca } = await api.get(`/api/billing/invoices/${params.id}`)
+  const { invoice: inv, lines, zatca, payments, online } = await api.get(`/api/billing/invoices/${params.id}`)
   if (!isCurrent()) return
   const ro = readOnly()
   const money = (n) => fmtMoney(Number(n), inv.currency)
@@ -372,6 +456,7 @@ export async function invoiceView(root, { params, isCurrent, rerender }) {
         <button class="btn btn-outline" data-action="export" data-lang="en"><i class="fas fa-file-word"></i>${t('billing.download_en')}</button>
         <button class="btn btn-outline" data-action="export" data-lang="ar"><i class="fas fa-file-word"></i>${t('billing.download_ar')}</button>
         ${edit && inv.status === 'draft' ? html`<button class="btn btn-primary" data-action="issue"><i class="fas fa-paper-plane"></i>${t('billing.issue')}</button>` : ''}
+        ${edit && online.can_pay ? html`<button class="btn btn-outline" data-action="pay-link"><i class="fas fa-link"></i>${t('pay.get_link')}</button>` : ''}
         ${manage && !ro && inv.status === 'issued' ? html`<button class="btn btn-primary" data-action="payment"><i class="fas fa-money-bill"></i>${t('billing.record_payment')}</button>` : ''}
         ${manage && !ro && inv.status === 'issued' && Number(inv.amount_paid) === 0 ? html`<button class="btn btn-danger-ghost" data-action="void">${t('billing.void')}</button>` : ''}
         ${edit && inv.status === 'draft' ? html`<button class="btn btn-danger-ghost" data-action="delete" aria-label="${t('common.delete')}"><i class="fas fa-trash"></i></button>` : ''}
@@ -406,6 +491,9 @@ export async function invoiceView(root, { params, isCurrent, rerender }) {
           <img src="${zatca.qr}" alt="${t('billing.zatca_qr')}" width="112" height="112" class="rounded border border-slate-200 bg-white" />
           <div class="text-xs text-slate-600"><p class="font-semibold text-slate-800">${zatca.simplified ? t('billing.simplified_invoice') : t('billing.tax_invoice')}</p><p class="mt-1">${t('billing.zatca_hint')}</p></div>
         </div>` : ''}
+        ${inv.status === 'issued' && edit && !online.connected && can('owner', 'admin') ? html`<p class="text-xs text-slate-500 pt-4 border-t border-slate-100"><i class="fas fa-credit-card me-1"></i>${t('pay.invoice_connect_hint')} <a class="text-brand-600 hover:underline" href="#/billing?tab=settings">${t('pay.open_settings')}</a></p>` : ''}
+        ${inv.status === 'issued' && online.connected && !online.currency_supported ? html`<p class="text-xs text-slate-500 pt-4 border-t border-slate-100">${t('pay.currency_unsupported', { currency: inv.currency })}</p>` : ''}
+        ${payments.length ? html`<div class="pt-4 border-t border-slate-100"><h3 class="text-sm font-semibold mb-1">${t('pay.history')}</h3><ul class="divide-y divide-slate-100">${payments.map(paymentRow)}</ul></div>` : ''}
         ${inv.client_vat_number ? html`<p class="text-xs text-slate-500">${t('clients.vat_number')}: <span dir="ltr">${inv.client_vat_number}</span></p>` : ''}
         ${edit && ['draft', 'issued'].includes(inv.status) ? html`<form data-form="meta" class="space-y-3 pt-4 border-t border-slate-100" novalidate>
           ${inv.status === 'draft' ? inputField({ name: 'vat_rate', label: t('billing.vat_rate'), type: 'number', value: Number(inv.vat_rate), attrs: 'data-type="number" min="0" max="100" step="0.01"' }) : ''}
@@ -421,6 +509,7 @@ export async function invoiceView(root, { params, isCurrent, rerender }) {
   bind(root, {
     actions: {
       export: (el) => download(`/api/billing/invoices/${inv.id}/export?lang=${el.dataset.lang}`),
+      'pay-link': () => openPayLink({ ...inv, pay_url: online.pay_url }, rerender),
       issue: async (el) => {
         if (!(await confirmDialog(t('billing.confirm_issue'), { danger: false, confirmLabel: t('billing.issue') }))) return
         busy(el, post('issue'))

@@ -22,6 +22,7 @@ import websiteRoutes from './routes/website'
 import integrationsRoutes from './routes/integrations'
 import signaturesRoutes from './routes/signatures'
 import { signRoutes } from './routes/sign'
+import { invoiceWebhookRoutes, payRoutes } from './routes/pay'
 import { markCalendarsDirty } from './services/google-calendar'
 import { firmSiteRoutes } from './routes/firm-site'
 import { helpRoutes } from './routes/help'
@@ -86,7 +87,8 @@ export function createApp(deps: Deps) {
       objectSrc: ["'none'"],
       frameAncestors: ["'none'"],
       baseUri: ["'self'"],
-      formAction: ["'self'"]
+      // The invoice payment form redirects to Tap's hosted checkout, which form-action also governs.
+      formAction: ["'self'", (c) => (/^\/pay\/[\w-]+$/.test(c.req.path) ? 'https://*.tap.company' : '')]
     },
     strictTransportSecurity: config.isProduction ? 'max-age=31536000; includeSubDomains' : false,
     referrerPolicy: 'strict-origin-when-cross-origin',
@@ -191,6 +193,7 @@ export function createApp(deps: Deps) {
   // ---------- Payments (public, verified by signature / re-fetch from Tap) ----------
   app.use('/webhooks/*', bodyLimit({ maxSize: 256 * 1024 }))
   app.route('/', tapPublicRoutes)
+  app.route('/', invoiceWebhookRoutes(deps))
 
   // ---------- Calendar feed (token in URL, read-only) ----------
   app.get('/calendar/:file', async (c) => {
@@ -262,6 +265,8 @@ export function createApp(deps: Deps) {
   app.route('/help', helpRoutes(deps))
   // Public e-signature pages (the link token is the signer's credential).
   app.route('/sign', signRoutes(deps, assetVersion))
+  // Public invoice payment pages (the link token only allows paying that invoice).
+  app.route('/pay', payRoutes(deps, assetVersion))
 
   app.notFound((c) => c.html(legalPage('404', { assetVersion, supportEmail: config.supportEmail }), 404))
 

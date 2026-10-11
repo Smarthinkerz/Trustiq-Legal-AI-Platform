@@ -834,6 +834,38 @@ CREATE TABLE case_briefs (
 );
 CREATE INDEX case_briefs_case_idx ON case_briefs (case_id, language, created_at DESC);
 `
+  },
+  {
+    version: 18,
+    name: 'invoice_online_payments',
+    sql: `
+ALTER TABLE organizations ADD COLUMN tap_secret_sealed TEXT;
+ALTER TABLE organizations ADD COLUMN tap_key_mode TEXT;
+ALTER TABLE organizations ADD COLUMN tap_key_hint TEXT;
+ALTER TABLE organizations ADD COLUMN tap_connected_at TIMESTAMPTZ;
+ALTER TABLE invoices ADD COLUMN pay_token TEXT;
+CREATE UNIQUE INDEX invoices_pay_token_key ON invoices (pay_token) WHERE pay_token IS NOT NULL;
+CREATE TABLE invoice_payments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  invoice_id UUID NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+  method TEXT NOT NULL CHECK (method IN ('manual', 'online')),
+  charge_id TEXT,
+  amount NUMERIC(14,3) NOT NULL,
+  currency TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'initiated' CHECK (status IN ('initiated', 'paid', 'failed', 'cancelled')),
+  provider_status TEXT,
+  failure_message TEXT,
+  payer_email TEXT,
+  needs_refund BOOLEAN NOT NULL DEFAULT false,
+  recorded_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  paid_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX invoice_payments_charge_key ON invoice_payments (charge_id) WHERE charge_id IS NOT NULL;
+CREATE INDEX invoice_payments_invoice_idx ON invoice_payments (invoice_id, created_at DESC);
+`
   }
 ]
 

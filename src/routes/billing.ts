@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { audit, auth, requireRole, type AppEnv, type Ctx } from '../context'
 import type { Queryable } from '../db'
-import { badRequest, conflict, forbidden, notFound } from '../lib/errors'
+import { badRequest, conflict, forbidden, notFound, unavailable } from '../lib/errors'
 import { jsonBody, optText, optUuid, pageSchema, paged, queryParams, uuidParam } from '../lib/http'
 import { CURRENCIES } from '../services/reference'
 import { computeTotals, orgBilling, recalcInvoice, roundMoney, timeAmount } from '../services/billing'
@@ -10,6 +10,7 @@ import { contentDisposition, renderInvoiceDocx, safeFileName } from '../services
 import { ACCEPTED_TYPES } from '../services/extract'
 import { invoiceZatcaQr, isSaudiVatNumber, zatcaApplies } from '../services/zatca'
 import { checkBudgetAlert } from '../services/matter-finance'
+import { ensurePayToken, firmTapClient, onlinePaymentSettings, outstanding, paymentSecret, payUrl, sealTapKey, supportsOnline, TAP_KEY_RE } from '../services/invoice-payments'
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use a date in YYYY-MM-DD format')
 const money = z.number().min(0).max(1e12)
@@ -36,7 +37,37 @@ billingRoutes.get('/settings', async (c) => {
   const { db } = c.get('deps')
   const s = await orgBilling(db, org.id)
   const rates = await db.query(`SELECT id, name, role, hourly_rate FROM users WHERE org_id = $1 AND role <> 'client' AND deactivated_at IS NULL ORDER BY name`, [org.id])
-  return c.json({ settings: s, rates })
+  return c.json({ settings: s, rates, online_payments: await onlinePaymentSettings(db, c.get('deps').config, org.id) })
+})
+
+// ---------------- Online payments (the firm's own Tap account) ----------------
+
+billingRoutes.put('/online-payments', jsonBody(z.object({ secret_key: z.string().trim().max(300) })), async (c) => {
+  requireRole(c, 'owner', 'admin')
+  const { org } = auth(c)
+  const deps = c.get('deps')
+  const key = c.req.valid('json').secret_key
+  if (!paymentSecret(deps.config)) throw unavailable('encryption_key_missing', 'Online payments need ENCRYPTION_KEY to be set on the server before a payment key can be stored.')
+  if (!TAP_KEY_RE.test(key)) {
+    throw badRequest(key.startsWith('pk_') ? 'This is a publishable key. Paste the secret key, which starts with sk_live_ or sk_test_.' : 'Paste the secret key from your Tap dashboard. It starts with sk_live_ or sk_test_.')
+  }
+  const sealed = sealTapKey(deps.config, key)
+  if (!(await firmTapClient(deps, sealed)!.verifyKey())) throw badRequest('Tap did not accept this key. Check that you copied the whole secret key.')
+  const mode = key.startsWith('sk_live_') ? 'live' : 'test'
+  await deps.db.query(
+    `UPDATE organizations SET tap_secret_sealed = $2, tap_key_mode = $3, tap_key_hint = $4, tap_connected_at = now(), updated_at = now() WHERE id = $1`,
+    [org.id, sealed, mode, key.slice(-4)])
+  await audit(c, 'billing.online_payments_connected', 'organization', org.id, { mode })
+  return c.json(await onlinePaymentSettings(deps.db, deps.config, org.id))
+})
+
+billingRoutes.delete('/online-payments', async (c) => {
+  requireRole(c, 'owner', 'admin')
+  const { org } = auth(c)
+  const { db, config } = c.get('deps')
+  await db.query(`UPDATE organizations SET tap_secret_sealed = NULL, tap_key_mode = NULL, tap_key_hint = NULL, tap_connected_at = NULL, updated_at = now() WHERE id = $1`, [org.id])
+  await audit(c, 'billing.online_payments_disconnected', 'organization', org.id)
+  return c.json(await onlinePaymentSettings(db, config, org.id))
 })
 
 billingRoutes.put('/settings', jsonBody(z.object({
@@ -302,9 +333,69 @@ async function invoiceJson(q: Queryable, orgId: string, id: string) {
   return { ...data, zatca: qr ? { qr: qr.dataUrl, tlv: qr.tlv, simplified: qr.simplified } : null }
 }
 
+async function onlineFor(c: Ctx, invoice: Record<string, any>) {
+  const { db, config } = c.get('deps')
+  const settings = await onlinePaymentSettings(db, config, invoice.org_id)
+  const payments = await db.query(
+    `SELECT p.id, p.method, p.amount, p.currency, p.status, p.charge_id, p.needs_refund, p.paid_at, p.created_at, u.name AS recorded_by_name
+       FROM invoice_payments p LEFT JOIN users u ON u.id = p.recorded_by
+      WHERE p.invoice_id = $1 AND (p.status IN ('paid', 'failed') OR p.method = 'manual') ORDER BY p.created_at DESC LIMIT 100`, [invoice.id])
+  return {
+    payments,
+    online: {
+      connected: settings.connected, mode: settings.mode, currency_supported: supportsOnline(invoice.currency),
+      can_pay: settings.connected && supportsOnline(invoice.currency) && invoice.status === 'issued' && outstanding(invoice as any) > 0,
+      pay_url: invoice.pay_token ? payUrl(config, invoice.pay_token) : null
+    }
+  }
+}
+
 billingRoutes.get('/invoices/:id', async (c) => {
   const { org } = auth(c)
-  return c.json(await invoiceJson(c.get('deps').db, org.id, uuidParam(c.req.param('id'), 'Invoice')))
+  const data = await invoiceJson(c.get('deps').db, org.id, uuidParam(c.req.param('id'), 'Invoice'))
+  const { pay_token, ...invoice } = data.invoice
+  return c.json({ ...data, invoice, ...(await onlineFor(c, data.invoice)) })
+})
+
+// Creates (once) the invoice's public payment link and, when asked, emails it to the client.
+billingRoutes.post('/invoices/:id/pay-link', jsonBody(z.object({ send: z.boolean().default(false), email: z.string().trim().toLowerCase().email().max(254).optional() })), async (c) => {
+  requireRole(c, 'owner', 'admin', 'lawyer')
+  const { org, user } = auth(c)
+  const id = uuidParam(c.req.param('id'), 'Invoice')
+  const b = c.req.valid('json')
+  const { db, config, mailer, log } = c.get('deps')
+  const { invoice } = await loadInvoice(db, org.id, id)
+  const settings = await onlinePaymentSettings(db, config, org.id)
+  if (!settings.connected) throw conflict('Connect your Tap account in Billing settings to take online payments.')
+  if (!supportsOnline(invoice.currency)) throw badRequest(`Online payment is not available for invoices in ${invoice.currency}.`)
+  if (invoice.status !== 'issued' || outstanding(invoice) <= 0) throw conflict('Only issued invoices with an amount outstanding can be paid online.')
+  const url = payUrl(config, await ensurePayToken(db, org.id, id))
+  let emailed = false
+  if (b.send) {
+    const to = b.email ?? invoice.client_email
+    if (!to) throw badRequest('This client has no email address. Enter one to send the link.')
+    if (!mailer.configured) throw unavailable('email_not_configured', 'Email is not set up on this server. Copy the link and send it yourself.')
+    const [br] = await db.query('SELECT firm_name, firm_name_ar FROM branding WHERE org_id = $1', [org.id])
+    const firm = br?.firm_name || org.name
+    const firmAr = br?.firm_name_ar || firm
+    const amount = `${outstanding(invoice)} ${invoice.currency}`
+    try {
+      await mailer.send({
+        to,
+        subject: `Invoice ${invoice.number} from ${firm} – pay online / فاتورة ${invoice.number} من ${firmAr}`,
+        text: `Dear ${invoice.client_name},\n\nInvoice ${invoice.number} from ${firm} has ${amount} outstanding${invoice.due_date ? `, due ${new Date(invoice.due_date).toISOString().slice(0, 10)}` : ''}.\n` +
+          `You can pay securely by card, mada, Apple Pay or KNET (where available) here:\n${url}\n\n` +
+          `عزيزنا ${invoice.client_name_ar || invoice.client_name}،\n\nالمبلغ المستحق على الفاتورة رقم ${invoice.number} من ${firmAr} هو ${amount}.\n` +
+          `يمكنك الدفع بأمان عبر البطاقة أو مدى أو Apple Pay أو كي-نت (حسب التوفر) من خلال الرابط أعلاه.\n\n${user.name}\n${firm}`
+      })
+      emailed = true
+    } catch (err) {
+      log.warn('payment link email failed', { err })
+      throw unavailable('email_failed', 'The email could not be sent. Copy the link and send it yourself.')
+    }
+  }
+  await audit(c, b.send ? 'billing.pay_link_sent' : 'billing.pay_link_created', 'invoice', id, b.send ? { to: b.email ?? invoice.client_email } : undefined)
+  return c.json({ url, emailed })
 })
 
 billingRoutes.post('/invoices', jsonBody(z.object({
@@ -432,6 +523,9 @@ billingRoutes.post('/invoices/:id/payments', jsonBody(z.object({ amount: z.numbe
     await q.query(
       `UPDATE invoices SET amount_paid = $3, status = $4, paid_at = CASE WHEN $4 = 'paid' THEN now() ELSE paid_at END, updated_at = now()
         WHERE id = $1 AND org_id = $2`, [id, org.id, paid, fullyPaid ? 'paid' : 'issued'])
+    await q.query(
+      `INSERT INTO invoice_payments (org_id, invoice_id, method, amount, currency, status, recorded_by, paid_at) VALUES ($1, $2, 'manual', $3, $4, 'paid', $5, now())`,
+      [org.id, id, amount, inv.currency, auth(c).user.id])
   })
   await audit(c, 'billing.payment_recorded', 'invoice', id, { amount })
   return c.json(await loadInvoice(db, org.id, id))

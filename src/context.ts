@@ -44,6 +44,8 @@ export type Deps = {
   mailer: Mailer
   ai: AiService
   tap: TapClient
+  // Builds a client for a firm's own Tap account (invoice payments). Overridable in tests.
+  firmTap?: (secretKey: string) => TapClient
   // Overridable in tests; defaults to a fetcher that refuses private network addresses.
   webFetch?: WebFetcher
   // Overridable in tests; used for Google OAuth and Calendar API calls.

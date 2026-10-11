@@ -79,6 +79,8 @@ Google Calendar sync: create an OAuth client (type "Web application") in Google 
 
 Online payments: set `TAP_SECRET_KEY` and `TAP_WEBHOOK_SECRET`, and in the Tap dashboard set the webhook URL to `${APP_URL}/webhooks/tap`. Checkout creates a hosted Tap charge, and the customer returns to `/billing/tap/return`, where the charge is re-fetched from Tap and reconciled. Webhooks are signature-checked (`hashstring` header), rate-limited, idempotent and audited in `webhook_events`. Each successful payment extends the plan by one month. Without `TAP_SECRET_KEY` the plan page falls back to "contact sales".
 
+Invoice payments: each firm connects its own Tap account in Billing → Settings by pasting its Tap secret key, so client payments go straight to the firm. The key is checked with Tap, then stored encrypted (AES-256-GCM) with a key derived from `ENCRYPTION_KEY` (or, when that is not set, from `GOOGLE_CLIENT_SECRET` or `TAP_SECRET_KEY`). Set `ENCRYPTION_KEY` to a long random value before firms connect: changing it later means firms paste their key again. Clients pay at `/pay/<token>` (a link the firm copies or emails, or the Pay now button in the client portal). Each charge is re-fetched from Tap with the firm's key on return and on the webhook `${APP_URL}/webhooks/tap/invoices`, which is passed with each charge and verified with the firm's key, so firms need no webhook setup.
+
 `JWT_SECRET` is no longer used. Sessions are random tokens stored hashed in the database, so they can be revoked.
 
 ## Deployment (Railway)
