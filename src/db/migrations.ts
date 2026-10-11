@@ -816,6 +816,24 @@ CREATE TABLE conflict_checks (
 CREATE INDEX conflict_checks_subject_idx ON conflict_checks (org_id, subject_type, subject_id, created_at DESC);
 CREATE INDEX conflict_checks_org_idx ON conflict_checks (org_id, created_at DESC);
 `
+  },
+  {
+    version: 17,
+    name: 'case_briefs',
+    sql: `
+CREATE TABLE case_briefs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  case_id UUID NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+  language TEXT NOT NULL CHECK (language IN ('en', 'ar')),
+  content JSONB NOT NULL,
+  model TEXT,
+  document_id UUID REFERENCES documents(id) ON DELETE SET NULL,
+  created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX case_briefs_case_idx ON case_briefs (case_id, language, created_at DESC);
+`
   }
 ]
 

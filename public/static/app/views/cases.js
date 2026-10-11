@@ -16,6 +16,7 @@ import { openImportDialog } from './import.js'
 import { openRequest, openRequestForm, requestsCard } from './doc-requests.js'
 import { hearingHistoryCard, openOutcomeForm } from './hearings.js'
 import { conflictItem, withConflictGate } from './conflicts.js'
+import { openCaseBrief } from './case-brief.js'
 
 export const CASE_STATUSES = ['active', 'pending', 'under_review', 'on_hold', 'closed']
 export const PRIORITIES = ['low', 'medium', 'high', 'urgent']
@@ -229,7 +230,8 @@ export async function caseDetailView(root, { params, isCurrent, rerender }) {
         ${selectField({ name: 'status', options: CASE_STATUSES.map((s) => ({ value: s, label: t(`status.${s}`) })), value: k.status, cls: 'w-40', attrs: `data-change="status" aria-label="${t('common.status')}"` })}
         <button class="btn btn-outline" data-action="edit"><i class="fas fa-pen"></i>${t('common.edit')}</button>
         <button class="btn btn-outline" data-action="log-time"><i class="fas fa-stopwatch"></i>${t('billing.log_time')}</button>
-        ${aiEnabled() ? html`<a class="btn btn-outline" href="#/assistant?case=${k.id}"><i class="fas fa-wand-magic-sparkles"></i>${t('cases.ask_ai')}</a>` : ''}
+        ${aiEnabled() ? html`<button class="btn btn-outline" data-action="brief"><i class="fas fa-file-lines"></i>${t('brief.button')}</button>
+          <a class="btn btn-outline" href="#/assistant?case=${k.id}"><i class="fas fa-wand-magic-sparkles"></i>${t('cases.ask_ai')}</a>` : ''}
         ${canDelete() ? html`<button class="btn btn-danger-ghost" data-action="delete" aria-label="${t('common.delete')}"><i class="fas fa-trash"></i></button>` : ''}
       </div>`}
     </div>
@@ -339,6 +341,7 @@ export async function caseDetailView(root, { params, isCurrent, rerender }) {
   bind(root, {
     actions: {
       ...taskShared.actions,
+      brief: () => openCaseBrief(k),
       'request-docs': () => openRequestForm({ clientId: k.client_id, caseId: k.id, onSaved: rerender }),
       'record-outcome': (el) => openOutcomeForm({ ...awaiting.find((e) => e.id === el.dataset.id), kind: 'hearing' }, { hasClient: !!k.client_id, onSaved: rerender }),
       'open-request': (el) => openRequest(el.dataset.id, { onChange: rerender }),

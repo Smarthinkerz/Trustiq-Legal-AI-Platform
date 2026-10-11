@@ -9,6 +9,7 @@ import { analysisMessages, chatSystemPrompt, draftMessages, normalizeAnalysis, p
 import { assertCanCreateDocument, assertCanUseAi, recordAiUsage } from '../services/usage'
 import { type Passage, citationLabel, citedRefs, findReferencedSources, lawReferences, referencedPassages, searchLibrary } from '../services/library'
 import { insertDocument } from './documents'
+import { briefMessages, briefText, gatherCaseFile, normalizeBrief } from '../services/case-brief'
 
 const HISTORY_MESSAGES = 20
 const TEMPLATE_IDS = DOCUMENT_TEMPLATES.map((t) => t.id) as unknown as [string, ...string[]]
@@ -221,6 +222,81 @@ aiRoutes.post('/documents/:id/analyze', jsonBody(z.object({
   })
   await audit(c, 'ai.analyzed', 'document', id, { type: b.type })
   return c.json({ analysis: saved }, 201)
+})
+
+// ---------------- Case brief ----------------
+
+const BRIEF_COLUMNS = `b.id, b.case_id, b.language, b.content, b.model, b.document_id, b.created_at, u.name AS created_by_name`
+
+aiRoutes.get('/cases/:id/brief', async (c) => {
+  const { org } = auth(c)
+  const id = uuidParam(c.req.param('id'), 'Case')
+  const language = c.req.query('language') === 'ar' ? 'ar' : 'en'
+  const { db } = c.get('deps')
+  if (!(await db.query('SELECT 1 FROM cases WHERE id = $1 AND org_id = $2', [id, org.id])).length) throw notFound('Case')
+  const [brief] = await db.query(
+    `SELECT ${BRIEF_COLUMNS} FROM case_briefs b LEFT JOIN users u ON u.id = b.created_by
+      WHERE b.case_id = $1 AND b.org_id = $2 AND b.language = $3 ORDER BY b.created_at DESC LIMIT 1`, [id, org.id, language])
+  // Anything recorded on the case after the brief makes it out of date.
+  const [latest] = brief ? await db.query(
+    `SELECT GREATEST((SELECT max(created_at) FROM case_activity WHERE case_id = $1), (SELECT max(updated_at) FROM documents WHERE case_id = $1),
+                     (SELECT max(created_at) FROM hearing_records WHERE case_id = $1), (SELECT max(updated_at) FROM cases WHERE id = $1)) AS at`, [id]) : [null]
+  return c.json({ brief: brief ?? null, stale: !!(brief && latest?.at && new Date(latest.at) > new Date(brief.created_at)) })
+})
+
+aiRoutes.post('/cases/:id/brief', jsonBody(z.object({ language: z.enum(['en', 'ar']).default('en') })), async (c) => {
+  const { user, org } = auth(c)
+  const id = uuidParam(c.req.param('id'), 'Case')
+  const { language } = c.req.valid('json')
+  const { db, ai } = c.get('deps')
+  const file = await gatherCaseFile(db, org.id, id)
+  if (!file) throw notFound('Case')
+  throttle(c)
+  await assertCanUseAi(db, org)
+  const result = await ai.complete({ messages: briefMessages(language, file.text), json: true, maxTokens: 3000, temperature: 0.2 })
+  let content
+  try {
+    content = normalizeBrief(parseJsonObject(result.text))
+  } catch {
+    throw new HttpError(502, 'ai_bad_output', 'The AI returned an unreadable brief. Please try again.')
+  }
+  if (!content.overview) throw new HttpError(502, 'ai_bad_output', 'The AI returned an empty brief. Please try again.')
+  const brief = await db.tx(async (q) => {
+    const [row] = await q.query(
+      `INSERT INTO case_briefs (org_id, case_id, language, content, model, created_by) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+      [org.id, id, language, JSON.stringify(content), result.model, user.id])
+    await recordAiUsage(q, org.id, user.id, 'brief', result)
+    return row
+  })
+  await audit(c, 'ai.case_brief', 'case', id, { language, model: result.model })
+  const [saved] = await db.query(`SELECT ${BRIEF_COLUMNS} FROM case_briefs b LEFT JOIN users u ON u.id = b.created_by WHERE b.id = $1`, [brief.id])
+  return c.json({ brief: saved, stale: false, sources: file.counts }, 201)
+})
+
+// Saves a brief as a document on the case (so it can be exported to Word or shared).
+aiRoutes.post('/cases/:id/brief/:briefId/save', async (c) => {
+  const { user, org } = auth(c)
+  const id = uuidParam(c.req.param('id'), 'Case')
+  const briefId = uuidParam(c.req.param('briefId'), 'Brief')
+  const { db } = c.get('deps')
+  const [b] = await db.query(
+    `SELECT b.*, k.reference, k.title, k.client_id, k.jurisdiction FROM case_briefs b JOIN cases k ON k.id = b.case_id
+      WHERE b.id = $1 AND b.case_id = $2 AND b.org_id = $3`, [briefId, id, org.id])
+  if (!b) throw notFound('Brief')
+  if (b.document_id && (await db.query('SELECT 1 FROM documents WHERE id = $1', [b.document_id])).length) return c.json({ document: { id: b.document_id } })
+  await assertCanCreateDocument(db, org)
+  const ar = b.language === 'ar'
+  const content = briefText(b.content, b.language, b.reference, b.title, new Date(b.created_at).toISOString().slice(0, 10))
+  const document = await db.tx(async (q) => {
+    const doc = await insertDocument(q, {
+      orgId: org.id, userId: user.id, title: `${ar ? 'ملخص القضية' : 'Case brief'} – ${b.reference}`, docType: 'legal_memo', language: b.language,
+      jurisdiction: b.jurisdiction, source: 'ai', content, caseId: id, clientId: b.client_id
+    })
+    await q.query('UPDATE case_briefs SET document_id = $2 WHERE id = $1', [briefId, doc.id])
+    return doc
+  })
+  await audit(c, 'ai.case_brief_saved', 'document', document.id)
+  return c.json({ document: { id: document.id } }, 201)
 })
 
 export default aiRoutes
