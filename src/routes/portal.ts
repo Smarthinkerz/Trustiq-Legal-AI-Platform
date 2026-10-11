@@ -71,11 +71,16 @@ portalRoutes.get('/cases/:id', async (c) => {
             u.name AS lawyer_name, u.email AS lawyer_email
        FROM cases k LEFT JOIN users u ON u.id = k.assigned_to WHERE k.id = $1 AND k.org_id = $2 AND k.client_id = $3`, [id, org.id, clientId])
   if (!kase) throw notFound('Case')
-  const [events, documents] = await Promise.all([
+  const [events, documents, hearings] = await Promise.all([
     db.query(`SELECT id, title, kind, starts_at, all_day, location FROM events WHERE case_id = $1 AND kind IN ('hearing', 'meeting') AND starts_at >= now() - interval '30 days' ORDER BY starts_at`, [id]),
-    db.query(`SELECT id, title, file_name, uploaded_by_client, updated_at FROM documents WHERE case_id = $1 AND org_id = $2 AND (shared_with_client OR uploaded_by_client) ORDER BY updated_at DESC`, [id, org.id])
+    db.query(`SELECT id, title, file_name, uploaded_by_client, updated_at FROM documents WHERE case_id = $1 AND org_id = $2 AND (shared_with_client OR uploaded_by_client) ORDER BY updated_at DESC`, [id, org.id]),
+    // Only the outcome and the update the firm chose to send; the lawyer's notes stay internal.
+    db.query(
+      `SELECT h.id, h.outcome, h.client_message, e.starts_at AS hearing_at, e.all_day AS hearing_all_day, n.starts_at AS next_hearing_at, n.all_day AS next_hearing_all_day
+         FROM hearing_records h JOIN events e ON e.id = h.event_id LEFT JOIN events n ON n.id = h.next_event_id
+        WHERE h.case_id = $1 AND h.org_id = $2 AND h.shared_with_client ORDER BY e.starts_at DESC`, [id, org.id])
   ])
-  return c.json({ case: kase, events, documents })
+  return c.json({ case: kase, events, documents, hearings })
 })
 
 async function portalDocument(c: Ctx, id: string) {

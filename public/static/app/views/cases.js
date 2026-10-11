@@ -14,6 +14,7 @@ import { fmtHours, openExpenseForm, openInvoiceWizard, openTimeForm } from './bi
 import { openGenerateForm } from './templates.js'
 import { openImportDialog } from './import.js'
 import { openRequest, openRequestForm, requestsCard } from './doc-requests.js'
+import { hearingHistoryCard, openOutcomeForm } from './hearings.js'
 
 export const CASE_STATUSES = ['active', 'pending', 'under_review', 'on_hold', 'closed']
 export const PRIORITIES = ['low', 'medium', 'high', 'urgent']
@@ -134,12 +135,15 @@ export async function casesListView(root, { query, isCurrent }) {
 }
 
 export async function caseDetailView(root, { params, isCurrent, rerender }) {
-  const [data, tasks, time, docRequests] = await Promise.all([
+  const [data, tasks, time, docRequests, hearings, awaitingAll] = await Promise.all([
     api.get(`/api/cases/${params.id}`),
     api.get(`/api/tasks?case_id=${params.id}&status=active&pageSize=100`),
     api.get(`/api/billing/time?case_id=${params.id}&pageSize=10`),
-    api.get(`/api/document-requests?case_id=${params.id}`)
+    api.get(`/api/document-requests?case_id=${params.id}`),
+    api.get(`/api/hearings?case_id=${params.id}`),
+    api.get('/api/hearings/awaiting').catch(() => ({ items: [] }))
   ])
+  const awaiting = readOnly() ? [] : awaitingAll.items.filter((e) => e.case_id === params.id)
   if (!isCurrent()) return
   const k = data.case
   const ro = readOnly()
@@ -195,6 +199,7 @@ export async function caseDetailView(root, { params, isCurrent, rerender }) {
               ${statusBadge(d.status)}<span class="text-xs text-slate-400">${fmtRelative(d.updated_at)}</span></a></li>`)}</ul>`
             : html`<p class="px-5 py-6 text-sm text-slate-500">${t('cases.no_documents')}</p>`}
         </section>
+        ${hearings.items.length || awaiting.length ? hearingHistoryCard(hearings.items, awaiting) : ''}
         ${k.client_id || docRequests.items.length ? requestsCard(docRequests.items, { canRequest: !!k.client_id }) : ''}
 
         <section class="card">
@@ -267,6 +272,7 @@ export async function caseDetailView(root, { params, isCurrent, rerender }) {
     actions: {
       ...taskShared.actions,
       'request-docs': () => openRequestForm({ clientId: k.client_id, caseId: k.id, onSaved: rerender }),
+      'record-outcome': (el) => openOutcomeForm({ ...awaiting.find((e) => e.id === el.dataset.id), kind: 'hearing' }, { hasClient: !!k.client_id, onSaved: rerender }),
       'open-request': (el) => openRequest(el.dataset.id, { onChange: rerender }),
       'add-task': () => openTaskForm({ caseId: k.id, caseLabel: label, onSaved: refresh }),
       checklist: () => openChecklistForm({ caseId: k.id, onSaved: refresh }),

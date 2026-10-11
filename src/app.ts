@@ -36,6 +36,7 @@ import tasksRoutes from './routes/tasks'
 import workspaceRoutes from './routes/workspace'
 import portalRoutes from './routes/portal'
 import documentRequestsRoutes from './routes/document-requests'
+import hearingsRoutes from './routes/hearings'
 import { subscriptionRoutes, tapPublicRoutes } from './routes/subscription'
 import { buildIcs } from './services/jobs'
 import { landingPage } from './landing'
@@ -164,7 +165,7 @@ export function createApp(deps: Deps) {
     ['/api/documents', documentsRoutes], ['/api/events', eventsRoutes], ['/api/ai', aiRoutes],
     ['/api/library', libraryRoutes], ['/api/billing', billingRoutes], ['/api/reports', reportsRoutes],
     ['/api/tasks', tasksRoutes], ['/api/workspace', workspaceRoutes], ['/api/portal', portalRoutes],
-    ['/api/deadlines', deadlinesRoutes], ['/api/import', importsRoutes], ['/api/website', websiteRoutes], ['/api/signatures', signaturesRoutes], ['/api/document-requests', documentRequestsRoutes]
+    ['/api/deadlines', deadlinesRoutes], ['/api/import', importsRoutes], ['/api/website', websiteRoutes], ['/api/signatures', signaturesRoutes], ['/api/document-requests', documentRequestsRoutes], ['/api/hearings', hearingsRoutes]
   ] as const) {
     app.use(`${path}/*`, requireActiveSubscription)
     app.use(path, requireActiveSubscription)

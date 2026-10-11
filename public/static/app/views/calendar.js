@@ -1,6 +1,7 @@
 import { api } from '../api.js'
 import { bind, formData, html, qs, raw, render } from '../dom.js'
 import { fmtDate, fmtDateTime, fmtMonth, fmtTime, fmtHijri, fmtHijriMonths, hijriDay, showHijri, t, weekdayNames } from '../i18n.js'
+import { canRecord, openOutcomeForm } from './hearings.js'
 import { readOnly } from '../store.js'
 import {
   busy, clearFieldErrors, confirmDialog, EVENT_COLORS, eventBadge, inputField, modal, pageHeader, selectField, showError,
@@ -36,6 +37,7 @@ export function openEventForm({ event, date, caseId, caseLabel, defaults, onSave
         ${textareaField({ name: 'notes', label: t('events.notes'), value: e.notes, rows: 3, cls: 'sm:col-span-2' })}
         <div class="sm:col-span-2 flex flex-wrap justify-between gap-2 pt-4 border-t border-slate-100">
           <div class="flex gap-2">
+            ${event && canRecord(event) ? html`<button type="button" class="btn btn-primary" data-action="record-outcome"><i class="fas fa-gavel"></i>${t('hearing.record')}</button>` : ''}
             ${event ? html`<button type="button" class="btn btn-danger-ghost" data-action="delete"><i class="fas fa-trash"></i>${t('common.delete')}</button>
               <button type="button" class="btn btn-outline" data-action="toggle-done">${e.completed_at ? t('events.mark_open') : html`<i class="fas fa-check"></i>${t('events.mark_done')}`}</button>` : ''}
           </div>
@@ -48,6 +50,7 @@ export function openEventForm({ event, date, caseId, caseLabel, defaults, onSave
     onMount: (el) => wirePickers(el),
     changes: { allday: (el) => { el.form.querySelector('[data-times]').hidden = el.checked } },
     actions: {
+      'record-outcome': () => { m.close(); openOutcomeForm(event, { onSaved }) },
       delete: async () => {
         if (!(await confirmDialog(t('events.confirm_delete')))) return
         try { await api.del(`/api/events/${event.id}`); m.close(); toast(t('common.deleted')); onSaved?.() } catch (err) { showError(err) }

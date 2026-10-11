@@ -6,8 +6,15 @@ import { busy, emptyState, eventBadge, modal, showError, statusBadge, submitButt
 import { invoiceBadge } from './billing.js'
 import { profileTab } from './settings.js'
 import { itemBadge } from './doc-requests.js'
+import { outcomeBadge } from './hearings.js'
 
 const isoDay = (v) => (v ? String(v).slice(0, 10) : '')
+// Bilingual updates are "English — Arabic"; show each half with its own direction, the reader's language first.
+const bilingualParts = (text) => {
+  const parts = String(text).split(/\n+—\n+/).map((p) => p.trim()).filter(Boolean)
+  const isAr = (p) => (p.match(/[\u0600-\u06FF]/g) || []).length > p.length / 4
+  return getLang() === 'ar' ? [...parts.filter(isAr), ...parts.filter((p) => !isAr(p))] : parts
+}
 const caseTitle = (k) => (getLang() === 'ar' && k.title_ar ? k.title_ar : k.title)
 
 function openClientUpload({ cases, caseId, onSaved }) {
@@ -154,7 +161,7 @@ export async function portalHomeView(root, { isCurrent, rerender }) {
 }
 
 export async function portalCaseView(root, { params, isCurrent, rerender }) {
-  const [{ case: k, events, documents }, overview] = await Promise.all([api.get(`/api/portal/cases/${params.id}`), api.get('/api/portal/overview')])
+  const [{ case: k, events, documents, hearings = [] }, overview] = await Promise.all([api.get(`/api/portal/cases/${params.id}`), api.get('/api/portal/overview')])
   if (!isCurrent()) return
   const info = (label, value) => value ? html`<div><dt class="text-xs text-slate-500">${label}</dt><dd class="text-sm font-medium mt-0.5" dir="auto">${value}</dd></div>` : ''
   render(root, html`
@@ -176,6 +183,12 @@ export async function portalCaseView(root, { params, isCurrent, rerender }) {
           ${info(t('portal.your_lawyer'), k.lawyer_name)}
           ${info(t('cases.opened_on'), k.opened_on ? fmtDate(isoDay(k.opened_on)) : '')}
         </dl></section>
+        ${hearings.length ? html`<section class="card"><div class="px-5 py-4 border-b border-slate-100"><h2 class="font-semibold"><i class="fas fa-gavel text-slate-400 me-1"></i>${t('portal.hearing_updates')}</h2></div>
+          <ol class="divide-y divide-slate-100">${hearings.map((h) => html`<li class="px-5 py-4 space-y-2">
+            <div class="flex flex-wrap items-center gap-2"><span class="text-sm font-semibold">${h.hearing_all_day ? fmtDate(h.hearing_at) : fmtDateTime(h.hearing_at)}</span>${outcomeBadge(h.outcome)}</div>
+            ${h.next_hearing_at ? html`<p class="text-sm text-brand-700"><i class="fas fa-arrow-right rtl:rotate-180"></i> ${t('hearing.next_hearing')}: ${h.next_hearing_all_day ? fmtDate(h.next_hearing_at) : fmtDateTime(h.next_hearing_at)}</p>` : ''}
+            ${h.client_message ? html`<details class="text-sm"><summary class="cursor-pointer text-slate-600">${t('portal.hearing_message')}</summary>${bilingualParts(h.client_message).map((part) => html`<p class="whitespace-pre-wrap mt-2" dir="auto">${part}</p>`)}</details>` : ''}
+          </li>`)}</ol></section>` : ''}
         <section class="card"><div class="px-5 py-4 border-b border-slate-100"><h2 class="font-semibold">${t('nav.documents')}</h2></div>${docList(documents)}</section>
       </div>
       <section class="card h-fit">
