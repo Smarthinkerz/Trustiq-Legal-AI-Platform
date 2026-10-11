@@ -25,8 +25,9 @@ export function initialLang() {
   return (navigator.language || '').startsWith('ar') ? 'ar' : 'en'
 }
 
-export function t(key, vars) {
-  let s = dicts[lang][key] ?? dicts.en[key]
+// `inLang` renders one string in another language (e.g. an Arabic document shown in the English UI).
+export function t(key, vars, inLang) {
+  let s = dicts[inLang === 'ar' || inLang === 'en' ? inLang : lang][key] ?? dicts.en[key]
   if (s === undefined) {
     console.warn('[i18n] missing key', key)
     s = key
