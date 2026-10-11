@@ -5,6 +5,7 @@ import { refLabel, store } from '../store.js'
 import { busy, emptyState, eventBadge, modal, showError, statusBadge, submitButton, toast } from '../ui.js'
 import { invoiceBadge } from './billing.js'
 import { profileTab } from './settings.js'
+import { itemBadge } from './doc-requests.js'
 
 const isoDay = (v) => (v ? String(v).slice(0, 10) : '')
 const caseTitle = (k) => (getLang() === 'ar' && k.title_ar ? k.title_ar : k.title)
@@ -53,7 +54,12 @@ const docList = (docs) => docs.length ? html`<ul class="divide-y divide-slate-10
 </li>`)}</ul>` : html`<p class="px-5 py-6 text-sm text-slate-500">${t('portal.no_documents')}</p>`
 
 export async function portalHomeView(root, { isCurrent, rerender }) {
-  const [o, sig] = await Promise.all([api.get('/api/portal/overview'), api.get('/api/portal/signatures').catch(() => ({ items: [] }))])
+  const [o, sig, reqs] = await Promise.all([
+    api.get('/api/portal/overview'),
+    api.get('/api/portal/signatures').catch(() => ({ items: [] })),
+    api.get('/api/portal/document-requests').catch(() => ({ items: [] }))
+  ])
+  const openRequests = reqs.items.filter((r) => r.status === 'open')
   if (!isCurrent()) return
   const toSign = sig.items.filter((s) => s.status === 'pending' && !s.expired && ['pending', 'viewed'].includes(s.signer_status))
   const outstanding = o.invoices.filter((i) => i.status === 'issued')
@@ -69,6 +75,22 @@ export async function portalHomeView(root, { isCurrent, rerender }) {
         <div class="flex-1 min-w-0"><div class="font-medium" dir="auto">${s.title}</div><div class="text-xs text-slate-500">${t('portal.sign_until', { date: fmtDate(s.expires_at) })}</div></div>
         <button class="btn btn-primary btn-sm" data-action="open-sign" data-id="${s.id}"><i class="fas fa-pen-nib"></i>${t('portal.review_sign')}</button></li>`)}</ul>
     </section>` : ''}
+    ${openRequests.map((r) => html`<section class="card mb-6 border-brand-300">
+      <div class="px-5 py-4 border-b border-slate-100">
+        <h2 class="font-semibold"><i class="fas fa-file-arrow-up text-brand-600 me-2"></i>${t('portal.docs_requested')}: <span dir="auto">${r.title}</span></h2>
+        <p class="text-xs text-slate-500 mt-1">${r.case_reference ? `${r.case_reference} · ` : ''}${r.due_date ? t('portal.docs_due', { date: fmtDate(isoDay(r.due_date)) }) : t('portal.docs_help')}</p>
+        ${r.message ? html`<p class="text-sm mt-2 whitespace-pre-wrap" dir="auto">${r.message}</p>` : ''}
+      </div>
+      <ul class="divide-y divide-slate-100">${r.items.map((i) => html`<li class="px-5 py-3 flex flex-wrap items-center gap-3">
+        <div class="flex-1 min-w-[12rem]"><div class="text-sm font-medium" dir="auto">${i.label}</div>
+          ${i.note ? html`<div class="text-xs text-slate-500" dir="auto">${i.note}</div>` : ''}
+          ${i.status === 'rejected' ? html`<div class="text-xs text-red-700">${t('portal.docs_returned')}${i.reject_reason ? `: ${i.reject_reason}` : ''}</div>` : ''}
+          ${i.file_name && i.status !== 'rejected' ? html`<div class="text-xs text-slate-500 truncate">${i.file_name}</div>` : ''}</div>
+        <div class="flex items-center gap-2 ms-auto">${itemBadge(i.status, { client: true })}
+        ${i.status === 'accepted' ? '' : html`<label class="btn ${i.status === 'uploaded' ? 'btn-outline' : 'btn-primary'} btn-sm cursor-pointer"><i class="fas fa-upload"></i>${i.status === 'uploaded' ? t('portal.docs_replace') : t('portal.upload')}
+          <input type="file" class="sr-only" accept=".pdf,.docx,.txt,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" data-change="request-file" data-request="${r.id}" data-item="${i.id}" /></label>`}</div>
+      </li>`)}</ul>
+    </section>`)}
     <div class="grid lg:grid-cols-3 gap-6">
       <div class="lg:col-span-2 space-y-6">
         <section class="card">
@@ -112,6 +134,21 @@ export async function portalHomeView(root, { isCurrent, rerender }) {
       }),
       'download-doc': (el) => download(`/api/portal/documents/${el.dataset.id}/download`),
       'download-invoice': (el) => download(`/api/portal/invoices/${el.dataset.id}/download`)
+    },
+    changes: {
+      'request-file': async (el) => {
+        const file = el.files[0]
+        if (!file) return
+        const label = el.closest('label')
+        label.classList.add('opacity-60', 'pointer-events-none')
+        const body = new FormData()
+        body.set('file', file)
+        try {
+          await api.upload(`/api/portal/document-requests/${el.dataset.request}/items/${el.dataset.item}`, body)
+          toast(t('portal.file_sent'))
+          rerender()
+        } catch (err) { label.classList.remove('opacity-60', 'pointer-events-none'); el.value = ''; showError(err) }
+      }
     }
   })
 }

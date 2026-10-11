@@ -10,6 +10,7 @@ import { openCaseForm } from './cases.js'
 import { openImportDialog } from './import.js'
 import { invoiceBadge, openInvoiceWizard } from './billing.js'
 import { messageThread } from './portal.js'
+import { openRequest, openRequestForm, requestsCard } from './doc-requests.js'
 
 // Warns about possible conflicts of interest while a new client's name is typed.
 async function checkConflicts(name, box, excludeId) {
@@ -120,11 +121,12 @@ export async function clientsListView(root, { query, isCurrent }) {
 }
 
 export async function clientDetailView(root, { params, isCurrent, rerender }) {
-  const [{ client: c, cases, documents }, portal, messages, invoices] = await Promise.all([
+  const [{ client: c, cases, documents }, portal, messages, invoices, docRequests] = await Promise.all([
     api.get(`/api/clients/${params.id}`),
     api.get(`/api/clients/${params.id}/portal`),
     api.get(`/api/clients/${params.id}/messages`),
-    api.get(`/api/billing/invoices?client_id=${params.id}&pageSize=10`)
+    api.get(`/api/billing/invoices?client_id=${params.id}&pageSize=10`),
+    api.get(`/api/document-requests?client_id=${params.id}`)
   ])
   if (!isCurrent()) return
   const canInvite = can('owner', 'admin', 'lawyer')
@@ -150,6 +152,7 @@ export async function clientDetailView(root, { params, isCurrent, rerender }) {
         <h2 class="font-semibold mb-2">${t('clients.details')}</h2>
         <div class="text-xs text-slate-500">${c.kind === 'company' ? t('clients.company') : t('clients.individual')}</div>
         ${row('fa-id-card', c.id_number)}
+        ${row('fa-receipt', c.vat_number, true)}
         ${row('fa-envelope', c.email, true)}
         ${row('fa-phone', c.phone, true)}
         ${row('fa-location-dot', c.address)}
@@ -192,6 +195,7 @@ export async function clientDetailView(root, { params, isCurrent, rerender }) {
             <span class="font-mono text-xs w-28">${i.number || t('invoice_status.draft')}</span><span class="flex-1 text-sm">${fmtMoney(Number(i.total), i.currency)}</span>${invoiceBadge(i)}</a></li>`)}</ul>`
             : html`<p class="px-5 py-6 text-sm text-slate-500">${t('billing.no_invoices')}</p>`}
         </section>
+        ${requestsCard(docRequests.items)}
         <section class="card">
           <div class="px-5 py-4 border-b border-slate-100"><h2 class="font-semibold">${t('nav.documents')} <span class="text-slate-400 font-normal">(${documents.length})</span></h2></div>
           ${documents.length ? html`<ul class="divide-y divide-slate-100">${documents.map((d) => html`<li><a href="#/documents/${d.id}" class="px-5 py-3 flex items-center gap-3 hover:bg-slate-50">
@@ -216,6 +220,8 @@ export async function clientDetailView(root, { params, isCurrent, rerender }) {
     },
     actions: {
       invoice: () => openInvoiceWizard({ clientId: c.id, clientName: c.name }),
+      'request-docs': () => openRequestForm({ clientId: c.id, cases, onSaved: rerender }),
+      'open-request': (el) => openRequest(el.dataset.id, { onChange: rerender }),
       'portal-invite': () => {
         const m = modal({
           title: t('clients.portal_invite'),

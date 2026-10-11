@@ -726,6 +726,44 @@ ALTER TABLE clients ADD COLUMN vat_number TEXT;
     sql: `
 ALTER TABLE users ADD COLUMN hijri_dates TEXT NOT NULL DEFAULT 'auto' CHECK (hijri_dates IN ('auto', 'on', 'off'));
 `
+  },
+  {
+    version: 13,
+    name: 'document_requests',
+    sql: `
+CREATE TABLE document_requests (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  client_id UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  case_id UUID REFERENCES cases(id) ON DELETE SET NULL,
+  title TEXT NOT NULL,
+  message TEXT,
+  due_date DATE,
+  status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'completed', 'cancelled')),
+  created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  last_reminded_at TIMESTAMPTZ,
+  completed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX document_requests_org_idx ON document_requests (org_id, status, created_at DESC);
+CREATE INDEX document_requests_client_idx ON document_requests (client_id, status);
+
+CREATE TABLE document_request_items (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  request_id UUID NOT NULL REFERENCES document_requests(id) ON DELETE CASCADE,
+  label TEXT NOT NULL,
+  note TEXT,
+  position INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'uploaded', 'accepted', 'rejected')),
+  document_id UUID REFERENCES documents(id) ON DELETE SET NULL,
+  uploaded_at TIMESTAMPTZ,
+  reviewed_at TIMESTAMPTZ,
+  reject_reason TEXT
+);
+CREATE INDEX document_request_items_request_idx ON document_request_items (request_id, position);
+`
   }
 ]
 

@@ -13,6 +13,7 @@ import { openChecklistForm, openTaskForm, taskHandlers, taskRows } from './tasks
 import { fmtHours, openExpenseForm, openInvoiceWizard, openTimeForm } from './billing.js'
 import { openGenerateForm } from './templates.js'
 import { openImportDialog } from './import.js'
+import { openRequest, openRequestForm, requestsCard } from './doc-requests.js'
 
 export const CASE_STATUSES = ['active', 'pending', 'under_review', 'on_hold', 'closed']
 export const PRIORITIES = ['low', 'medium', 'high', 'urgent']
@@ -133,10 +134,11 @@ export async function casesListView(root, { query, isCurrent }) {
 }
 
 export async function caseDetailView(root, { params, isCurrent, rerender }) {
-  const [data, tasks, time] = await Promise.all([
+  const [data, tasks, time, docRequests] = await Promise.all([
     api.get(`/api/cases/${params.id}`),
     api.get(`/api/tasks?case_id=${params.id}&status=active&pageSize=100`),
-    api.get(`/api/billing/time?case_id=${params.id}&pageSize=10`)
+    api.get(`/api/billing/time?case_id=${params.id}&pageSize=10`),
+    api.get(`/api/document-requests?case_id=${params.id}`)
   ])
   if (!isCurrent()) return
   const k = data.case
@@ -193,6 +195,7 @@ export async function caseDetailView(root, { params, isCurrent, rerender }) {
               ${statusBadge(d.status)}<span class="text-xs text-slate-400">${fmtRelative(d.updated_at)}</span></a></li>`)}</ul>`
             : html`<p class="px-5 py-6 text-sm text-slate-500">${t('cases.no_documents')}</p>`}
         </section>
+        ${k.client_id || docRequests.items.length ? requestsCard(docRequests.items, { canRequest: !!k.client_id }) : ''}
 
         <section class="card">
           <div class="flex flex-wrap items-center justify-between gap-2 px-5 py-4 border-b border-slate-100">
@@ -263,6 +266,8 @@ export async function caseDetailView(root, { params, isCurrent, rerender }) {
   bind(root, {
     actions: {
       ...taskShared.actions,
+      'request-docs': () => openRequestForm({ clientId: k.client_id, caseId: k.id, onSaved: rerender }),
+      'open-request': (el) => openRequest(el.dataset.id, { onChange: rerender }),
       'add-task': () => openTaskForm({ caseId: k.id, caseLabel: label, onSaved: refresh }),
       checklist: () => openChecklistForm({ caseId: k.id, onSaved: refresh }),
       'log-time': () => openTimeForm({ caseId: k.id, caseLabel: label, onSaved: refresh }),
