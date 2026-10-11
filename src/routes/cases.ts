@@ -7,6 +7,8 @@ import { buildUpdate, jsonBody, likePattern, optText, optUuid, pageSchema, paged
 import { CURRENCIES, JURISDICTION_CODES, PRACTICE_AREA_IDS } from '../services/reference'
 import { assertCanOpenCase } from '../services/usage'
 import { FEE_ARRANGEMENTS, matterFinancials } from '../services/matter-finance'
+import { conflictOverride, gateConflicts } from '../lib/conflict-gate'
+import { clientConflicts, logConflictCheck, opposingConflicts, type Blocking } from '../services/conflicts'
 
 const STATUSES = ['active', 'pending', 'under_review', 'on_hold', 'closed'] as const
 const PRIORITIES = ['low', 'medium', 'high', 'urgent'] as const
@@ -37,9 +39,20 @@ const createSchema = z.object({
   status: caseFields.status.default('active'),
   priority: caseFields.priority.default('medium'),
   currency: caseFields.currency.optional(),
-  fee_arrangement: caseFields.fee_arrangement.default('hourly')
+  fee_arrangement: caseFields.fee_arrangement.default('hourly'),
+  conflict_override: conflictOverride
 })
-const updateSchema = z.object(caseFields).partial()
+const updateSchema = z.object({ ...caseFields, conflict_override: conflictOverride }).partial()
+
+// A matter is in conflict when an opposing party is one of the firm's clients, or its client is an opposing party elsewhere.
+async function caseConflicts(db: Queryable, orgId: string, v: { clientId: string | null | undefined; opposing: string | null | undefined; caseId?: string; checkClient: boolean }) {
+  const found: Blocking[] = await clientConflicts(db, orgId, v.opposing, v.clientId)
+  if (v.checkClient && v.clientId) {
+    const cl = await db.query('SELECT name, name_ar FROM clients WHERE id = $1 AND org_id = $2', [v.clientId, orgId])
+    if (cl.length) found.push(...await opposingConflicts(db, orgId, [cl[0].name, cl[0].name_ar], v.caseId))
+  }
+  return found
+}
 const UPDATABLE = ['title', 'title_ar', 'client_id', 'practice_area', 'jurisdiction', 'court', 'opposing_party', 'status', 'priority', 'description', 'estimated_value', 'currency', 'assigned_to', 'opened_on', 'fee_arrangement', 'fee_amount', 'budget_amount'] as const
 
 async function assertRefs(db: Queryable, orgId: string, refs: { client_id?: string | null; assigned_to?: string | null }) {
@@ -117,6 +130,8 @@ casesRoutes.post('/', jsonBody(createSchema), async (c) => {
   const { db } = c.get('deps')
   if (b.status !== 'closed') await assertCanOpenCase(db, org)
   await assertRefs(db, org.id, b)
+  const blocking = await caseConflicts(db, org.id, { clientId: b.client_id, opposing: b.opposing_party, checkClient: true })
+  const gate = gateConflicts(c, blocking, b.conflict_override)
   const kase = await db.tx(async (q) => {
     const seq = await q.one('UPDATE organizations SET case_seq = case_seq + 1 WHERE id = $1 RETURNING case_seq', [org.id])
     const reference = `${new Date().getFullYear()}-${String(seq!.case_seq).padStart(4, '0')}`
@@ -128,10 +143,12 @@ casesRoutes.post('/', jsonBody(createSchema), async (c) => {
        b.description, b.estimated_value, b.currency ?? org.default_currency, b.assigned_to ?? user.id, b.opened_on ?? null, user.id,
        b.fee_arrangement, b.fee_amount, b.budget_amount])
     await caseActivity(q, org.id, row!.id, user.id, 'created', 'Case opened')
+    await logConflictCheck(q, { orgId: org.id, userId: user.id, subjectType: 'case', subjectId: row!.id, subjectName: b.title, matches: blocking, ...gate })
+    if (gate.decision === 'override') await caseActivity(q, org.id, row!.id, user.id, 'conflict', `Conflict check overridden: ${gate.reason}`)
     return row
   })
   await audit(c, 'case.created', 'case', kase!.id, { reference: kase!.reference })
-  return c.json({ case: kase }, 201)
+  return c.json({ case: kase, conflict_check: { decision: gate.decision, matches: blocking } }, 201)
 })
 
 casesRoutes.patch('/:id', jsonBody(updateSchema), async (c) => {
@@ -139,10 +156,20 @@ casesRoutes.patch('/:id', jsonBody(updateSchema), async (c) => {
   const id = uuidParam(c.req.param('id'), 'Case')
   const b = c.req.valid('json')
   const { db } = c.get('deps')
-  const current = await db.one('SELECT status FROM cases WHERE id = $1 AND org_id = $2', [id, org.id])
+  const current = await db.one('SELECT status, client_id, opposing_party FROM cases WHERE id = $1 AND org_id = $2', [id, org.id])
   if (!current) throw notFound('Case')
   if (current.status === 'closed' && b.status && b.status !== 'closed') await assertCanOpenCase(db, org)
   await assertRefs(db, org.id, b)
+  // Re-check when the parties change.
+  const opposingChanged = b.opposing_party !== undefined && (b.opposing_party ?? '') !== (current.opposing_party ?? '')
+  const clientChanged = b.client_id !== undefined && b.client_id !== current.client_id
+  let gate: ReturnType<typeof gateConflicts> | null = null
+  let blocking: Blocking[] = []
+  if (opposingChanged || clientChanged) {
+    const clientId = b.client_id !== undefined ? b.client_id : current.client_id
+    blocking = await caseConflicts(db, org.id, { clientId, opposing: b.opposing_party !== undefined ? b.opposing_party : current.opposing_party, caseId: id, checkClient: clientChanged })
+    gate = gateConflicts(c, blocking, b.conflict_override)
+  }
   const { sets, values } = buildUpdate(b, UPDATABLE, 3)
   if (b.status === 'closed' && current.status !== 'closed') sets.push('closed_on = CURRENT_DATE')
   if (b.status && b.status !== 'closed') sets.push('closed_on = NULL')
@@ -151,6 +178,10 @@ casesRoutes.patch('/:id', jsonBody(updateSchema), async (c) => {
   const kase = await db.one(`UPDATE cases SET ${[...sets, 'updated_at = now()'].join(', ')} WHERE id = $1 AND org_id = $2 RETURNING *`, [id, org.id, ...values])
   if (b.status && b.status !== current.status) {
     await caseActivity(db, org.id, id, user.id, 'status_change', `Status changed from ${current.status} to ${b.status}`)
+  }
+  if (gate) {
+    await logConflictCheck(db, { orgId: org.id, userId: user.id, subjectType: 'case', subjectId: id, subjectName: kase!.title, matches: blocking, ...gate })
+    if (gate.decision === 'override') await caseActivity(db, org.id, id, user.id, 'conflict', `Conflict check overridden: ${gate.reason}`)
   }
   await audit(c, 'case.updated', 'case', id, { fields: Object.keys(b) })
   return c.json({ case: kase })

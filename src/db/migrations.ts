@@ -796,6 +796,26 @@ ALTER TABLE cases ADD COLUMN fee_amount NUMERIC(18,3);
 ALTER TABLE cases ADD COLUMN budget_amount NUMERIC(18,3);
 ALTER TABLE cases ADD COLUMN budget_alert_level INTEGER NOT NULL DEFAULT 0;
 `
+  },
+  {
+    version: 16,
+    name: 'conflict_checks',
+    sql: `
+CREATE TABLE conflict_checks (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  subject_type TEXT NOT NULL CHECK (subject_type IN ('client', 'case')),
+  subject_id UUID NOT NULL,
+  subject_name TEXT NOT NULL,
+  matches JSONB NOT NULL DEFAULT '[]',
+  decision TEXT NOT NULL CHECK (decision IN ('clear', 'override')),
+  reason TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX conflict_checks_subject_idx ON conflict_checks (org_id, subject_type, subject_id, created_at DESC);
+CREATE INDEX conflict_checks_org_idx ON conflict_checks (org_id, created_at DESC);
+`
   }
 ]
 

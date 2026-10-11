@@ -1,6 +1,6 @@
 import { api } from '../api.js'
 import { bind, html, qs, render } from '../dom.js'
-import { fmtMoney, fmtNumber, t } from '../i18n.js'
+import { fmtDateTime, fmtMoney, fmtNumber, t } from '../i18n.js'
 import { refLabel, store } from '../store.js'
 import { emptyState, pageHeader } from '../ui.js'
 import { fmtHours } from './billing.js'
@@ -8,10 +8,12 @@ import { fmtHours } from './billing.js'
 const bar = (value, max, cls = 'bg-brand-500') => html`<div class="h-2 rounded bg-slate-100 overflow-hidden"><div class="h-full ${cls}" style="width:${max ? Math.max(2, Math.round((value / max) * 100)) : 0}%"></div></div>`
 
 export async function reportsView(root, { query, isCurrent }) {
-  const [r, matters] = await Promise.all([
+  const [r, matters, logRes] = await Promise.all([
     api.get('/api/reports' + qs({ from: query.get('from'), to: query.get('to') })),
-    api.get('/api/reports/matters' + qs({ include_closed: query.get('closed') === '1' ? 'true' : '' }))
+    api.get('/api/reports/matters' + qs({ include_closed: query.get('closed') === '1' ? 'true' : '' })),
+    api.get('/api/workspace/conflicts/log').catch(() => ({ items: [] }))
   ])
+  const conflictLog = logRes.items
   if (!isCurrent()) return
   const cur = store.me.org.default_currency
   const maxUser = Math.max(0, ...r.by_user.map((u) => u.minutes))
@@ -95,6 +97,19 @@ export async function reportsView(root, { query, isCurrent }) {
             <td class="text-end">${m.realization_pct != null ? `${m.realization_pct}%` : '—'}</td>
             <td class="text-end whitespace-nowrap">${m.effective_rate != null ? fmtMoney(m.effective_rate, m.currency) : '—'}</td>
           </tr>`)}</tbody></table></div>` : html`<p class="px-5 py-6 text-sm text-slate-500">${t('fees.report_empty')}</p>`}
+      </section>
+      <section class="card lg:col-span-2">
+        <div class="px-5 py-4 border-b border-slate-100"><h2 class="font-semibold"><i class="fas fa-shield-halved text-slate-400 me-1"></i>${t('conflicts.log_title')}</h2><p class="text-xs text-slate-500">${t('conflicts.log_help')}</p></div>
+        ${conflictLog.length ? html`<div class="overflow-x-auto"><table class="table text-sm">
+          <thead><tr><th>${t('conflicts.log_date')}</th><th>${t('conflicts.log_subject')}</th><th>${t('conflicts.log_matches')}</th><th>${t('conflicts.log_decision')}</th><th>${t('conflicts.reason')}</th><th>${t('conflicts.log_by')}</th></tr></thead>
+          <tbody>${conflictLog.map((l) => html`<tr>
+            <td class="whitespace-nowrap text-xs">${fmtDateTime(l.created_at)}</td>
+            <td><a class="hover:underline" href="#/${l.subject_type === 'case' ? 'cases' : 'clients'}/${l.subject_id}"><i class="fas ${l.subject_type === 'case' ? 'fa-folder-open' : 'fa-address-book'} text-slate-400 me-1"></i><span dir="auto">${l.subject_name}</span></a></td>
+            <td class="text-xs">${(l.matches || []).map((m) => m.reference || m.label).join(', ') || '—'}</td>
+            <td>${l.decision === 'override' ? html`<span class="badge bg-red-100 text-red-700">${t('conflicts.decision_override')}</span>` : html`<span class="badge bg-emerald-100 text-emerald-800">${t('conflicts.decision_clear')}</span>`}</td>
+            <td class="text-xs" dir="auto">${l.reason || '—'}</td>
+            <td class="text-xs">${l.user_name || ''}</td></tr>`)}</tbody></table></div>`
+          : html`<p class="px-5 py-6 text-sm text-slate-500">${t('conflicts.log_empty')}</p>`}
       </section>
       ${r.ai_usage.length ? html`<section class="card card-pad lg:col-span-2">
         <h2 class="font-semibold mb-3">${t('reports.ai_usage')}</h2>

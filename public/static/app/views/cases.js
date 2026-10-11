@@ -15,6 +15,7 @@ import { openGenerateForm } from './templates.js'
 import { openImportDialog } from './import.js'
 import { openRequest, openRequestForm, requestsCard } from './doc-requests.js'
 import { hearingHistoryCard, openOutcomeForm } from './hearings.js'
+import { conflictItem, withConflictGate } from './conflicts.js'
 
 export const CASE_STATUSES = ['active', 'pending', 'under_review', 'on_hold', 'closed']
 export const PRIORITIES = ['low', 'medium', 'high', 'urgent']
@@ -73,7 +74,7 @@ export async function openCaseForm({ kase, clientId, clientName, onSaved } = {})
         ${selectField({ name: 'status', label: t('common.status'), options: CASE_STATUSES.map((s) => ({ value: s, label: t(`status.${s}`) })), value: k.status || 'active' })}
         ${selectField({ name: 'priority', label: t('cases.priority'), options: PRIORITIES.map((p) => ({ value: p, label: t(`priority.${p}`) })), value: k.priority || 'medium' })}
         ${inputField({ name: 'court', label: t('cases.court'), value: k.court })}
-        ${inputField({ name: 'opposing_party', label: t('cases.opposing_party'), value: k.opposing_party })}
+        <div>${inputField({ name: 'opposing_party', label: t('cases.opposing_party'), value: k.opposing_party, hint: t('conflicts.opposing_hint') })}<div data-opp-conflicts class="mt-2"></div></div>
         ${memberSelect({ label: t('cases.assigned_to'), value: kase ? k.assigned_to : store.me.user.id, members })}
         ${inputField({ name: 'opened_on', label: t('cases.opened_on'), type: 'date', value: k.opened_on ? String(k.opened_on).slice(0, 10) : new Date().toISOString().slice(0, 10) })}
         <div class="grid grid-cols-3 gap-2 sm:col-span-2">
@@ -90,7 +91,22 @@ export async function openCaseForm({ kase, clientId, clientName, onSaved } = {})
         ${textareaField({ name: 'description', label: t('common.description'), value: k.description, rows: 4, cls: 'sm:col-span-2' })}
         <div class="sm:col-span-2">${formActions(kase ? t('common.save') : t('cases.create'))}</div>
       </form>`,
-    onMount: (el) => { wirePickers(el); syncFeeFields(el.querySelector('[name=fee_arrangement]')) },
+    onMount: (el) => {
+      wirePickers(el)
+      syncFeeFields(el.querySelector('[name=fee_arrangement]'))
+      // Live check: is an opposing party already one of our clients?
+      const box = el.querySelector('[data-opp-conflicts]')
+      const input = el.querySelector('[name=opposing_party]')
+      input.addEventListener('input', debounce(async () => {
+        const v = input.value.trim()
+        if (v.length < 3) return render(box, '')
+        try {
+          const clientId = el.querySelector('[name=client_id]')?.value || ''
+          const r = await api.get('/api/workspace/conflicts/opposing' + qs({ opposing: v, client_id: clientId }))
+          render(box, r.conflict ? html`<div class="rounded-lg bg-red-50 border border-red-200 text-red-800 p-2 text-xs"><p class="font-semibold"><i class="fas fa-triangle-exclamation"></i> ${t('conflicts.found')}</p><ul>${r.conflicts.map(conflictItem)}</ul></div>` : '')
+        } catch { render(box, '') }
+      }, 500))
+    },
     changes: { 'fee-arr': syncFeeFields },
     forms: {
       save: (form) => busy(submitButton(form), async () => {
@@ -101,7 +117,9 @@ export async function openCaseForm({ kase, clientId, clientName, onSaved } = {})
         if (data.fee_arrangement === 'hourly') data.fee_amount = null
         else data.budget_amount = null
         try {
-          const res = kase ? await api.patch(`/api/cases/${kase.id}`, data) : await api.post('/api/cases', data)
+          const res = await withConflictGate((override) => kase
+            ? api.patch(`/api/cases/${kase.id}`, { ...data, conflict_override: override })
+            : api.post('/api/cases', { ...data, conflict_override: override }))
           m.close()
           toast(kase ? t('common.saved') : t('cases.created', { ref: res.case.reference }))
           onSaved?.(res.case)

@@ -6,31 +6,50 @@ import { jsonBody, likePattern, optUuid, queryParams, uuidParam } from '../lib/h
 import { DOC_TYPE_IDS } from '../services/reference'
 import { assertCanCreateDocument } from '../services/usage'
 import { assertDocRefs, insertDocument } from './documents'
+import { clientConflicts, findConflicts } from '../services/conflicts'
 
 const workspaceRoutes = new Hono<AppEnv>()
 
 // ---------------- Conflict-of-interest check ----------------
-// Searches every party the firm has dealt with: clients (names, IDs), opposing parties and case titles.
+// Matches Arabic and English spellings of names (see services/conflicts) against every client and opposing party.
+// "conflict" means the person is an opposing party in one of the firm's matters; client matches are possible duplicates.
 workspaceRoutes.get('/conflicts', queryParams(z.object({
   name: z.string().trim().min(2).max(200),
+  name_ar: z.string().trim().max(200).optional(),
+  id_number: z.string().trim().max(80).optional(),
+  email: z.string().trim().max(254).optional(),
+  phone: z.string().trim().max(60).optional(),
   exclude_client_id: z.string().uuid().optional()
 })), async (c) => {
   const { org } = auth(c)
-  const { name, exclude_client_id } = c.req.valid('query')
-  const { db } = c.get('deps')
-  const pattern = likePattern(name)
-  const [clients, opposing] = await Promise.all([
-    db.query(
-      `SELECT id, name, name_ar, id_number, archived_at FROM clients
-        WHERE org_id = $1 AND (name ILIKE $2 OR name_ar ILIKE $2 OR id_number ILIKE $2) AND ($3::uuid IS NULL OR id <> $3) LIMIT 20`,
-      [org.id, pattern, exclude_client_id ?? null]),
-    db.query(
-      `SELECT k.id, k.reference, k.title, k.opposing_party, k.status, cl.name AS client_name FROM cases k LEFT JOIN clients cl ON cl.id = k.client_id
-        WHERE k.org_id = $1 AND (k.opposing_party ILIKE $2 OR k.title ILIKE $2 OR k.title_ar ILIKE $2) LIMIT 20`,
-      [org.id, pattern])
-  ])
-  await audit(c, 'conflict.checked', 'conflict', undefined, { name, matches: clients.length + opposing.length })
-  return c.json({ clients, cases: opposing, conflict: opposing.some((k) => k.opposing_party && k.opposing_party.toLowerCase().includes(name.toLowerCase())) })
+  const q = c.req.valid('query')
+  const { clients, cases } = await findConflicts(c.get('deps').db, org.id, {
+    names: [q.name, q.name_ar ?? ''], idNumber: q.id_number, email: q.email, phone: q.phone, excludeClientId: q.exclude_client_id
+  })
+  await audit(c, 'conflict.checked', 'conflict', undefined, { name: q.name, matches: clients.length + cases.length })
+  return c.json({ clients, cases, conflict: cases.length > 0 })
+})
+
+// Opposing parties of a new or edited case: which of them are already clients?
+workspaceRoutes.get('/conflicts/opposing', queryParams(z.object({
+  opposing: z.string().trim().min(2).max(1000),
+  client_id: z.string().uuid().optional()
+})), async (c) => {
+  const { org } = auth(c)
+  const q = c.req.valid('query')
+  const matches = await clientConflicts(c.get('deps').db, org.id, q.opposing, q.client_id)
+  return c.json({ conflicts: matches, conflict: matches.length > 0 })
+})
+
+// Recent intake decisions, including overrides and their reasons (owners and admins).
+workspaceRoutes.get('/conflicts/log', async (c) => {
+  requireRole(c, 'owner', 'admin')
+  const { org } = auth(c)
+  const items = await c.get('deps').db.query(
+    `SELECT l.id, l.subject_type, l.subject_id, l.subject_name, l.matches, l.decision, l.reason, l.created_at, u.name AS user_name
+       FROM conflict_checks l LEFT JOIN users u ON u.id = l.user_id
+      WHERE l.org_id = $1 AND (l.decision = 'override' OR jsonb_array_length(l.matches) > 0) ORDER BY l.created_at DESC LIMIT 200`, [org.id])
+  return c.json({ items })
 })
 
 // ---------------- Global search ----------------
