@@ -96,13 +96,16 @@ export async function setup(env: Record<string, string> = {}, opts: { googleFetc
   const tap = fakeTap()
   const firmTap = fakeFirmTap()
   const web = fakeWeb()
+  // Background work is queued and only runs when a test calls runDeferred().
+  const deferred: (() => Promise<unknown>)[] = []
+  const runDeferred = async () => { while (deferred.length) await deferred.shift()!() }
   const log = createLogger('error', true)
   const app = createApp({
-    config, db, ai, mailer, tap, firmTap: firmTap.forKey, webFetch: web.fetch, googleFetch: opts.googleFetch,
+    config, db, ai, mailer, tap, firmTap: firmTap.forKey, defer: (task) => { deferred.push(task) }, webFetch: web.fetch, googleFetch: opts.googleFetch,
     log,
     limiters: { auth: new RateLimiter(1000, 60_000), api: new RateLimiter(10_000, 60_000), ai: new RateLimiter(1000, 60_000), webhook: new RateLimiter(1000, 60_000), apiKey: new RateLimiter(1000, 60_000) }
   })
-  return { app, db, ai, mails, config, tap, firmTap, web, log, runImports: () => runLibraryImports({ db, config, ai, log, webFetch: web.fetch }) }
+  return { app, db, ai, mails, config, tap, firmTap, web, log, runDeferred, deferred, runImports: () => runLibraryImports({ db, config, ai, log, webFetch: web.fetch }) }
 }
 
 type App = Awaited<ReturnType<typeof setup>>['app']

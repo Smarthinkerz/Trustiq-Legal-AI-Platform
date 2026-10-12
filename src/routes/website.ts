@@ -1,7 +1,10 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
-import { audit, auth, requireRole, type AppEnv, type Ctx } from '../context'
-import { badRequest, conflict, notFound, tooMany } from '../lib/errors'
+import { audit, auth, requireRole, runLater, type AppEnv, type Ctx } from '../context'
+import { badRequest, conflict, HttpError, notFound, tooMany, unavailable } from '../lib/errors'
+import { conflictOverride, gateConflicts } from '../lib/conflict-gate'
+import { clientConflicts, logConflictCheck, opposingConflicts, type Blocking } from '../services/conflicts'
+import { normalizeReply, replyMessages, runLeadIntake, type LeadRow } from '../services/lead-intake'
 import { buildUpdate, jsonBody, optText, optUuid, queryParams, uuidParam } from '../lib/http'
 import { parseJsonObject } from '../services/legal-prompts'
 import { JURISDICTION_CODES, PRACTICE_AREA_IDS } from '../services/reference'
@@ -16,6 +19,14 @@ const slug = z.string().trim().toLowerCase().regex(SLUG_RE, 'Use lowercase lette
 const websiteRoutes = new Hono<AppEnv>()
 
 const publicUrl = (c: Ctx, s: string) => `${c.get('deps').config.appUrl}/f/${s}`
+
+function throttleAi(c: Ctx) {
+  const r = c.get('deps').limiters.ai.take(auth(c).user.id)
+  if (!r.ok) {
+    c.header('Retry-After', String(r.retryAfterSec))
+    throw tooMany('You are sending AI requests too quickly. Please wait a moment.')
+  }
+}
 
 // ---------------- Site settings ----------------
 
@@ -184,11 +195,7 @@ websiteRoutes.post('/writer', jsonBody(z.object({
   const b = c.req.valid('json')
   if (b.action === 'draft' && !b.topic && !b.title) throw badRequest('Describe the topic of the article.')
   if (['improve', 'translate', 'excerpt'].includes(b.action) && !b.body) throw badRequest('Write or generate the article first.')
-  const r = c.get('deps').limiters.ai.take(user.id)
-  if (!r.ok) {
-    c.header('Retry-After', String(r.retryAfterSec))
-    throw tooMany('You are sending AI requests too quickly. Please wait a moment.')
-  }
+  throttleAi(c)
   const { db, ai } = c.get('deps')
   await assertCanUseAi(db, org)
   const firm = await db.one('SELECT firm_name FROM branding WHERE org_id = $1', [org.id])
@@ -212,7 +219,8 @@ websiteRoutes.get('/leads', queryParams(z.object({ status: z.enum([...LEAD_STATU
   const items = await db.query(
     `SELECT l.*, u.name AS handled_by_name, cl.name AS client_name, k.reference AS case_reference
        FROM leads l LEFT JOIN users u ON u.id = l.handled_by LEFT JOIN clients cl ON cl.id = l.client_id LEFT JOIN cases k ON k.id = l.case_id
-      WHERE l.org_id = $1${filter} ORDER BY l.created_at DESC LIMIT 500`,
+      WHERE l.org_id = $1${filter}
+      ORDER BY (l.status IN ('new', 'contacted') AND l.urgency = 'urgent') DESC, l.created_at DESC LIMIT 500`,
     filter.includes('$2') ? [org.id, status] : [org.id])
   const [counts] = await db.query(
     `SELECT count(*) FILTER (WHERE status = 'new')::int AS new, count(*) FILTER (WHERE status = 'contacted')::int AS contacted,
@@ -232,7 +240,80 @@ websiteRoutes.post('/leads', jsonBody(z.object({
     `INSERT INTO leads (org_id, name, email, phone, message, practice_area, source, handled_by) VALUES ($1, $2, $3, $4, $5, $6, 'manual', $7) RETURNING *`,
     [org.id, b.name, b.email, b.phone, b.message, b.practice_area, user.id])
   await audit(c, 'lead.created', 'lead', lead!.id)
+  runLater(c.get('deps'), 'lead intake', () => runLeadIntake(c.get('deps'), org.id, lead!.id, user.id))
   return c.json({ lead }, 201)
+})
+
+// Runs (or re-runs) the AI intake and conflict check on an enquiry.
+websiteRoutes.post('/leads/:id/intake', async (c) => {
+  requireRole(c, 'owner', 'admin', 'lawyer')
+  const { user, org } = auth(c)
+  const id = uuidParam(c.req.param('id'), 'Lead')
+  const deps = c.get('deps')
+  if (!deps.ai.configured) throw unavailable('ai_not_configured', 'The AI assistant is not configured for this deployment.')
+  const lead = await deps.db.one('SELECT id, message FROM leads WHERE id = $1 AND org_id = $2', [id, org.id])
+  if (!lead) throw notFound('Lead')
+  if (!lead.message?.trim()) throw badRequest('This enquiry has no message to analyse.')
+  throttleAi(c)
+  try {
+    await runLeadIntake(deps, org.id, id, user.id, { enforceQuota: true })
+  } catch (err) {
+    if (err instanceof HttpError) throw err
+    deps.log.warn('lead intake failed', { err })
+    throw new HttpError(502, 'ai_bad_output', 'The AI could not read this enquiry. Please try again.')
+  }
+  await audit(c, 'ai.lead_intake', 'lead', id)
+  return c.json({ lead: await deps.db.one('SELECT * FROM leads WHERE id = $1', [id]) })
+})
+
+// Drafts a first reply to the enquirer; nothing is sent until a lawyer reviews it.
+websiteRoutes.post('/leads/:id/reply-draft', jsonBody(z.object({ language: z.enum(['en', 'ar']).optional() })), async (c) => {
+  requireRole(c, 'owner', 'admin', 'lawyer')
+  const { user, org } = auth(c)
+  const id = uuidParam(c.req.param('id'), 'Lead')
+  const { db, ai } = c.get('deps')
+  const lead = await db.one('SELECT * FROM leads WHERE id = $1 AND org_id = $2', [id, org.id])
+  if (!lead) throw notFound('Lead')
+  throttleAi(c)
+  await assertCanUseAi(db, org)
+  const firm = await db.one('SELECT firm_name, firm_name_ar FROM branding WHERE org_id = $1', [org.id])
+  const language = c.req.valid('json').language ?? (lead.language === 'ar' ? 'ar' : 'en')
+  const firmName = (language === 'ar' ? firm?.firm_name_ar || firm?.firm_name : firm?.firm_name) || org.name
+  const result = await ai.complete({ messages: replyMessages(lead as LeadRow, { language, firmName, lawyerName: user.name }), json: true, maxTokens: 1200, temperature: 0.3 })
+  await recordAiUsage(db, org.id, user.id, 'lead_reply', result)
+  let draft
+  try { draft = normalizeReply(parseJsonObject(result.text)) } catch { draft = { subject: '', body: '' } }
+  if (!draft.body) throw new HttpError(502, 'ai_bad_output', 'The AI returned an empty reply. Please try again.')
+  return c.json({ draft: { ...draft, subject: draft.subject || (language === 'ar' ? `استفساركم لدى ${firmName}` : `Your enquiry to ${firmName}`), language } })
+})
+
+// Emails the enquirer (reply-to is the lawyer) and marks the enquiry as contacted.
+websiteRoutes.post('/leads/:id/reply', jsonBody(z.object({
+  subject: z.string().trim().min(2).max(200),
+  body: z.string().trim().min(10).max(10_000)
+})), async (c) => {
+  requireRole(c, 'owner', 'admin', 'lawyer')
+  const { user, org } = auth(c)
+  const id = uuidParam(c.req.param('id'), 'Lead')
+  const b = c.req.valid('json')
+  const { db, mailer, log } = c.get('deps')
+  const lead = await db.one('SELECT id, email, status, notes FROM leads WHERE id = $1 AND org_id = $2', [id, org.id])
+  if (!lead) throw notFound('Lead')
+  if (!lead.email) throw badRequest('This enquiry has no email address. Call or message them instead.')
+  if (!mailer.configured) throw unavailable('email_not_configured', 'Email is not set up on this server. Copy the reply and send it yourself.')
+  try {
+    await mailer.send({ to: lead.email, subject: b.subject, text: b.body, replyTo: user.email })
+  } catch (err) {
+    log.warn('lead reply failed', { err })
+    throw unavailable('email_failed', 'The email could not be sent. Please try again.')
+  }
+  const note = `${new Date().toISOString().slice(0, 10)} – ${user.name} emailed: ${b.subject}`
+  const updated = await db.one(
+    `UPDATE leads SET replied_at = now(), status = CASE WHEN status = 'new' THEN 'contacted' ELSE status END, handled_by = coalesce(handled_by, $3),
+            notes = CASE WHEN notes IS NULL OR notes = '' THEN $4 ELSE notes || E'\n' || $4 END, updated_at = now()
+      WHERE id = $1 AND org_id = $2 RETURNING *`, [id, org.id, user.id, note])
+  await audit(c, 'lead.replied', 'lead', id)
+  return c.json({ lead: updated })
 })
 
 websiteRoutes.patch('/leads/:id', jsonBody(z.object({
@@ -273,8 +354,10 @@ websiteRoutes.post('/leads/:id/convert', jsonBody(z.object({
   case: z.object({
     title: z.string().trim().min(3).max(300),
     practice_area: z.enum(PRACTICE_AREA_IDS).nullish().or(z.literal('')).transform((v) => v || null),
-    jurisdiction: z.enum(JURISDICTION_CODES)
-  }).nullish()
+    jurisdiction: z.enum(JURISDICTION_CODES),
+    opposing_party: optText(300)
+  }).nullish(),
+  conflict_override: conflictOverride
 })), async (c) => {
   requireRole(c, 'owner', 'admin', 'lawyer')
   const { user, org } = auth(c)
@@ -286,6 +369,16 @@ websiteRoutes.post('/leads/:id/convert', jsonBody(z.object({
   if (lead.status === 'converted') throw conflict('This enquiry has already been converted.')
   if (!b.client_id && !b.client) throw badRequest('Choose an existing client or enter the new client\'s details.')
   if (b.case) await assertCanOpenCase(db, org)
+  // Same intake rules as creating a client and a case directly: a new client must not be an opposing party
+  // elsewhere, and the new matter's opposing parties must not be the firm's clients.
+  const blocking: Blocking[] = []
+  if (!b.client_id && b.client) blocking.push(...await opposingConflicts(db, org.id, [b.client.name, b.client.name_ar]))
+  if (b.client_id && b.case) {
+    const [cl] = await db.query('SELECT name, name_ar FROM clients WHERE id = $1 AND org_id = $2', [b.client_id, org.id])
+    if (cl) blocking.push(...await opposingConflicts(db, org.id, [cl.name, cl.name_ar]))
+  }
+  if (b.case?.opposing_party) blocking.push(...await clientConflicts(db, org.id, b.case.opposing_party, b.client_id))
+  const gate = gateConflicts(c, blocking, b.conflict_override)
   const result = await db.tx(async (q) => {
     let clientId = b.client_id
     let clientCreated = false
@@ -304,17 +397,23 @@ websiteRoutes.post('/leads/:id/convert', jsonBody(z.object({
       const seq = await q.one('UPDATE organizations SET case_seq = case_seq + 1 WHERE id = $1 RETURNING case_seq', [org.id])
       const reference = `${new Date().getFullYear()}-${String(seq!.case_seq).padStart(4, '0')}`
       caseRow = (await q.one<{ id: string; reference: string }>(
-        `INSERT INTO cases (org_id, reference, title, client_id, practice_area, jurisdiction, status, priority, description, currency, assigned_to, opened_on, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6, 'pending', 'medium', $7, $8, $9, CURRENT_DATE, $9) RETURNING id, reference`,
-        [org.id, reference, b.case.title, clientId, b.case.practice_area, b.case.jurisdiction, lead.message, org.default_currency, user.id])) ?? null
+        `INSERT INTO cases (org_id, reference, title, client_id, practice_area, jurisdiction, opposing_party, status, priority, description, currency, assigned_to, opened_on, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $10, 'pending', $11, $7, $8, $9, CURRENT_DATE, $9) RETURNING id, reference`,
+        [org.id, reference, b.case.title, clientId, b.case.practice_area, b.case.jurisdiction, lead.message, org.default_currency, user.id,
+         b.case.opposing_party, lead.urgency === 'urgent' ? 'high' : 'medium'])) ?? null
       await caseActivity(q, org.id, caseRow!.id, user.id, 'created', 'Case opened from a website enquiry')
+      if (gate.decision === 'override') await caseActivity(q, org.id, caseRow!.id, user.id, 'conflict', `Conflict check overridden: ${gate.reason}`)
     }
+    await logConflictCheck(q, {
+      orgId: org.id, userId: user.id, subjectType: caseRow ? 'case' : 'client', subjectId: caseRow?.id ?? clientId!,
+      subjectName: b.case?.title ?? b.client?.name ?? lead.name, matches: blocking, ...gate
+    })
     await q.query(`UPDATE leads SET status = 'converted', client_id = $3, case_id = $4, handled_by = coalesce(handled_by, $5), updated_at = now() WHERE id = $1 AND org_id = $2`,
       [id, org.id, clientId, caseRow?.id ?? null, user.id])
     return { client_id: clientId!, client_created: clientCreated, case: caseRow }
   })
   await audit(c, 'lead.converted', 'lead', id, { client_id: result.client_id, case_id: result.case?.id ?? null })
-  return c.json(result)
+  return c.json({ ...result, conflict_check: { decision: gate.decision, matches: blocking } })
 })
 
 export default websiteRoutes

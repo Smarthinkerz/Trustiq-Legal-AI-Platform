@@ -1,7 +1,8 @@
 import { Hono } from 'hono'
+import { runLeadIntake } from '../services/lead-intake'
 import { bodyLimit } from 'hono/body-limit'
 import { z } from 'zod'
-import { clientIp, type AppEnv, type Ctx, type Deps } from '../context'
+import { clientIp, runLater, type AppEnv, type Ctx, type Deps } from '../context'
 import { tooMany } from '../lib/errors'
 import { RateLimiter } from '../lib/rate-limit'
 import { subscriptionExpired, trialExpired } from '../lib/plans'
@@ -157,6 +158,8 @@ export function firmSiteRoutes(deps: Deps, assetVersion: string) {
       [site.org_id, b.name, b.email, b.phone, ((b.message ?? '') + transcript).trim() || null, b.practice_area, b.transcript?.length ? 'chat' : 'form', lang])
     await db.query(`INSERT INTO audit_log (org_id, action, entity_type, entity_id, meta, ip) VALUES ($1, 'lead.received', 'lead', $2, $3, $4)`,
       [site.org_id, lead!.id, JSON.stringify({ source: b.transcript?.length ? 'chat' : 'form' }), ip]).catch((err) => log.warn('lead audit failed', { err }))
+    // Sorted and conflict-checked in the background so the visitor is not kept waiting.
+    runLater(deps, 'lead intake', () => runLeadIntake(deps, site.org_id, lead!.id, null))
 
     if (deps.mailer.configured) {
       const staff = await db.query(`SELECT email FROM users WHERE org_id = $1 AND role IN ('owner', 'admin') AND deactivated_at IS NULL AND notify_email`, [site.org_id])

@@ -46,6 +46,8 @@ export type Deps = {
   tap: TapClient
   // Builds a client for a firm's own Tap account (invoice payments). Overridable in tests.
   firmTap?: (secretKey: string) => TapClient
+  // Runs work after the response (e.g. AI intake of a new enquiry). Tests replace it to run tasks on demand.
+  defer?: (task: () => Promise<unknown>) => void
   // Overridable in tests; defaults to a fetcher that refuses private network addresses.
   webFetch?: WebFetcher
   // Overridable in tests; used for Google OAuth and Calendar API calls.
@@ -106,4 +108,10 @@ export async function audit(c: Ctx, action: string, entityType?: string, entityI
     // Auditing must never break the user's request, but failures must be visible.
     log.error('audit write failed', { action, err })
   }
+}
+
+// Fire-and-forget with logging; the default when deps.defer is not set.
+export function runLater(deps: Pick<Deps, 'defer' | 'log'>, label: string, task: () => Promise<unknown>) {
+  if (deps.defer) return deps.defer(task)
+  void task().catch((err) => deps.log.warn(`${label} failed`, { err }))
 }
