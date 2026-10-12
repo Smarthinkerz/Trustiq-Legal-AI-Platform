@@ -1,11 +1,14 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
-import { audit, auth, requireRole, type AppEnv } from '../context'
+import { audit, auth, requireRole, runLater, type AppEnv } from '../context'
 import type { Queryable } from '../db'
 import { badRequest, HttpError, notFound } from '../lib/errors'
 import { buildUpdate, jsonBody, likePattern, optUuid, pageSchema, paged, queryParams, uuidParam } from '../lib/http'
 import { DOC_TYPE_IDS, JURISDICTION_CODES } from '../services/reference'
-import { assertCanCreateDocument, recordAiUsage } from '../services/usage'
+import { assertCanCreateDocument, assertCanUseAi, recordAiUsage } from '../services/usage'
+import {
+  detectLanguage, isStalled, MAX_RUNNING_PER_ORG, MAX_TRANSLATION_CHARS, runningTranslations, runTranslation, translationTitle, type Lang
+} from '../services/translation'
 import { ACCEPTED_TYPES, detectKind, extractWithOcr } from '../services/extract'
 import { contentDisposition, renderDocx, safeFileName } from '../services/export'
 import { caseActivity } from './cases'
@@ -81,7 +84,7 @@ documentsRoutes.get('/', queryParams(z.object({
   const [{ n }] = await db.query(`SELECT count(*)::int AS n FROM documents d WHERE ${where}`, params)
   const items = await db.query(
     `SELECT d.id, d.title, d.doc_type, d.language, d.jurisdiction, d.status, d.source, d.version, d.file_name, d.file_size, d.updated_at, d.created_at,
-            d.shared_with_client, d.uploaded_by_client,
+            d.shared_with_client, d.uploaded_by_client, d.translated_from, d.translation_status,
             d.case_id, k.reference AS case_reference, k.title AS case_title, d.client_id, cl.name AS client_name, u.name AS created_by_name,
             (SELECT a.result->>'risk_score' FROM document_analyses a WHERE a.document_id = d.id ORDER BY a.created_at DESC LIMIT 1)::int AS last_risk_score
        FROM documents d LEFT JOIN cases k ON k.id = d.case_id LEFT JOIN clients cl ON cl.id = d.client_id LEFT JOIN users u ON u.id = d.created_by
@@ -97,19 +100,24 @@ documentsRoutes.get('/:id', async (c) => {
   const document = await db.one(
     `SELECT d.id, d.title, d.doc_type, d.language, d.jurisdiction, d.status, d.source, d.content, d.version, d.file_name, d.mime_type, d.file_size,
             d.shared_with_client, d.uploaded_by_client, d.ocr,
+            d.translated_from, src.title AS translated_from_title, src.language AS translated_from_language,
+            d.translation_status, d.translation_done, d.translation_total, d.translation_error, d.translation_heartbeat,
             d.case_id, k.reference AS case_reference, k.title AS case_title, d.client_id, cl.name AS client_name,
             d.created_at, d.updated_at, u.name AS created_by_name
        FROM documents d LEFT JOIN cases k ON k.id = d.case_id LEFT JOIN clients cl ON cl.id = d.client_id LEFT JOIN users u ON u.id = d.created_by
+            LEFT JOIN documents src ON src.id = d.translated_from AND src.org_id = d.org_id
       WHERE d.id = $1 AND d.org_id = $2`, [id, org.id])
   if (!document) throw notFound('Document')
-  const [versions, analyses] = await Promise.all([
+  document.translation_stalled = isStalled(document as any)
+  const [versions, analyses, translations] = await Promise.all([
     db.query(`SELECT v.version, v.title, v.created_at, u.name AS created_by_name FROM document_versions v LEFT JOIN users u ON u.id = v.created_by
                WHERE v.document_id = $1 AND v.org_id = $2 ORDER BY v.version DESC`, [id, org.id]),
     db.query(`SELECT a.id, a.analysis_type, a.language, a.jurisdiction, a.result, a.model, a.created_at, u.name AS created_by_name
                 FROM document_analyses a LEFT JOIN users u ON u.id = a.created_by
-               WHERE a.document_id = $1 AND a.org_id = $2 ORDER BY a.created_at DESC LIMIT 20`, [id, org.id])
+               WHERE a.document_id = $1 AND a.org_id = $2 ORDER BY a.created_at DESC LIMIT 20`, [id, org.id]),
+    db.query(`SELECT id, title, language, translation_status, created_at FROM documents WHERE translated_from = $1 AND org_id = $2 ORDER BY created_at DESC`, [id, org.id])
   ])
-  return c.json({ document, versions, analyses })
+  return c.json({ document, versions, analyses, translations })
 })
 
 documentsRoutes.post('/', jsonBody(createSchema), async (c) => {
@@ -169,8 +177,11 @@ documentsRoutes.patch('/:id', jsonBody(updateSchema), async (c) => {
   const { db } = c.get('deps')
   await assertDocRefs(db, org.id, b)
   const document = await db.tx(async (q) => {
-    const current = await q.one('SELECT id, title, content, version FROM documents WHERE id = $1 AND org_id = $2 FOR UPDATE', [id, org.id])
+    const current = await q.one('SELECT id, title, content, version, translation_status FROM documents WHERE id = $1 AND org_id = $2 FOR UPDATE', [id, org.id])
     if (!current) return null
+    if (b.content !== undefined && current.translation_status === 'running') {
+      throw new HttpError(409, 'translation_running', 'This document is still being translated. Edit it when the translation has finished.')
+    }
     const { sets, values } = buildUpdate(b, ['title', 'doc_type', 'language', 'jurisdiction', 'status', 'content', 'case_id', 'client_id', 'shared_with_client'], 3)
     // Every content change snapshots the previous text so edits are never lost.
     if (b.content !== undefined && b.content !== current.content) {
@@ -226,6 +237,57 @@ documentsRoutes.get('/:id/export', queryParams(z.object({ format: z.enum(['docx'
   return new Response(new Uint8Array(buf), {
     headers: { 'content-type': ACCEPTED_TYPES.docx, 'content-disposition': contentDisposition(safeFileName(doc.title, 'docx')), 'cache-control': 'private, no-store' }
   })
+})
+
+// AI translation into a new, linked document (Arabic <-> English).
+documentsRoutes.post('/:id/translate', jsonBody(z.object({ target: z.enum(['en', 'ar']).optional() })), async (c) => {
+  requireRole(c, 'owner', 'admin', 'lawyer', 'staff')
+  const { user, org } = auth(c)
+  const id = uuidParam(c.req.param('id'), 'Document')
+  const { target } = c.req.valid('json')
+  const deps = c.get('deps')
+  const { db } = deps
+  const src = await db.one(
+    'SELECT id, title, doc_type, language, jurisdiction, content, case_id, client_id, translation_status FROM documents WHERE id = $1 AND org_id = $2', [id, org.id])
+  if (!src) throw notFound('Document')
+  if (src.translation_status === 'running') throw new HttpError(409, 'translation_running', 'Wait for this document to finish translating first.')
+  if (!/[\p{L}]/u.test(src.content)) throw badRequest('This document has no text to translate.')
+  if (src.content.length > MAX_TRANSLATION_CHARS) {
+    throw new HttpError(422, 'document_too_long', `Documents up to ${MAX_TRANSLATION_CHARS.toLocaleString('en')} characters can be translated. Split this document first.`)
+  }
+  const from = detectLanguage(src.content, src.language)
+  const to: Lang = target ?? (from === 'ar' ? 'en' : 'ar')
+  if (to === from) throw badRequest(to === 'ar' ? 'This document is already in Arabic.' : 'This document is already in English.')
+  await assertCanUseAi(db, org)
+  await assertCanCreateDocument(db, org)
+  if ((await runningTranslations(db, org.id)) >= MAX_RUNNING_PER_ORG) {
+    throw new HttpError(429, 'translations_busy', `Up to ${MAX_RUNNING_PER_ORG} translations can run at once. Try again when one has finished.`)
+  }
+  const document = await insertDocument(db, {
+    orgId: org.id, userId: user.id, title: translationTitle(src.title, to), docType: src.doc_type, language: to, jurisdiction: src.jurisdiction,
+    source: 'ai', content: '', caseId: src.case_id, clientId: src.client_id
+  })
+  await db.query(`UPDATE documents SET translated_from = $2, translation_status = 'running', translation_heartbeat = now() WHERE id = $1`, [document.id, id])
+  await audit(c, 'document.translated', 'document', document.id, { from: id, language: to })
+  runLater(deps, 'document translation', () => runTranslation(deps, document.id))
+  return c.json({ document: { ...document, translated_from: id, translation_status: 'running' } }, 202)
+})
+
+documentsRoutes.post('/:id/translation/retry', async (c) => {
+  requireRole(c, 'owner', 'admin', 'lawyer', 'staff')
+  const { org } = auth(c)
+  const id = uuidParam(c.req.param('id'), 'Document')
+  const deps = c.get('deps')
+  await assertCanUseAi(deps.db, org)
+  const rows = await deps.db.query(
+    `UPDATE documents SET translation_status = 'running', translation_error = NULL, translation_heartbeat = now()
+      WHERE id = $1 AND org_id = $2 AND translated_from IS NOT NULL
+        AND (translation_status = 'failed' OR (translation_status = 'running' AND (translation_heartbeat IS NULL OR translation_heartbeat < now() - interval '10 minutes')))
+      RETURNING id`, [id, org.id])
+  if (!rows.length) throw new HttpError(409, 'translation_not_retryable', 'This translation is not waiting for a retry.')
+  await audit(c, 'document.translation_retried', 'document', id)
+  runLater(deps, 'document translation', () => runTranslation(deps, id))
+  return c.json({ ok: true }, 202)
 })
 
 documentsRoutes.delete('/:id', async (c) => {
