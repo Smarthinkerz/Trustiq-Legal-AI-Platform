@@ -1,8 +1,12 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
-import { auth, requireRole, type AppEnv } from '../context'
-import { queryParams } from '../lib/http'
+import { audit, auth, requireRole, type AppEnv, type Ctx } from '../context'
+import { badRequest, HttpError, tooMany } from '../lib/errors'
+import { jsonBody, queryParams } from '../lib/http'
 import { matterFinancials } from '../services/matter-finance'
+import { parseJsonObject } from '../services/legal-prompts'
+import { insightsMessages, normalizeSummary, practiceInsights, toCsv } from '../services/practice-insights'
+import { assertCanUseAi, recordAiUsage } from '../services/usage'
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 
@@ -68,6 +72,71 @@ reportsRoutes.get('/matters', queryParams(z.object({ include_closed: z.enum(['tr
   // Most at risk first: over budget, then highest budget use, then most unbilled work.
   items.sort((a, b) => (b.used_pct ?? -1) - (a.used_pct ?? -1) || (b.unbilled_time ?? 0) - (a.unbilled_time ?? 0))
   return c.json({ items: items.filter((i) => i.minutes > 0 || i.invoiced > 0 || i.limit != null) })
+})
+
+// ---------------- Partner analytics ----------------
+
+const periodSchema = z.object({ from: isoDate.optional(), to: isoDate.optional() })
+function period(q: { from?: string; to?: string }) {
+  const to = q.to ?? new Date().toISOString().slice(0, 10)
+  const from = q.from ?? new Date(Date.parse(to) - 89 * 86400_000).toISOString().slice(0, 10)
+  if (from > to) throw badRequest('The start date must be before the end date.')
+  if (Date.parse(to) - Date.parse(from) > 3 * 366 * 86400_000) throw badRequest('Choose a period of three years or less.')
+  return { from, to }
+}
+
+const insightsFor = (c: Ctx, q: { from?: string; to?: string }) => {
+  const { org } = auth(c)
+  const { from, to } = period(q)
+  return practiceInsights(c.get('deps').db, org.id, org.default_currency, from, to)
+}
+
+reportsRoutes.get('/insights', queryParams(periodSchema), async (c) => {
+  requireRole(c, 'owner', 'admin')
+  return c.json(await insightsFor(c, c.req.valid('query')))
+})
+
+// A short written summary of the numbers for the partners, in Arabic or English.
+reportsRoutes.post('/insights/summary', jsonBody(periodSchema.extend({ language: z.enum(['en', 'ar']).default('en') })), async (c) => {
+  requireRole(c, 'owner', 'admin')
+  const { user, org } = auth(c)
+  const b = c.req.valid('json')
+  const { db, ai, limiters } = c.get('deps')
+  const r = limiters.ai.take(user.id)
+  if (!r.ok) {
+    c.header('Retry-After', String(r.retryAfterSec))
+    throw tooMany('You are sending AI requests too quickly. Please wait a moment.')
+  }
+  await assertCanUseAi(db, org)
+  const data = await insightsFor(c, b)
+  const [br] = await db.query('SELECT firm_name, firm_name_ar FROM branding WHERE org_id = $1', [org.id])
+  const firm = (b.language === 'ar' ? br?.firm_name_ar || br?.firm_name : br?.firm_name) || org.name
+  const result = await ai.complete({ messages: insightsMessages(data, b.language, firm), json: true, maxTokens: 1500, temperature: 0.2 })
+  await recordAiUsage(db, org.id, user.id, 'partner_summary', result)
+  let summary
+  try { summary = normalizeSummary(parseJsonObject(result.text)) } catch { summary = null }
+  if (!summary?.headline && !summary?.points.length) throw new HttpError(502, 'ai_bad_output', 'The AI returned an unreadable summary. Please try again.')
+  await audit(c, 'ai.partner_summary', 'organization', org.id, { from: data.from, to: data.to, language: b.language })
+  return c.json({ summary, from: data.from, to: data.to, language: b.language })
+})
+
+// Lawyers or clients as CSV (UTF-8 with BOM so Excel shows Arabic correctly).
+reportsRoutes.get('/insights/export', queryParams(periodSchema.extend({ section: z.enum(['lawyers', 'clients']) })), async (c) => {
+  requireRole(c, 'owner', 'admin')
+  const q = c.req.valid('query')
+  const d = await insightsFor(c, q)
+  const rows: unknown[][] = q.section === 'lawyers'
+    ? [['Lawyer', 'Hours', 'Billable hours', 'Utilisation %', `Recorded value (${d.currency})`, `Billed value (${d.currency})`, 'Realisation %', 'Open matters', 'Overdue tasks'],
+      ...d.lawyers.map((l) => [l.name, (l.minutes / 60).toFixed(2), (l.billable_minutes / 60).toFixed(2), l.utilisation_pct, l.recorded_value, l.billed_value, l.realization_pct, l.open_matters, l.overdue_tasks])]
+    : [['Client', 'Client (Arabic)', `Invoiced (${d.currency})`, `Collected (${d.currency})`, `Outstanding (${d.currency})`, 'Share of billing %', 'Open matters'],
+      ...d.clients.map((cl) => [cl.name, cl.name_ar, cl.invoiced, cl.collected, cl.outstanding, cl.share_pct, cl.open_matters])]
+  await audit(c, 'reports.exported', 'organization', auth(c).org.id, { section: q.section, from: d.from, to: d.to })
+  return new Response(toCsv(rows), {
+    headers: {
+      'content-type': 'text/csv; charset=utf-8', 'cache-control': 'private, no-store',
+      'content-disposition': `attachment; filename="trustiqlegal-${q.section}-${d.from}-to-${d.to}.csv"`
+    }
+  })
 })
 
 export default reportsRoutes
