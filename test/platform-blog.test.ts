@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 import { registered, setup, TINY_PNG } from './helpers'
+import { blogSlug } from '../src/config'
 
 let ctx: Awaited<ReturnType<typeof setup>>
 const ADMIN = `admin-${crypto.randomUUID().slice(0, 6)}@trustiq.test`
@@ -79,5 +80,17 @@ describe('TrustiqLegal blog', () => {
     await c.put('/api/website/site', { slug: 'trustiq-news', published: false })
     await c.post('/api/website/posts', { title: 'Release notes October', body: 'New features', status: 'published' })
     expect(await (await custom.app.request('/blog')).text()).toContain('Release notes October')
+  })
+
+  it('reads a pasted firm-site link as the slug and ignores a slug that matches nothing', async () => {
+    expect(blogSlug(' "https://trstiqai.eqence.com/f/ Smarthinkerz/" ')).toBe('smarthinkerz')
+    expect(blogSlug('/f/trustiq-news')).toBe('trustiq-news')
+    expect(blogSlug('smarthinkerz')).toBe('smarthinkerz')
+    expect(blogSlug('  ')).toBeUndefined()
+
+    const custom = await setup({ PLATFORM_BLOG_SLUG: 'no-such-site', PLATFORM_ADMIN_EMAILS: ADMIN })
+    const { c } = await registered(custom.app, { email: ADMIN })
+    await c.post('/api/website/posts', { title: 'Admin firm article', body: 'Hello', status: 'published' })
+    expect(await (await custom.app.request('/blog')).text()).toContain('Admin firm article')
   })
 })
