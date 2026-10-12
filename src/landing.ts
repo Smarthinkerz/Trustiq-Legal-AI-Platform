@@ -3,6 +3,8 @@ import { esc, head } from './pages/layout'
 
 type Lang = 'en' | 'ar'
 
+export type { Lang }
+
 const fmt = (n: number | null, lang: Lang, unlimited: string) =>
   n === null ? unlimited : n.toLocaleString(lang === 'ar' ? 'ar-OM' : 'en-US')
 
@@ -15,7 +17,7 @@ const copy = {
       greeting: 'Hello! I can explain how TrustiqLegal works, what each feature does and which plan fits your firm. What would you like to know?',
       note: 'Automated assistant about the TrustiqLegal platform. Not legal advice.', error: 'Sorry, something went wrong. Please try again.', typing: 'Typing…', book: 'Start your free trial'
     },
-    nav: { features: 'Features', pricing: 'Pricing', security: 'Security', signin: 'Sign in', start: 'Start free trial', other: 'العربية', otherHref: '/ar' },
+    nav: { features: 'Features', blog: 'Blog', pricing: 'Pricing', security: 'Security', signin: 'Sign in', start: 'Start free trial', other: 'العربية', otherHref: '/ar' },
     hero: {
       eyebrow: 'Built for Middle East legal practice',
       h1: 'Run your law firm in one bilingual, AI-assisted workspace',
@@ -70,7 +72,7 @@ const copy = {
       greeting: 'مرحبًا! يمكنني أن أشرح لك طريقة عمل TrustiqLegal ومزايا كل قسم والباقة المناسبة لمكتبك. ماذا تود أن تعرف؟',
       note: 'مساعد آلي حول منصة TrustiqLegal. لا يقدّم استشارات قانونية.', error: 'عذرًا، حدث خطأ. يُرجى المحاولة مرة أخرى.', typing: 'يكتب…', book: 'ابدأ تجربتك المجانية'
     },
-    nav: { features: 'المزايا', pricing: 'الأسعار', security: 'الأمان', signin: 'تسجيل الدخول', start: 'ابدأ التجربة المجانية', other: 'English', otherHref: '/' },
+    nav: { features: 'المزايا', blog: 'المدونة', pricing: 'الأسعار', security: 'الأمان', signin: 'تسجيل الدخول', start: 'ابدأ التجربة المجانية', other: 'English', otherHref: '/' },
     hero: {
       eyebrow: 'مصممة للممارسة القانونية في الشرق الأوسط',
       h1: 'أدِر مكتب المحاماة من مساحة عمل واحدة ثنائية اللغة ومدعومة بالذكاء الاصطناعي',
@@ -119,6 +121,55 @@ const copy = {
   }
 }
 
+// Shared header and footer for the homepage and the TrustiqLegal blog.
+// On the homepage section links are in-page anchors; elsewhere they lead back to the homepage.
+export function siteNav(lang: Lang, o: { home?: boolean; active?: 'blog'; otherHref?: string } = {}) {
+  const t = copy[lang]
+  const homeHref = lang === 'ar' ? '/ar' : '/'
+  const anchor = (id: string) => (o.home ? `#${id}` : `${homeHref}#${id}`)
+  const blogHref = lang === 'ar' ? '/ar/blog' : '/blog'
+  const register = `/app#/register${lang === 'ar' ? '?lang=ar' : ''}`
+  const login = `/app#/login${lang === 'ar' ? '?lang=ar' : ''}`
+  return `<nav class="sticky top-0 z-50 bg-white/95 backdrop-blur border-b border-slate-100">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
+      <a href="${homeHref}" class="flex items-center gap-2 text-brand-900 font-bold text-xl"><i class="fas fa-scale-balanced"></i>TrustiqLegal</a>
+      <div class="hidden md:flex items-center gap-7 text-sm font-medium text-slate-600">
+        <a href="${anchor('features')}" class="hover:text-slate-900">${t.nav.features}</a>
+        <a href="${anchor('security')}" class="hover:text-slate-900">${t.nav.security}</a>
+        <a href="${blogHref}" class="hover:text-slate-900${o.active === 'blog' ? ' text-slate-900 font-semibold' : ''}">${t.nav.blog}</a>
+        <a href="${anchor('pricing')}" class="hover:text-slate-900">${t.nav.pricing}</a>
+        <a href="${o.otherHref ?? t.nav.otherHref}" class="hover:text-slate-900" lang="${lang === 'ar' ? 'en' : 'ar'}">${t.nav.other}</a>
+      </div>
+      <div class="flex items-center gap-2">
+        <a href="${blogHref}" class="md:hidden text-sm font-medium text-slate-600 hover:text-slate-900 px-2">${t.nav.blog}</a>
+        <a href="${login}" class="btn btn-ghost hidden sm:inline-flex">${t.nav.signin}</a>
+        <a href="${register}" class="btn btn-primary">${t.nav.start}</a>
+      </div>
+    </div>
+  </nav>`
+}
+
+export function siteFooter(lang: Lang, opts: { salesEmail: string; supportEmail: string; home?: boolean }) {
+  const t = copy[lang]
+  const anchor = (id: string) => (opts.home ? `#${id}` : `${lang === 'ar' ? '/ar' : '/'}#${id}`)
+  const blogHref = lang === 'ar' ? '/ar/blog' : '/blog'
+  return `<footer class="bg-slate-900 text-slate-400 py-12">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 grid sm:grid-cols-4 gap-8 text-sm">
+      <div>
+        <div class="flex items-center gap-2 text-white font-bold mb-3"><i class="fas fa-scale-balanced text-gold-300"></i>TrustiqLegal</div>
+        <p>${t.description}</p>
+      </div>
+      <div><h4 class="text-white font-semibold mb-3">${t.footer.product}</h4><ul class="space-y-2">
+        <li><a class="hover:text-white" href="${anchor('features')}">${t.nav.features}</a></li><li><a class="hover:text-white" href="${anchor('pricing')}">${t.nav.pricing}</a></li><li><a class="hover:text-white" href="${anchor('security')}">${t.nav.security}</a></li><li><a class="hover:text-white" href="${blogHref}">${t.nav.blog}</a></li></ul></div>
+      <div><h4 class="text-white font-semibold mb-3">${t.footer.legal}</h4><ul class="space-y-2">
+        <li><a class="hover:text-white" href="/terms">${t.footer.terms}</a></li><li><a class="hover:text-white" href="/privacy">${t.footer.privacy}</a></li></ul></div>
+      <div><h4 class="text-white font-semibold mb-3">${t.footer.contact}</h4><ul class="space-y-2">
+        <li><a class="hover:text-white" href="mailto:${esc(opts.salesEmail)}">${esc(opts.salesEmail)}</a></li><li><a class="hover:text-white" href="mailto:${esc(opts.supportEmail)}">${esc(opts.supportEmail)}</a></li></ul></div>
+    </div>
+    <p class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-10 pt-6 border-t border-slate-800 text-center text-xs">&copy; ${new Date().getFullYear()} TrustiqLegal. ${t.footer.rights}</p>
+  </footer>`
+}
+
 export function landingPage(opts: { assetVersion: string; salesEmail: string; supportEmail: string; lang?: Lang }) {
   const lang = opts.lang ?? 'en'
   const t = copy[lang]
@@ -137,21 +188,7 @@ export function landingPage(opts: { assetVersion: string; salesEmail: string; su
   <link rel="alternate" hreflang="en" href="/" /><link rel="alternate" hreflang="ar" href="/ar" />
 </head>
 <body class="bg-white text-slate-900 antialiased">
-  <nav class="sticky top-0 z-50 bg-white/95 backdrop-blur border-b border-slate-100">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
-      <a href="${lang === 'ar' ? '/ar' : '/'}" class="flex items-center gap-2 text-brand-900 font-bold text-xl"><i class="fas fa-scale-balanced"></i>TrustiqLegal</a>
-      <div class="hidden md:flex items-center gap-7 text-sm font-medium text-slate-600">
-        <a href="#features" class="hover:text-slate-900">${t.nav.features}</a>
-        <a href="#security" class="hover:text-slate-900">${t.nav.security}</a>
-        <a href="#pricing" class="hover:text-slate-900">${t.nav.pricing}</a>
-        <a href="${t.nav.otherHref}" class="hover:text-slate-900" lang="${lang === 'ar' ? 'en' : 'ar'}">${t.nav.other}</a>
-      </div>
-      <div class="flex items-center gap-2">
-        <a href="${login}" class="btn btn-ghost hidden sm:inline-flex">${t.nav.signin}</a>
-        <a href="${register}" class="btn btn-primary">${t.nav.start}</a>
-      </div>
-    </div>
-  </nav>
+  ${siteNav(lang, { home: true })}
 
   <header class="hero-gradient text-white">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 md:py-28 grid md:grid-cols-2 gap-12 items-center">
@@ -255,21 +292,7 @@ export function landingPage(opts: { assetVersion: string; salesEmail: string; su
     </div>
   </section>
 
-  <footer class="bg-slate-900 text-slate-400 py-12">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 grid sm:grid-cols-4 gap-8 text-sm">
-      <div>
-        <div class="flex items-center gap-2 text-white font-bold mb-3"><i class="fas fa-scale-balanced text-gold-300"></i>TrustiqLegal</div>
-        <p>${t.description}</p>
-      </div>
-      <div><h4 class="text-white font-semibold mb-3">${t.footer.product}</h4><ul class="space-y-2">
-        <li><a class="hover:text-white" href="#features">${t.nav.features}</a></li><li><a class="hover:text-white" href="#pricing">${t.nav.pricing}</a></li><li><a class="hover:text-white" href="#security">${t.nav.security}</a></li></ul></div>
-      <div><h4 class="text-white font-semibold mb-3">${t.footer.legal}</h4><ul class="space-y-2">
-        <li><a class="hover:text-white" href="/terms">${t.footer.terms}</a></li><li><a class="hover:text-white" href="/privacy">${t.footer.privacy}</a></li></ul></div>
-      <div><h4 class="text-white font-semibold mb-3">${t.footer.contact}</h4><ul class="space-y-2">
-        <li><a class="hover:text-white" href="mailto:${esc(opts.salesEmail)}">${esc(opts.salesEmail)}</a></li><li><a class="hover:text-white" href="mailto:${esc(opts.supportEmail)}">${esc(opts.supportEmail)}</a></li></ul></div>
-    </div>
-    <p class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-10 pt-6 border-t border-slate-800 text-center text-xs">&copy; ${new Date().getFullYear()} TrustiqLegal. ${t.footer.rights}</p>
-  </footer>
+  ${siteFooter(lang, { ...opts, home: true })}
   <div id="tq-chat" data-endpoint="/help/chat" data-lang="${lang}" data-color="#1a365d"
     data-greeting="${esc(t.chat.greeting)}" data-t="${esc(JSON.stringify(t.chat))}" data-consult="${register}"></div>
   <script src="/static/site/chat.js?v=${opts.assetVersion}" defer></script>

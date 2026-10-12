@@ -27,6 +27,9 @@ const envSchema = z.object({
 
   SALES_EMAIL: z.string().email().default('sales@trustiqlegal.com'),
   SUPPORT_EMAIL: z.string().email().default('support@trustiqlegal.com'),
+  // Firm website (its address slug) whose published articles appear on the TrustiqLegal blog at /blog.
+  // When unset, the blog shows the articles of the platform admins' firm.
+  PLATFORM_BLOG_SLUG: z.string().optional(),
   // Comma-separated emails allowed to manage organizations and plans.
   PLATFORM_ADMIN_EMAILS: z.string().default(''),
   // Set when running behind a proxy (Railway, Render, Nginx) so client IPs come from X-Forwarded-For.
@@ -68,6 +71,7 @@ export type Config = {
   salesEmail: string
   supportEmail: string
   platformAdminEmails: string[]
+  platformBlogSlug?: string
   trustProxy: boolean
   maxUploadBytes: number
   maxVideoBytes: number
@@ -111,6 +115,7 @@ export function loadConfig(source: Record<string, string | undefined> = process.
     mailFrom: e.MAIL_FROM,
     salesEmail: e.SALES_EMAIL,
     supportEmail: e.SUPPORT_EMAIL,
+    platformBlogSlug: e.PLATFORM_BLOG_SLUG?.trim().toLowerCase() || undefined,
     platformAdminEmails: e.PLATFORM_ADMIN_EMAILS.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
     trustProxy: e.TRUST_PROXY ? e.TRUST_PROXY === 'true' : isProduction,
     maxUploadBytes: Math.round(e.MAX_UPLOAD_MB * 1024 * 1024),
