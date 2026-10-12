@@ -137,7 +137,8 @@ export async function documentsListView(root, { query, isCurrent }) {
   const state = { page: Number(query.get('page')) || 1, q: query.get('q') || '', status: query.get('status') || '' }
   const ro = readOnly()
   render(root, html`
-    ${pageHeader(t('nav.documents'), t('docs.subtitle'), ro ? '' : html`
+    ${pageHeader(t('nav.documents'), t('docs.subtitle'), ro ? html`<a class="btn btn-outline" href="#/glossary"><i class="fas fa-language"></i>${t('glossary.title')}</a>` : html`
+      <a class="btn btn-outline" href="#/glossary"><i class="fas fa-language"></i>${t('glossary.title')}</a>
       <button class="btn btn-outline" data-action="new-blank"><i class="fas fa-file-circle-plus"></i>${t('docs.new_blank')}</button>
       <button class="btn btn-outline" data-action="upload"><i class="fas fa-upload"></i>${t('docs.upload')}</button>
       ${aiEnabled() ? html`<button class="btn btn-primary" data-action="draft"><i class="fas fa-pen-nib"></i>${t('docs.ai_draft')}</button>` : ''}`)}
@@ -162,7 +163,8 @@ export async function documentsListView(root, { query, isCurrent }) {
           <td><div class="flex items-center gap-2">
             <i class="fas ${d.source === 'ai' ? 'fa-wand-magic-sparkles text-violet-500' : d.source === 'upload' ? 'fa-file-arrow-up text-sky-500' : 'fa-file-lines text-slate-400'}" title="${t(`docs.source_${d.source}`)}"></i>
             <div class="min-w-0"><div class="font-medium truncate max-w-md" dir="auto">${d.title}</div>
-            <div class="text-xs text-slate-400">${d.file_name ? html`${d.file_name} · ${fmtBytes(d.file_size)}` : html`v${d.version}`}${d.language === 'ar' ? ' · ' + t('common.arabic') : ''}</div></div></div></td>
+            <div class="text-xs text-slate-400">${d.file_name ? html`${d.file_name} · ${fmtBytes(d.file_size)}` : html`v${d.version}`}${d.language === 'ar' ? ' · ' + t('common.arabic') : ''}
+              ${d.translation_status ? html` · <span class="${d.translation_status === 'failed' ? 'text-red-600' : 'text-violet-600'}"><i class="fas fa-language"></i> ${t(`translate.status_${d.translation_status}`)}</span>` : ''}</div></div></div></td>
           <td class="text-slate-600 text-xs">${docTypeLabel(d.doc_type)}</td>
           <td class="text-xs">${d.case_id ? html`<span class="font-mono text-slate-500">${d.case_reference}</span>` : d.client_name || '—'}</td>
           <td>${statusBadge(d.status)}</td>
@@ -227,9 +229,10 @@ function analysisCard(a, expanded) {
 const sevRank = (s) => ({ low: 0, medium: 1, high: 2, critical: 3 })[s] ?? 1
 
 export async function documentDetailView(root, { params, isCurrent, rerender }) {
-  const { document: d, versions, analyses } = await api.get(`/api/documents/${params.id}`)
+  const { document: d, versions, analyses, translations } = await api.get(`/api/documents/${params.id}`)
   if (!isCurrent()) return
-  const ro = readOnly()
+  const translating = d.translation_status === 'running' && !d.translation_stalled
+  const ro = readOnly() || translating
   const advanced = store.me.plan.advancedAnalysis
   const dir = d.language === 'ar' ? 'rtl' : 'ltr'
 
@@ -255,6 +258,7 @@ export async function documentDetailView(root, { params, isCurrent, rerender }) 
       </div>
       <div class="flex flex-wrap gap-2">
         ${ro ? '' : selectField({ name: 'status', options: DOC_STATUSES.map((s) => ({ value: s, label: t(`status.${s}`) })), value: d.status, cls: 'w-32', attrs: `data-change="status" aria-label="${t('common.status')}"` })}
+        ${!readOnly() && aiEnabled() && !d.translation_status?.match(/running/) ? html`<button class="btn btn-outline" data-action="translate"><i class="fas fa-language"></i>${t('translate.button')}</button>` : ''}
         <button class="btn btn-outline" data-action="export"><i class="fas fa-file-word"></i>${t('docs.export_word')}</button>
         ${!ro && can('owner', 'admin', 'lawyer') ? html`<button class="btn btn-outline" data-action="sign"><i class="fas fa-signature"></i>${t('sig.send_for_signature')}</button>` : ''}
         ${d.file_name ? html`<button class="btn btn-outline" data-action="original" title="${d.file_name}"><i class="fas fa-download"></i>${t('docs.original')}</button>` : ''}
@@ -262,6 +266,7 @@ export async function documentDetailView(root, { params, isCurrent, rerender }) 
       </div>
     </div>
 
+    ${translationBanner(d)}
     <div class="grid xl:grid-cols-5 gap-6">
       <div class="xl:col-span-3 space-y-3">
         <textarea class="doc-editor" data-editor dir="${dir}" ${ro ? raw('readonly') : ''} spellcheck="true" aria-label="${t('docs.content')}" placeholder="${t('docs.content_placeholder')}">${d.content}</textarea>
@@ -272,6 +277,12 @@ export async function documentDetailView(root, { params, isCurrent, rerender }) 
       </div>
 
       <div class="xl:col-span-2 space-y-6">
+        ${translations.length ? html`<section class="card">
+          <div class="px-5 py-4 border-b border-slate-100"><h2 class="font-semibold"><i class="fas fa-language text-violet-500"></i> ${t('translate.translations')}</h2></div>
+          <ul class="divide-y divide-slate-100">${translations.map((x) => html`<li class="px-5 py-3 flex items-center justify-between gap-3 text-sm">
+            <a class="text-brand-700 hover:underline truncate" dir="auto" href="#/documents/${x.id}">${x.title}</a>
+            <span class="text-xs whitespace-nowrap ${x.translation_status === 'failed' ? 'text-red-600' : 'text-slate-500'}">${x.translation_status ? t(`translate.status_${x.translation_status}`) : ''}</span></li>`)}</ul>
+        </section>` : ''}
         <section class="card card-pad">
           <h2 class="font-semibold mb-3"><i class="fas fa-magnifying-glass-chart text-violet-500"></i> ${t('analysis.title')}</h2>
           ${!aiEnabled() ? html`<p class="text-sm text-slate-500">${t('ai.not_configured_banner')}</p>` : ro ? '' : html`
@@ -341,6 +352,17 @@ export async function documentDetailView(root, { params, isCurrent, rerender }) 
         download(`/api/documents/${d.id}/export?format=docx`)
       },
       original: () => download(`/api/documents/${d.id}/file`),
+      translate: async () => {
+        if (dirty && !(await confirmLeaveUnsaved())) return
+        openTranslateDialog(d)
+      },
+      compare: () => openCompare(d),
+      'retry-translation': (btn) => busy(btn, async () => {
+        try {
+          await api.post(`/api/documents/${d.id}/translation/retry`)
+          rerender()
+        } catch (err) { showError(err) }
+      }),
       sign: async () => {
         if (dirty && !(await confirmLeaveUnsaved())) return
         openSignatureDialog(d)
@@ -407,6 +429,128 @@ export async function documentDetailView(root, { params, isCurrent, rerender }) 
           toast(t('common.saved'))
         } catch (err) { el.value = d.status; showError(err) }
       }
+    }
+  })
+  if (translating) pollTranslation(d, root, { isCurrent, rerender })
+
+}
+
+// ---------------------------------------------------------------------------
+// AI translation (Arabic <-> English)
+// ---------------------------------------------------------------------------
+
+const looksArabic = (text) => {
+  const ar = (text.match(/[\u0600-\u06FF]/g) || []).length
+  const en = (text.match(/[A-Za-z]/g) || []).length
+  return ar || en ? ar >= en : null
+}
+
+function openTranslateDialog(d) {
+  const ar = looksArabic(d.content)
+  const from = ar === null ? d.language : ar ? 'ar' : 'en'
+  const to = from === 'ar' ? 'en' : 'ar'
+  const m = modal({
+    title: t('translate.title'),
+    body: html`<form data-form="translate" class="space-y-4" novalidate>
+      <p class="text-sm text-slate-600">${t('translate.intro', { from: t(from === 'ar' ? 'common.arabic' : 'common.english') })}</p>
+      ${selectField({ name: 'target', label: t('translate.into'), options: langOptions().filter((o) => o.value !== from), value: to })}
+      <p class="text-sm text-slate-600"><i class="fas fa-book text-slate-400"></i> ${t('translate.glossary_hint')}
+        <a class="text-brand-700 hover:underline" href="#/glossary">${t('glossary.title')}</a></p>
+      ${d.content.length > 60000 ? html`<p class="hint">${t('translate.long_hint')}</p>` : ''}
+      ${aiDisclaimer()}
+      <div class="flex justify-end gap-2 pt-4 border-t border-slate-100">
+        <button type="button" class="btn btn-outline" data-action="close-modal">${t('common.cancel')}</button>
+        <button type="submit" class="btn btn-primary"><i class="fas fa-language"></i>${t('translate.start')}</button>
+      </div>
+    </form>`,
+    forms: {
+      translate: (form) => busy(submitButton(form), async () => {
+        try {
+          const { document } = await api.post(`/api/documents/${d.id}/translate`, formData(form))
+          m.close()
+          toast(t('translate.started'))
+          location.hash = `#/documents/${document.id}`
+        } catch (err) { showError(err, form) }
+      })
+    }
+  })
+}
+
+function translationBanner(d) {
+  if (!d.translated_from && !d.translation_status) return ''
+  const source = d.translated_from
+    ? html`<a class="font-medium underline" dir="auto" href="#/documents/${d.translated_from}">${d.translated_from_title}</a>`
+    : html`<span>${t('translate.source_deleted')}</span>`
+  if (d.translation_status === 'running' && !d.translation_stalled) {
+    const pct = d.translation_total ? Math.round((100 * d.translation_done) / d.translation_total) : 0
+    return html`<div class="rounded-xl border border-violet-200 bg-violet-50 p-4 mb-4" data-translation-progress>
+      <div class="flex items-center gap-2 text-sm text-violet-900"><i class="fas fa-spinner fa-spin"></i>
+        <span data-progress-text>${t('translate.progress', { done: d.translation_done, total: d.translation_total || '…' })}</span></div>
+      <div class="h-2 rounded-full bg-violet-100 mt-3 overflow-hidden"><div class="h-full bg-violet-500 transition-all" data-progress-bar style="width:${pct}%"></div></div>
+      <p class="text-xs text-violet-800 mt-2">${t('translate.progress_hint')}</p>
+    </div>`
+  }
+  if (d.translation_status === 'failed' || d.translation_stalled) {
+    return html`<div class="rounded-xl border border-red-200 bg-red-50 p-4 mb-4 flex flex-wrap items-center justify-between gap-3">
+      <div class="text-sm text-red-800"><i class="fas fa-triangle-exclamation"></i> ${t('translate.failed')} ${d.translation_error || ''}</div>
+      ${readOnly() ? '' : html`<button class="btn btn-primary btn-sm" data-action="retry-translation"><i class="fas fa-rotate-right"></i>${t('translate.retry')}</button>`}
+    </div>`
+  }
+  return html`<div class="rounded-xl border border-amber-200 bg-amber-50 p-4 mb-4 flex flex-wrap items-center justify-between gap-3">
+    <div class="text-sm text-amber-900"><i class="fas fa-language"></i> ${t('translate.done_banner')} ${source}. ${t('translate.review_hint')}</div>
+    ${d.translated_from ? html`<button class="btn btn-outline btn-sm" data-action="compare"><i class="fas fa-table-columns"></i>${t('translate.compare')}</button>` : ''}
+  </div>`
+}
+
+// Only the latest poll keeps running, so re-renders never stack pollers.
+let pollRun = 0
+function pollTranslation(d, root, { isCurrent, rerender }) {
+  const run = ++pollRun
+  const tick = async () => {
+    if (!isCurrent() || run !== pollRun) return
+    try {
+      const { document: x } = await api.get(`/api/documents/${d.id}`)
+      if (!isCurrent() || run !== pollRun) return
+      if (x.translation_status !== 'running' || x.translation_stalled) {
+        if (x.translation_status === 'done') toast(t('translate.finished'))
+        return rerender()
+      }
+      const text = root.querySelector('[data-progress-text]')
+      const bar = root.querySelector('[data-progress-bar]')
+      const editor = root.querySelector('[data-editor]')
+      if (text) text.textContent = t('translate.progress', { done: x.translation_done, total: x.translation_total || '…' })
+      if (bar && x.translation_total) bar.style.width = `${Math.round((100 * x.translation_done) / x.translation_total)}%`
+      if (editor && editor.value !== x.content) editor.value = x.content
+    } catch { /* keep polling */ }
+    setTimeout(tick, 3000)
+  }
+  setTimeout(tick, 2000)
+}
+
+async function openCompare(d) {
+  let src
+  try { src = (await api.get(`/api/documents/${d.translated_from}`)).document } catch (err) { return showError(err) }
+  const pane = (doc, label) => html`<div class="min-w-0 flex flex-col">
+    <div class="text-xs font-semibold uppercase text-slate-500 mb-2">${label} · ${doc.language === 'ar' ? t('common.arabic') : t('common.english')}</div>
+    <div class="compare-pane whitespace-pre-wrap font-serif text-sm leading-7 h-[65vh] overflow-y-auto bg-slate-50 rounded-lg p-4" dir="${doc.language === 'ar' ? 'rtl' : 'ltr'}">${doc.content}</div>
+  </div>`
+  modal({
+    title: t('translate.compare'),
+    size: 'xl',
+    body: html`<div class="grid md:grid-cols-2 gap-4">${pane(src, t('translate.original'))}${pane(d, t('translate.translation'))}</div>
+      <label class="inline-flex items-center gap-2 text-sm text-slate-600 mt-3"><input type="checkbox" data-sync checked /> ${t('translate.sync_scroll')}</label>`,
+    onMount: (el) => {
+      const panes = [...el.querySelectorAll('.compare-pane')]
+      const sync = el.querySelector('[data-sync]')
+      let lock = false
+      panes.forEach((p, i) => p.addEventListener('scroll', () => {
+        if (!sync.checked || lock) return
+        const other = panes[1 - i]
+        const ratio = p.scrollTop / Math.max(1, p.scrollHeight - p.clientHeight)
+        lock = true
+        other.scrollTop = ratio * (other.scrollHeight - other.clientHeight)
+        requestAnimationFrame(() => { lock = false })
+      }))
     }
   })
 }

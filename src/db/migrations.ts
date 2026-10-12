@@ -933,6 +933,30 @@ CREATE INDEX blog_media_org_idx ON blog_media (org_id, created_at DESC);
 ALTER TABLE blog_posts ADD COLUMN cover_media_id UUID REFERENCES blog_media(id) ON DELETE SET NULL;
 ALTER TABLE blog_posts ADD COLUMN cover_alt TEXT;
 `
+  },
+  {
+    version: 22,
+    name: 'document_translation',
+    sql: `
+ALTER TABLE documents ADD COLUMN translated_from UUID REFERENCES documents(id) ON DELETE SET NULL;
+ALTER TABLE documents ADD COLUMN translation_status TEXT CHECK (translation_status IN ('running', 'done', 'failed'));
+ALTER TABLE documents ADD COLUMN translation_done INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE documents ADD COLUMN translation_total INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE documents ADD COLUMN translation_error TEXT;
+ALTER TABLE documents ADD COLUMN translation_heartbeat TIMESTAMPTZ;
+CREATE INDEX documents_translated_from_idx ON documents (translated_from);
+CREATE TABLE glossary_terms (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  term_en TEXT NOT NULL,
+  term_ar TEXT NOT NULL,
+  note TEXT,
+  created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX glossary_terms_org_en_idx ON glossary_terms (org_id, lower(term_en));
+`
   }
 ]
 
