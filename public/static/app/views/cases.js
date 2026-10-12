@@ -17,6 +17,7 @@ import { openRequest, openRequestForm, requestsCard } from './doc-requests.js'
 import { hearingHistoryCard, openOutcomeForm } from './hearings.js'
 import { conflictItem, withConflictGate } from './conflicts.js'
 import { openCaseBrief } from './case-brief.js'
+import { openDictation } from './dictation.js'
 
 export const CASE_STATUSES = ['active', 'pending', 'under_review', 'on_hold', 'closed']
 export const PRIORITIES = ['low', 'medium', 'high', 'urgent']
@@ -230,7 +231,8 @@ export async function caseDetailView(root, { params, isCurrent, rerender }) {
         ${selectField({ name: 'status', options: CASE_STATUSES.map((s) => ({ value: s, label: t(`status.${s}`) })), value: k.status, cls: 'w-40', attrs: `data-change="status" aria-label="${t('common.status')}"` })}
         <button class="btn btn-outline" data-action="edit"><i class="fas fa-pen"></i>${t('common.edit')}</button>
         <button class="btn btn-outline" data-action="log-time"><i class="fas fa-stopwatch"></i>${t('billing.log_time')}</button>
-        ${aiEnabled() ? html`<button class="btn btn-outline" data-action="brief"><i class="fas fa-file-lines"></i>${t('brief.button')}</button>
+        ${aiEnabled() ? html`<button class="btn btn-outline" data-action="dictate"><i class="fas fa-microphone"></i>${t('dictate.button')}</button>
+          <button class="btn btn-outline" data-action="brief"><i class="fas fa-file-lines"></i>${t('brief.button')}</button>
           <a class="btn btn-outline" href="#/assistant?case=${k.id}"><i class="fas fa-wand-magic-sparkles"></i>${t('cases.ask_ai')}</a>` : ''}
         ${canDelete() ? html`<button class="btn btn-danger-ghost" data-action="delete" aria-label="${t('common.delete')}"><i class="fas fa-trash"></i></button>` : ''}
       </div>`}
@@ -286,7 +288,9 @@ export async function caseDetailView(root, { params, isCurrent, rerender }) {
           <div class="px-5 py-4 border-b border-slate-100"><h2 class="font-semibold">${t('cases.activity')}</h2></div>
           ${ro ? '' : html`<form data-form="note" class="p-5 border-b border-slate-100 space-y-2">
             <textarea name="body" rows="2" class="input" dir="auto" placeholder="${t('cases.add_note_placeholder')}" required maxlength="10000"></textarea>
-            <div class="flex justify-end"><button type="submit" class="btn btn-primary btn-sm">${t('cases.add_note')}</button></div>
+            <div class="flex justify-end gap-2">
+              ${aiEnabled() ? html`<button type="button" class="btn btn-ghost btn-sm" data-action="dictate"><i class="fas fa-microphone"></i>${t('dictate.button')}</button>` : ''}
+              <button type="submit" class="btn btn-primary btn-sm">${t('cases.add_note')}</button></div>
           </form>`}
           <ol class="p-5 space-y-4">
             ${data.activity.map((a) => html`<li class="flex gap-3">
@@ -342,6 +346,7 @@ export async function caseDetailView(root, { params, isCurrent, rerender }) {
     actions: {
       ...taskShared.actions,
       brief: () => openCaseBrief(k),
+      dictate: () => openDictation(k, { onSaved: rerender }),
       'request-docs': () => openRequestForm({ clientId: k.client_id, caseId: k.id, onSaved: rerender }),
       'record-outcome': (el) => openOutcomeForm({ ...awaiting.find((e) => e.id === el.dataset.id), kind: 'hearing' }, { hasClient: !!k.client_id, onSaved: rerender }),
       'open-request': (el) => openRequest(el.dataset.id, { onChange: rerender }),

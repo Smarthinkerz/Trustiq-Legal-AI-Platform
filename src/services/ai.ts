@@ -12,6 +12,8 @@ export interface AiService {
   complete(opts: { messages: ChatMessage[]; json?: boolean; maxTokens?: number; temperature?: number }): Promise<Completion>
   // One landscape image as PNG/JPEG bytes (OpenAI Images API).
   generateImage(opts: { prompt: string }): Promise<{ bytes: Uint8Array; mime: string; model: string }>
+  // Speech to text (OpenAI Audio API). `language` is an ISO-639-1 hint; omit to auto-detect.
+  transcribe(opts: { bytes: Uint8Array; fileName: string; mime: string; language?: string; prompt?: string }): Promise<{ text: string; model: string; promptTokens: number; completionTokens: number }>
 }
 
 const OCR_PROMPT = `Transcribe all text in this document exactly as written, in its original language (Arabic and/or English).
@@ -35,10 +37,39 @@ export async function transcribePdf(ai: AiService, bytes: Uint8Array, fileName: 
 
 // Talks to any OpenAI-compatible Chat Completions endpoint (OpenAI, Azure OpenAI proxy, etc.).
 export function createAiService(config: Config, log: Logger, fetchImpl: typeof fetch = fetch): AiService {
-  const { apiKey, baseUrl, model, timeoutMs, imageModel } = config.ai
+  const { apiKey, baseUrl, model, timeoutMs, imageModel, transcribeModel } = config.ai
   return {
     configured: !!apiKey,
     model,
+    async transcribe({ bytes, fileName, mime, language, prompt }) {
+      if (!apiKey) throw unavailable('ai_not_configured', 'The AI assistant is not configured for this deployment.')
+      const form = new FormData()
+      form.set('file', new File([new Uint8Array(bytes)], fileName, { type: mime }))
+      form.set('model', transcribeModel)
+      form.set('response_format', 'json')
+      if (language) form.set('language', language)
+      if (prompt) form.set('prompt', prompt)
+      let res: Response
+      try {
+        res = await fetchImpl(`${baseUrl}/audio/transcriptions`, {
+          method: 'POST', signal: AbortSignal.timeout(Math.max(timeoutMs, 180_000)), headers: { authorization: `Bearer ${apiKey}` }, body: form
+        })
+      } catch (err) {
+        log.error('transcription request failed', { err })
+        throw unavailable('ai_unavailable', 'The speech service could not be reached. Please try again.')
+      }
+      const data: any = await res.json().catch(() => null)
+      if (!res.ok) {
+        log.error('transcription provider error', { status: res.status, error: data?.error?.message })
+        if (res.status === 429) throw new HttpError(503, 'ai_busy', 'The speech service is busy. Please retry in a moment.')
+        if (res.status === 400 && /format|decode|audio|duration|long/i.test(data?.error?.message ?? '')) {
+          throw new HttpError(422, 'audio_unreadable', 'This recording could not be read. Try a shorter recording, or an MP3, M4A, OGG or WAV file.')
+        }
+        throw unavailable('ai_unavailable', 'The speech service returned an error. Please try again.')
+      }
+      const text = typeof data?.text === 'string' ? data.text.trim() : ''
+      return { text, model: transcribeModel, promptTokens: data?.usage?.input_tokens ?? 0, completionTokens: data?.usage?.output_tokens ?? 0 }
+    },
     async generateImage({ prompt }) {
       if (!apiKey) throw unavailable('ai_not_configured', 'The AI assistant is not configured for this deployment.')
       const dalle = imageModel.startsWith('dall-e')

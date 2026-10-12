@@ -9,6 +9,8 @@ import { assertCanOpenCase } from '../services/usage'
 import { FEE_ARRANGEMENTS, matterFinancials } from '../services/matter-finance'
 import { conflictOverride, gateConflicts } from '../lib/conflict-gate'
 import { clientConflicts, logConflictCheck, opposingConflicts, type Blocking } from '../services/conflicts'
+import { localToIso } from '../services/dictation'
+import { sendClientMessage } from './clients'
 
 const STATUSES = ['active', 'pending', 'under_review', 'on_hold', 'closed'] as const
 const PRIORITIES = ['low', 'medium', 'high', 'urgent'] as const
@@ -203,6 +205,50 @@ casesRoutes.post('/:id/notes', jsonBody(z.object({ body: z.string().trim().min(1
   await caseActivity(db, org.id, id, user.id, 'note', c.req.valid('json').body)
   await db.query('UPDATE cases SET updated_at = now() WHERE id = $1', [id])
   return c.json({ ok: true }, 201)
+})
+
+// Saves a reviewed dictation: the file note, chosen tasks and dates, and optionally the client update.
+const dateStr = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
+casesRoutes.post('/:id/dictation', jsonBody(z.object({
+  note: z.string().trim().min(1).max(20_000),
+  title: optText(200),
+  tasks: z.array(z.object({ title: z.string().trim().min(1).max(300), due_date: dateStr.nullish().or(z.literal('')).transform((v) => v || null) })).max(15).default([]),
+  events: z.array(z.object({
+    title: z.string().trim().min(1).max(300), kind: z.enum(['hearing', 'deadline', 'filing', 'meeting']), date: dateStr,
+    time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullish().or(z.literal('')).transform((v) => v || ''), location: optText(300)
+  })).max(10).default([]),
+  client_message: optText(5000)
+})), async (c) => {
+  const { user, org } = auth(c)
+  const id = uuidParam(c.req.param('id'), 'Case')
+  const b = c.req.valid('json')
+  const deps = c.get('deps')
+  const [kase] = await deps.db.query('SELECT id, client_id, jurisdiction FROM cases WHERE id = $1 AND org_id = $2', [id, org.id])
+  if (!kase) throw notFound('Case')
+  if (b.client_message && !kase.client_id) throw badRequest('This case has no client to send the update to.')
+  const saved = await deps.db.tx(async (q) => {
+    await caseActivity(q, org.id, id, user.id, 'note', b.title ? `${b.title}\n\n${b.note}` : b.note)
+    for (const t of b.tasks) {
+      await q.query(`INSERT INTO tasks (org_id, case_id, title, assigned_to, due_date, priority, status, created_by) VALUES ($1, $2, $3, $4, $5, 'medium', 'open', $4)`,
+        [org.id, id, t.title, user.id, t.due_date])
+    }
+    for (const e of b.events) {
+      const when = localToIso(e.date, e.time, kase.jurisdiction)
+      await q.query(`INSERT INTO events (org_id, case_id, title, kind, starts_at, all_day, location, created_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [org.id, id, e.title, e.kind, when.starts_at, when.all_day, e.location, user.id])
+      await caseActivity(q, org.id, id, user.id, 'event', `${e.kind}: ${e.title} (${e.date})`)
+    }
+    await q.query('UPDATE cases SET updated_at = now() WHERE id = $1', [id])
+    return { tasks: b.tasks.length, events: b.events.length }
+  })
+  let messaged = false
+  if (b.client_message && kase.client_id) {
+    await sendClientMessage({ db: deps.db, mailer: deps.mailer, config: deps.config, log: deps.log },
+      { orgId: org.id, orgName: org.name, clientId: kase.client_id, caseId: id, senderId: user.id, body: b.client_message })
+    messaged = true
+  }
+  await audit(c, 'case.dictation_saved', 'case', id, { ...saved, messaged })
+  return c.json({ ok: true, ...saved, messaged }, 201)
 })
 
 casesRoutes.delete('/:id', async (c) => {
