@@ -42,6 +42,7 @@ import hearingsRoutes from './routes/hearings'
 import { subscriptionRoutes, tapPublicRoutes } from './routes/subscription'
 import { buildIcs } from './services/jobs'
 import { landingPage } from './landing'
+import { platformBlogRoutes } from './routes/platform-blog'
 import { appShell } from './pages/app-shell'
 import { legalPage } from './pages/legal'
 import { apiDocsPage } from './pages/api-docs'
@@ -259,6 +260,8 @@ export function createApp(deps: Deps) {
   }
   app.get('/', html(landingPage({ assetVersion, salesEmail: config.salesEmail, supportEmail: config.supportEmail })))
   app.get('/ar', html(landingPage({ assetVersion, salesEmail: config.salesEmail, supportEmail: config.supportEmail, lang: 'ar' })))
+  // TrustiqLegal's own blog.
+  app.route('/', platformBlogRoutes(deps, assetVersion))
   app.get('/app', html(appShell({ assetVersion })))
   app.get('/app/', (c) => c.redirect('/app'))
   app.get('/developers', html(apiDocsPage({ assetVersion, appUrl: config.appUrl })))
