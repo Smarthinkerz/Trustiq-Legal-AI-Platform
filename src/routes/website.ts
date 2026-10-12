@@ -5,6 +5,8 @@ import { badRequest, conflict, HttpError, notFound, tooMany, unavailable } from 
 import { conflictOverride, gateConflicts } from '../lib/conflict-gate'
 import { clientConflicts, logConflictCheck, opposingConflicts, type Blocking } from '../services/conflicts'
 import { normalizeReply, replyMessages, runLeadIntake, type LeadRow } from '../services/lead-intake'
+import { coverPrompt, mediaIdsIn, mediaResolver, serveMedia, sniffMedia } from '../services/blog-media'
+import { renderArticle } from '../services/website'
 import { buildUpdate, jsonBody, optText, optUuid, queryParams, uuidParam } from '../lib/http'
 import { parseJsonObject } from '../services/legal-prompts'
 import { JURISDICTION_CODES, PRACTICE_AREA_IDS } from '../services/reference'
@@ -96,9 +98,23 @@ const postFields = {
   excerpt_ar: optText(500),
   body: optText(60_000),
   body_ar: optText(60_000),
+  cover_media_id: z.string().uuid().nullish().or(z.literal('')).transform((v) => v || null),
+  cover_alt: optText(300),
   status: z.enum(['draft', 'published'])
 }
-const POST_UPDATABLE = ['slug', 'title', 'title_ar', 'excerpt', 'excerpt_ar', 'body', 'body_ar'] as const
+const POST_UPDATABLE = ['slug', 'title', 'title_ar', 'excerpt', 'excerpt_ar', 'body', 'body_ar', 'cover_media_id', 'cover_alt'] as const
+
+// Files uploaded before the post was first saved are filed under it once it uses them.
+async function linkMedia(c: Ctx, orgId: string, post: Record<string, any>) {
+  const ids = [...mediaIdsIn(post.body, post.body_ar), ...(post.cover_media_id ? [post.cover_media_id] : [])]
+  if (ids.length) await c.get('deps').db.query('UPDATE blog_media SET post_id = $2 WHERE org_id = $1 AND post_id IS NULL AND id = ANY($3::uuid[])', [orgId, post.id, ids])
+}
+
+async function assertCover(c: Ctx, orgId: string, id: string | null | undefined) {
+  if (!id) return
+  const m = await c.get('deps').db.one('SELECT kind FROM blog_media WHERE id = $1 AND org_id = $2', [id, orgId])
+  if (!m || m.kind !== 'image') throw badRequest('Choose an image from this firm\'s media for the cover.')
+}
 
 const hasTitle = (p: { title?: string | null; title_ar?: string | null }) => !!(p.title || p.title_ar)
 
@@ -114,7 +130,7 @@ async function uniquePostSlug(c: Ctx, orgId: string, base: string, exceptId?: st
 websiteRoutes.get('/posts', async (c) => {
   const { org } = auth(c)
   const items = await c.get('deps').db.query(
-    `SELECT p.id, p.slug, p.title, p.title_ar, p.excerpt, p.excerpt_ar, p.status, p.published_at, p.updated_at, u.name AS author_name
+    `SELECT p.id, p.slug, p.title, p.title_ar, p.excerpt, p.excerpt_ar, p.status, p.published_at, p.updated_at, p.cover_media_id, u.name AS author_name
        FROM blog_posts p LEFT JOIN users u ON u.id = p.author_id WHERE p.org_id = $1 ORDER BY coalesce(p.published_at, p.updated_at) DESC`, [org.id])
   return c.json({ items })
 })
@@ -132,11 +148,13 @@ websiteRoutes.post('/posts', jsonBody(z.object({ ...postFields, status: postFiel
   const { user, org } = auth(c)
   const b = c.req.valid('json')
   if (!hasTitle(b)) throw badRequest('Give the post a title in English or Arabic.')
+  await assertCover(c, org.id, b.cover_media_id)
   const postSlug = await uniquePostSlug(c, org.id, b.slug ?? slugify(b.title ?? ''))
   const post = await c.get('deps').db.one(
-    `INSERT INTO blog_posts (org_id, slug, title, title_ar, excerpt, excerpt_ar, body, body_ar, status, published_at, author_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, ${b.status === 'published' ? 'now()' : 'NULL'}, $10) RETURNING *`,
-    [org.id, postSlug, b.title, b.title_ar, b.excerpt, b.excerpt_ar, b.body, b.body_ar, b.status, user.id])
+    `INSERT INTO blog_posts (org_id, slug, title, title_ar, excerpt, excerpt_ar, body, body_ar, status, published_at, author_id, cover_media_id, cover_alt)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, ${b.status === 'published' ? 'now()' : 'NULL'}, $10, $11, $12) RETURNING *`,
+    [org.id, postSlug, b.title, b.title_ar, b.excerpt, b.excerpt_ar, b.body, b.body_ar, b.status, user.id, b.cover_media_id, b.cover_alt])
+  await linkMedia(c, org.id, post!)
   await audit(c, b.status === 'published' ? 'blog.published' : 'blog.created', 'blog_post', post!.id, { title: b.title ?? b.title_ar })
   return c.json({ post }, 201)
 })
@@ -155,6 +173,7 @@ websiteRoutes.patch('/posts/:id', jsonBody(z.object(postFields).partial()), asyn
   if (b.slug && b.slug !== current.slug && await db.one('SELECT 1 FROM blog_posts WHERE org_id = $1 AND slug = $2 AND id <> $3', [org.id, b.slug, id])) {
     throw conflict('Another post already uses that address.')
   }
+  await assertCover(c, org.id, b.cover_media_id)
   const { sets, values } = buildUpdate(b, POST_UPDATABLE, 3)
   if (b.status) {
     sets.push(`status = '${b.status}'`)
@@ -162,9 +181,104 @@ websiteRoutes.patch('/posts/:id', jsonBody(z.object(postFields).partial()), asyn
     sets.push(b.status === 'published' ? 'published_at = coalesce(published_at, now())' : 'published_at = NULL')
   }
   const post = await db.one(`UPDATE blog_posts SET ${[...sets, 'updated_at = now()'].join(', ')} WHERE id = $1 AND org_id = $2 RETURNING *`, [id, org.id, ...values])
+  await linkMedia(c, org.id, post!)
   const action = b.status && b.status !== current.status ? (b.status === 'published' ? 'blog.published' : 'blog.unpublished') : 'blog.updated'
   await audit(c, action, 'blog_post', id, { fields: Object.keys(b) })
   return c.json({ post })
+})
+
+// ---------------- Blog images and videos ----------------
+
+const MEDIA_COLUMNS = 'id, post_id, kind, mime, size, file_name, alt, source, created_at'
+
+websiteRoutes.get('/media', async (c) => {
+  const { org } = auth(c)
+  const items = await c.get('deps').db.query(`SELECT ${MEDIA_COLUMNS} FROM blog_media WHERE org_id = $1 ORDER BY created_at DESC LIMIT 200`, [org.id])
+  return c.json({ items })
+})
+
+websiteRoutes.get('/media/:id', async (c) => {
+  const { org } = auth(c)
+  return serveMedia(c, c.get('deps').db, { id: uuidParam(c.req.param('id'), 'Media'), orgId: org.id }, 'private, max-age=300')
+})
+
+websiteRoutes.post('/media', async (c) => {
+  requireRole(c, 'owner', 'admin', 'lawyer')
+  const { user, org } = auth(c)
+  const { db, config } = c.get('deps')
+  const form = await c.req.formData().catch(() => null)
+  const file = form?.get('file')
+  if (!(file instanceof File) || !file.size) throw badRequest('Choose an image or video to upload.')
+  const bytes = new Uint8Array(await file.arrayBuffer())
+  const kind = sniffMedia(bytes)
+  if (!kind) throw new HttpError(415, 'unsupported_media', 'Upload a JPG, PNG, WebP or GIF image, or an MP4, MOV or WebM video.')
+  const max = kind.kind === 'video' ? config.maxVideoBytes : config.maxUploadBytes
+  if (bytes.length > max) throw new HttpError(413, 'payload_too_large', `${kind.kind === 'video' ? 'Videos' : 'Images'} can be up to ${Math.round(max / 1048576)} MB.`)
+  const postId = typeof form!.get('post_id') === 'string' && /^[0-9a-f-]{36}$/.test(String(form!.get('post_id'))) ? String(form!.get('post_id')) : null
+  if (postId && !(await db.one('SELECT 1 FROM blog_posts WHERE id = $1 AND org_id = $2', [postId, org.id]))) throw badRequest('Post not found.')
+  const alt = typeof form!.get('alt') === 'string' ? String(form!.get('alt')).trim().slice(0, 300) || null : null
+  const media = await db.one(
+    `INSERT INTO blog_media (org_id, post_id, kind, mime, size, file_name, alt, data, created_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING ${MEDIA_COLUMNS}`,
+    [org.id, postId, kind.kind, kind.mime, bytes.length, file.name.slice(0, 200), alt, bytes, user.id])
+  await audit(c, 'blog.media_uploaded', 'blog_media', media!.id, { kind: kind.kind, size: bytes.length })
+  return c.json({ media }, 201)
+})
+
+// Generates an image with AI (a cover, or a picture for inside the article) from the title and summary or a description.
+websiteRoutes.post('/media/generate', jsonBody(z.object({
+  post_id: optUuid,
+  title: optText(300),
+  excerpt: optText(1000),
+  prompt: optText(1000),
+  style: z.enum(['illustration', 'photo']).default('illustration')
+})), async (c) => {
+  requireRole(c, 'owner', 'admin', 'lawyer')
+  const { user, org } = auth(c)
+  const b = c.req.valid('json')
+  if (!b.title && !b.prompt) throw badRequest('Write a title (or describe the image) first.')
+  throttleAi(c)
+  const { db, ai } = c.get('deps')
+  if (!ai.configured) throw unavailable('ai_not_configured', 'The AI assistant is not configured for this deployment.')
+  await assertCanUseAi(db, org)
+  if (b.post_id && !(await db.one('SELECT 1 FROM blog_posts WHERE id = $1 AND org_id = $2', [b.post_id, org.id]))) throw badRequest('Post not found.')
+  const prompt = b.prompt
+    ? `${b.prompt.slice(0, 1000)} Professional image for a law firm's blog. No text, letters, logos or watermarks. No identifiable real people.`
+    : coverPrompt({ title: b.title, excerpt: b.excerpt, style: b.style, jurisdiction: org.default_jurisdiction })
+  const img = await ai.generateImage({ prompt })
+  if (!sniffMedia(img.bytes)) throw new HttpError(502, 'ai_bad_output', 'The image service returned an unreadable image. Please try again.')
+  await recordAiUsage(db, org.id, user.id, 'cover_image', { model: img.model, promptTokens: 0, completionTokens: 0 })
+  const media = await db.one(
+    `INSERT INTO blog_media (org_id, post_id, kind, mime, size, file_name, alt, source, data, created_by) VALUES ($1, $2, 'image', $3, $4, $5, $6, 'ai', $7, $8) RETURNING ${MEDIA_COLUMNS}`,
+    [org.id, b.post_id, img.mime, img.bytes.length, 'ai-image.png', (b.title ?? b.prompt ?? '').slice(0, 300) || null, img.bytes, user.id])
+  await audit(c, 'ai.blog_image', 'blog_media', media!.id, { model: img.model })
+  return c.json({ media }, 201)
+})
+
+websiteRoutes.patch('/media/:id', jsonBody(z.object({ alt: optText(300) })), async (c) => {
+  requireRole(c, 'owner', 'admin', 'lawyer')
+  const { org } = auth(c)
+  const media = await c.get('deps').db.one(`UPDATE blog_media SET alt = $3 WHERE id = $1 AND org_id = $2 RETURNING ${MEDIA_COLUMNS}`,
+    [uuidParam(c.req.param('id'), 'Media'), org.id, c.req.valid('json').alt])
+  if (!media) throw notFound('Media')
+  return c.json({ media })
+})
+
+websiteRoutes.delete('/media/:id', async (c) => {
+  requireRole(c, 'owner', 'admin', 'lawyer')
+  const { org } = auth(c)
+  const id = uuidParam(c.req.param('id'), 'Media')
+  const rows = await c.get('deps').db.query('DELETE FROM blog_media WHERE id = $1 AND org_id = $2 RETURNING id', [id, org.id])
+  if (!rows.length) throw notFound('Media')
+  await audit(c, 'blog.media_deleted', 'blog_media', id)
+  return c.json({ ok: true })
+})
+
+// Renders an article as visitors will see it, with its images and videos in place.
+websiteRoutes.post('/preview', jsonBody(z.object({ body: z.string().max(60_000).default('') })), async (c) => {
+  const { org } = auth(c)
+  const { body } = c.req.valid('json')
+  const resolve = await mediaResolver(c.get('deps').db, org.id, [body], (id) => `/api/website/media/${id}`)
+  return c.json({ html: renderArticle(body, resolve) })
 })
 
 websiteRoutes.delete('/posts/:id', async (c) => {

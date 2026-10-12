@@ -10,6 +10,8 @@ export interface AiService {
   configured: boolean
   model: string
   complete(opts: { messages: ChatMessage[]; json?: boolean; maxTokens?: number; temperature?: number }): Promise<Completion>
+  // One landscape image as PNG/JPEG bytes (OpenAI Images API).
+  generateImage(opts: { prompt: string }): Promise<{ bytes: Uint8Array; mime: string; model: string }>
 }
 
 const OCR_PROMPT = `Transcribe all text in this document exactly as written, in its original language (Arabic and/or English).
@@ -33,10 +35,39 @@ export async function transcribePdf(ai: AiService, bytes: Uint8Array, fileName: 
 
 // Talks to any OpenAI-compatible Chat Completions endpoint (OpenAI, Azure OpenAI proxy, etc.).
 export function createAiService(config: Config, log: Logger, fetchImpl: typeof fetch = fetch): AiService {
-  const { apiKey, baseUrl, model, timeoutMs } = config.ai
+  const { apiKey, baseUrl, model, timeoutMs, imageModel } = config.ai
   return {
     configured: !!apiKey,
     model,
+    async generateImage({ prompt }) {
+      if (!apiKey) throw unavailable('ai_not_configured', 'The AI assistant is not configured for this deployment.')
+      const dalle = imageModel.startsWith('dall-e')
+      let res: Response
+      try {
+        res = await fetchImpl(`${baseUrl}/images/generations`, {
+          method: 'POST',
+          signal: AbortSignal.timeout(Math.max(timeoutMs, 120_000)),
+          headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
+          body: JSON.stringify({ model: imageModel, prompt, n: 1, size: dalle ? '1792x1024' : '1536x1024', ...(dalle ? { response_format: 'b64_json' } : {}) })
+        })
+      } catch (err) {
+        log.error('image request failed', { err })
+        throw unavailable('ai_unavailable', 'The image service could not be reached. Please try again.')
+      }
+      const data: any = await res.json().catch(() => null)
+      if (!res.ok) {
+        log.error('image provider error', { status: res.status, error: data?.error?.message })
+        if (res.status === 400 && /safety|policy|moderation/i.test(data?.error?.message ?? '')) {
+          throw new HttpError(422, 'ai_image_refused', 'The image service declined this request. Try a different description.')
+        }
+        if (res.status === 429) throw new HttpError(503, 'ai_busy', 'The image service is busy. Please retry in a moment.')
+        throw unavailable('ai_unavailable', 'The image service returned an error. Please try again.')
+      }
+      const b64 = data?.data?.[0]?.b64_json
+      if (!b64) throw unavailable('ai_empty', 'The image service returned no image. Please try again.')
+      const bytes = new Uint8Array(Buffer.from(b64, 'base64'))
+      return { bytes, mime: bytes[0] === 0xff ? 'image/jpeg' : 'image/png', model: imageModel }
+    },
     async complete({ messages, json, maxTokens = 2000, temperature = 0.2 }) {
       if (!apiKey) throw unavailable('ai_not_configured', 'The AI assistant is not configured for this deployment.')
       const controller = new AbortController()

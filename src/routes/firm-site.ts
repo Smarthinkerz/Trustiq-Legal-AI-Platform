@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { runLeadIntake } from '../services/lead-intake'
+import { mediaResolver, serveMedia } from '../services/blog-media'
 import { bodyLimit } from 'hono/body-limit'
 import { z } from 'zod'
 import { clientIp, runLater, type AppEnv, type Ctx, type Deps } from '../context'
@@ -47,7 +48,7 @@ export function firmSiteRoutes(deps: Deps, assetVersion: string) {
   }
 
   const publishedPosts = (orgId: string, limit: number) => db.query(
-    `SELECT slug, title, title_ar, excerpt, excerpt_ar, left(body, 600) AS body, left(body_ar, 600) AS body_ar, published_at
+    `SELECT slug, title, title_ar, excerpt, excerpt_ar, left(body, 600) AS body, left(body_ar, 600) AS body_ar, published_at, cover_media_id, cover_alt
        FROM blog_posts WHERE org_id = $1 AND status = 'published' ORDER BY published_at DESC LIMIT $2`, [orgId, limit]) as Promise<any[]>
 
   const notFoundHtml = (c: Ctx) => c.html(`<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Not found</title>
@@ -84,11 +85,25 @@ export function firmSiteRoutes(deps: Deps, assetVersion: string) {
     if (!site) return notFoundHtml(c)
     const lang = langOf(c, site)
     const post = await db.one<any>(
-      `SELECT slug, title, title_ar, excerpt, excerpt_ar, body, body_ar, published_at FROM blog_posts WHERE org_id = $1 AND slug = $2 AND status = 'published'`,
+      `SELECT slug, title, title_ar, excerpt, excerpt_ar, body, body_ar, published_at, cover_media_id, cover_alt FROM blog_posts WHERE org_id = $1 AND slug = $2 AND status = 'published'`,
       [site.org_id, c.req.param('post')])
     if (!post) return c.html(firmNotFoundPage({ site, lang, assetVersion, appUrl: config.appUrl }), 404)
     c.header('cache-control', 'no-cache')
-    return c.html(firmPostPage({ site, lang, assetVersion, appUrl: config.appUrl, post }))
+    const media = await mediaResolver(db, site.org_id, [post.body, post.body_ar], (id) => `/f/${site.slug}/media/${id}`)
+    return c.html(firmPostPage({ site, lang, assetVersion, appUrl: config.appUrl, post, media }))
+  })
+
+  // Images and videos are public only while a published article uses them.
+  app.get('/:slug/media/:id', async (c) => {
+    const site = await loadSite(c.req.param('slug'))
+    const id = c.req.param('id').toLowerCase()
+    if (!site || !/^[0-9a-f-]{36}$/.test(id)) return c.body(null, 404)
+    const used = await db.one(
+      `SELECT 1 FROM blog_posts WHERE org_id = $1 AND status = 'published'
+          AND (cover_media_id = $2::uuid OR strpos(coalesce(body, ''), $3) > 0 OR strpos(coalesce(body_ar, ''), $3) > 0) LIMIT 1`,
+      [site.org_id, id, `](media:${id})`])
+    if (!used) return c.body(null, 404)
+    return serveMedia(c, db, { id, orgId: site.org_id }, 'public, max-age=86400')
   })
 
   app.get('/:slug/logo', async (c) => {

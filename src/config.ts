@@ -14,6 +14,8 @@ const envSchema = z.object({
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_BASE_URL: z.string().url().default('https://api.openai.com/v1'),
   OPENAI_MODEL: z.string().default('gpt-4.1'),
+  // Model for AI cover images on the firm blog (gpt-image-1 or dall-e-3).
+  OPENAI_IMAGE_MODEL: z.string().default('gpt-image-1'),
   AI_TIMEOUT_MS: z.coerce.number().int().positive().default(90_000),
 
   SMTP_HOST: z.string().optional(),
@@ -30,6 +32,8 @@ const envSchema = z.object({
   // Set when running behind a proxy (Railway, Render, Nginx) so client IPs come from X-Forwarded-For.
   TRUST_PROXY: z.enum(['true', 'false']).optional(),
   MAX_UPLOAD_MB: z.coerce.number().positive().default(15),
+  // Largest video a firm can upload into a blog article (stored in the database).
+  MAX_VIDEO_MB: z.coerce.number().positive().default(50),
   // Tap Payments (https://api.tap.company). Enables self-serve plan checkout when TAP_SECRET_KEY is set.
   TAP_SECRET_KEY: z.string().optional(),
   TAP_WEBHOOK_SECRET: z.string().optional(),
@@ -58,7 +62,7 @@ export type Config = {
   databaseUrl?: string
   databaseSsl: boolean
   pgliteDataDir?: string
-  ai: { apiKey?: string; baseUrl: string; model: string; timeoutMs: number }
+  ai: { apiKey?: string; baseUrl: string; model: string; imageModel: string; timeoutMs: number }
   smtp?: { host: string; port: number; user?: string; pass?: string; secure: boolean }
   mailFrom: string
   salesEmail: string
@@ -66,6 +70,7 @@ export type Config = {
   platformAdminEmails: string[]
   trustProxy: boolean
   maxUploadBytes: number
+  maxVideoBytes: number
   tap: { secretKey?: string; webhookSecret?: string; apiUrl: string; toleranceMs: number; auditRetentionDays: number }
   platformVatPercent: number
   libraryImportDomains: string[]
@@ -99,7 +104,7 @@ export function loadConfig(source: Record<string, string | undefined> = process.
     databaseUrl: e.DATABASE_URL || undefined,
     databaseSsl: e.DATABASE_SSL === 'true',
     pgliteDataDir: e.PGLITE_DATA_DIR,
-    ai: { apiKey: e.OPENAI_API_KEY || undefined, baseUrl: e.OPENAI_BASE_URL.replace(/\/$/, ''), model: e.OPENAI_MODEL, timeoutMs: e.AI_TIMEOUT_MS },
+    ai: { apiKey: e.OPENAI_API_KEY || undefined, baseUrl: e.OPENAI_BASE_URL.replace(/\/$/, ''), model: e.OPENAI_MODEL, imageModel: e.OPENAI_IMAGE_MODEL, timeoutMs: e.AI_TIMEOUT_MS },
     smtp: e.SMTP_HOST
       ? { host: e.SMTP_HOST, port: e.SMTP_PORT, user: e.SMTP_USER, pass: e.SMTP_PASS, secure: e.SMTP_SECURE === 'true' || e.SMTP_PORT === 465 }
       : undefined,
@@ -109,6 +114,7 @@ export function loadConfig(source: Record<string, string | undefined> = process.
     platformAdminEmails: e.PLATFORM_ADMIN_EMAILS.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
     trustProxy: e.TRUST_PROXY ? e.TRUST_PROXY === 'true' : isProduction,
     maxUploadBytes: Math.round(e.MAX_UPLOAD_MB * 1024 * 1024),
+    maxVideoBytes: Math.round(e.MAX_VIDEO_MB * 1024 * 1024),
     tap: {
       secretKey: e.TAP_SECRET_KEY || undefined,
       webhookSecret: e.TAP_WEBHOOK_SECRET || undefined,

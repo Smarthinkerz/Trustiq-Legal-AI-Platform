@@ -361,7 +361,17 @@ export async function postEditView(root, ctx) {
       <div dir="${lang === 'ar' ? 'rtl' : 'ltr'}" class="space-y-4">
         ${inputField({ name: `title${sfx}`, label: t('web.post_title'), value: post[`title${sfx}`] || '', attrs: 'maxlength="200"' })}
         ${textareaField({ name: `excerpt${sfx}`, label: t('web.excerpt'), value: post[`excerpt${sfx}`] || '', rows: 2, hint: t('web.excerpt_hint') })}
-        ${textareaField({ name: `body${sfx}`, label: t('web.body'), value: post[`body${sfx}`] || '', rows: 18, hint: t('web.body_hint'), cls: 'font-normal' })}
+        <div>
+          <div class="flex flex-wrap items-center justify-between gap-2 mb-1">
+            <label class="label mb-0" for="f-body${sfx}">${t('web.body')}</label>
+            <div class="flex flex-wrap gap-1">
+              ${editable ? html`<button type="button" class="btn btn-outline btn-sm" data-action="insert-media" data-lang="${lang}"><i class="fas fa-photo-film"></i>${t('media.insert')}</button>` : ''}
+              <button type="button" class="btn btn-ghost btn-sm" data-action="preview" data-lang="${lang}"><i class="fas fa-eye"></i>${t('media.preview')}</button>
+            </div>
+          </div>
+          <textarea id="f-body${sfx}" name="body${sfx}" rows="18" class="input" dir="auto">${post[`body${sfx}`] || ''}</textarea>
+          <p class="hint">${t('web.body_hint')} ${t('media.body_hint')}</p>
+        </div>
       </div>
     </section>`
   }
@@ -394,6 +404,27 @@ export async function postEditView(root, ctx) {
     </section>` : ''}
     <form data-form="post" novalidate>
       <fieldset ${editable ? '' : raw('disabled')} class="space-y-6">
+        <section class="card card-pad">
+          <h2 class="font-semibold mb-1"><i class="fas fa-image text-brand-600 me-2"></i>${t('media.cover')}</h2>
+          <p class="text-sm text-slate-500 mb-4">${t('media.cover_help')}</p>
+          <input type="hidden" name="cover_media_id" value="${post.cover_media_id || ''}" />
+          <div class="grid md:grid-cols-[minmax(0,22rem)_1fr] gap-5 items-start">
+            <div data-cover-preview class="aspect-[16/9] rounded-xl border border-dashed border-slate-300 bg-slate-50 overflow-hidden grid place-items-center text-slate-400"></div>
+            <div class="space-y-3">
+              ${editable ? html`<div class="flex flex-wrap gap-2">
+                <label class="btn btn-outline btn-sm cursor-pointer"><i class="fas fa-upload"></i>${t('media.upload_cover')}<input type="file" class="sr-only" accept="image/jpeg,image/png,image/webp,image/gif" data-change="cover-file" /></label>
+                <button type="button" class="btn btn-outline btn-sm" data-action="cover-library"><i class="fas fa-images"></i>${t('media.from_library')}</button>
+                <button type="button" class="btn btn-ghost btn-sm text-red-600" data-action="cover-remove" data-cover-remove><i class="fas fa-xmark"></i>${t('media.remove')}</button>
+              </div>
+              ${ai ? html`<div class="rounded-lg bg-brand-50/60 border border-brand-100 p-3 flex flex-wrap items-end gap-2">
+                ${selectField({ name: 'cover_style', label: t('media.style'), options: [{ value: 'illustration', label: t('media.style_illustration') }, { value: 'photo', label: t('media.style_photo') }], cls: 'w-48' })}
+                <button type="button" class="btn btn-primary btn-sm" data-action="cover-generate"><i class="fas fa-wand-magic-sparkles"></i>${t('media.generate_cover')}</button>
+                <p class="hint w-full">${t('media.generate_hint')}</p>
+              </div>` : ''}` : ''}
+              ${inputField({ name: 'cover_alt', label: t('media.alt'), value: post.cover_alt || '', hint: t('media.alt_hint'), attrs: 'maxlength="300" dir="auto"' })}
+            </div>
+          </div>
+        </section>
         <div class="grid xl:grid-cols-2 gap-6">${langFields('en')}${langFields('ar')}</div>
         <section class="card card-pad grid sm:grid-cols-2 gap-4 items-end">
           ${inputField({ name: 'slug', label: t('web.post_slug'), value: post.slug || '', dir: 'ltr', hint: t('web.post_slug_hint'), attrs: 'pattern="[a-z0-9-]+" maxlength="60"' })}
@@ -417,6 +448,116 @@ export async function postEditView(root, ctx) {
     for (const k of ['title', 'excerpt', 'body']) if (r[k]) field(`${k}${sfx}`).value = r[k]
     dirty = true
   }
+  const mediaUrl = (id) => `/api/website/media/${id}`
+  const coverInput = field('cover_media_id')
+  const showCover = () => {
+    const box = root.querySelector('[data-cover-preview]')
+    const id = coverInput.value
+    render(box, id ? html`<img src="${mediaUrl(id)}" alt="" class="w-full h-full object-cover" />` : html`<div class="text-center text-sm p-4"><i class="fas fa-image text-3xl mb-2 block"></i>${t('media.no_cover')}</div>`)
+    const rm = root.querySelector('[data-cover-remove]')
+    if (rm) rm.hidden = !id
+  }
+  const setCover = (media) => { coverInput.value = media ? media.id : ''; if (media?.alt && !field('cover_alt').value) field('cover_alt').value = media.alt; dirty = true; showCover() }
+  const uploadMedia = async (file, extra = {}) => {
+    const fd = new FormData()
+    fd.set('file', file)
+    if (post.id) fd.set('post_id', post.id)
+    for (const [k, v] of Object.entries(extra)) if (v) fd.set(k, v)
+    const { media } = await api.post('/api/website/media', fd)
+    return media
+  }
+  const insertAtCursor = (lang, line) => {
+    const ta = field(lang === 'ar' ? 'body_ar' : 'body')
+    const pos = ta.selectionStart ?? ta.value.length
+    const before = ta.value.slice(0, pos)
+    const after = ta.value.slice(pos)
+    const pre = before && !before.endsWith('\n\n') ? (before.endsWith('\n') ? '\n' : '\n\n') : ''
+    const post2 = after.startsWith('\n\n') ? '' : after.startsWith('\n') ? '\n' : '\n\n'
+    ta.value = before + pre + line + post2 + after
+    const caret = (before + pre + line).length
+    ta.focus()
+    ta.setSelectionRange(caret, caret)
+    dirty = true
+  }
+  const cleanCaption = (s) => String(s || '').replace(/[\[\]\n]/g, ' ').trim().slice(0, 300)
+  const mediaLibrary = (onPick, { imagesOnly = false } = {}) => {
+    const m = modal({ title: t('media.library'), size: 'lg', body: spinner() })
+    api.get('/api/website/media').then(({ items }) => {
+      const list = items.filter((x) => !imagesOnly || x.kind === 'image')
+      render(m.el.querySelector('.p-5'), list.length ? html`<ul class="grid grid-cols-2 sm:grid-cols-3 gap-3">${list.map((x) => html`<li>
+        <button type="button" class="w-full text-start rounded-lg border border-slate-200 overflow-hidden hover:ring-2 hover:ring-brand-500" data-pick="${x.id}">
+          <div class="aspect-[16/9] bg-slate-100 grid place-items-center">${x.kind === 'image' ? html`<img src="${mediaUrl(x.id)}" alt="" loading="lazy" class="w-full h-full object-cover" />` : html`<i class="fas fa-film text-3xl text-slate-400"></i>`}</div>
+          <div class="px-2 py-1 text-xs truncate" dir="auto">${x.source === 'ai' ? html`<i class="fas fa-wand-magic-sparkles text-brand-600"></i> ` : ''}${x.alt || x.file_name || ''}</div>
+        </button></li>`)}</ul>` : html`<p class="text-sm text-slate-500">${t('media.library_empty')}</p>`)
+      m.el.querySelectorAll('[data-pick]').forEach((b) => b.addEventListener('click', () => { m.close(); onPick(list.find((x) => x.id === b.dataset.pick)) }))
+    }).catch((err) => { m.close(); showError(err) })
+  }
+  const openInsert = (lang) => {
+    const m = modal({
+      title: t('media.insert_title'),
+      size: 'lg',
+      body: html`<div class="space-y-5">
+        <p class="text-sm text-slate-500">${t('media.insert_help')}</p>
+        ${inputField({ name: 'caption', label: t('media.caption'), attrs: 'maxlength="300" dir="auto"', hint: t('media.caption_hint') })}
+        <div class="grid sm:grid-cols-2 gap-3">
+          <label class="rounded-lg border border-slate-200 p-4 cursor-pointer hover:bg-slate-50 block">
+            <span class="font-semibold text-sm"><i class="fas fa-upload me-1 text-brand-600"></i>${t('media.upload_file')}</span>
+            <span class="block text-xs text-slate-500 mt-1">${t('media.upload_file_hint', { mb: store.me.limits?.max_video_mb || 50 })}</span>
+            <input type="file" class="sr-only" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime" data-insert-file />
+          </label>
+          <button type="button" class="rounded-lg border border-slate-200 p-4 text-start hover:bg-slate-50" data-insert-library>
+            <span class="font-semibold text-sm"><i class="fas fa-images me-1 text-brand-600"></i>${t('media.from_library')}</span>
+            <span class="block text-xs text-slate-500 mt-1">${t('media.from_library_hint')}</span>
+          </button>
+        </div>
+        <form data-form="link" class="flex flex-wrap items-end gap-2" novalidate>
+          ${inputField({ name: 'url', label: t('media.video_link'), placeholder: 'https://www.youtube.com/watch?v=…', cls: 'flex-1 min-w-[16rem]', attrs: 'dir="ltr" inputmode="url"' })}
+          <button type="submit" class="btn btn-outline">${t('media.add_link')}</button>
+        </form>
+        ${ai ? html`<form data-form="gen" class="flex flex-wrap items-end gap-2 pt-4 border-t border-slate-100" novalidate>
+          ${inputField({ name: 'prompt', label: t('media.generate_inline'), placeholder: t('media.generate_inline_ph'), cls: 'flex-1 min-w-[16rem]', attrs: 'dir="auto" maxlength="1000"' })}
+          <button type="submit" class="btn btn-outline"><i class="fas fa-wand-magic-sparkles"></i>${t('media.generate')}</button>
+        </form>` : ''}
+        <div data-insert-status class="text-sm"></div>
+      </div>`,
+      forms: {
+        link: (form) => {
+          const url = form.elements.url.value.trim()
+          if (!/^https:\/\/(www\.|m\.)?(youtube\.com|youtu\.be|vimeo\.com|player\.vimeo\.com)\//i.test(url)) return toast(t('media.bad_link'), 'error')
+          insertAtCursor(lang, `![${cleanCaption(m.el.querySelector('[name=caption]').value)}](${url})`)
+          m.close()
+        },
+        gen: (form) => busy(submitButton(form), async () => {
+          const prompt = form.elements.prompt.value.trim()
+          if (!prompt) return toast(t('media.describe_first'), 'error')
+          try {
+            const { media } = await api.post('/api/website/media/generate', { prompt, post_id: post.id })
+            insertAtCursor(lang, `![${cleanCaption(m.el.querySelector('[name=caption]').value)}](media:${media.id})`)
+            m.close(); toast(t('media.inserted'))
+          } catch (err) { showError(err) }
+        })
+      }
+    })
+    const caption = () => cleanCaption(m.el.querySelector('[name=caption]').value)
+    m.el.querySelector('[data-insert-file]').addEventListener('change', async (e) => {
+      const file = e.target.files[0]
+      if (!file) return
+      const status = m.el.querySelector('[data-insert-status]')
+      render(status, html`<span class="text-slate-500"><i class="fas fa-spinner fa-spin me-1"></i>${t('media.uploading')}</span>`)
+      try {
+        const media = await uploadMedia(file, { alt: caption() })
+        insertAtCursor(lang, `![${caption()}](media:${media.id})`)
+        m.close(); toast(t('media.inserted'))
+      } catch (err) { render(status, ''); showError(err) }
+    })
+    m.el.querySelector('[data-insert-library]').addEventListener('click', () => {
+      const cap = caption()
+      m.close()
+      mediaLibrary((x) => { insertAtCursor(lang, `![${cap || cleanCaption(x.alt)}](media:${x.id})`); toast(t('media.inserted')) })
+    })
+  }
+  showCover()
+
   const writer = async (btn, payload) => {
     try {
       const { result } = await api.post('/api/website/writer', payload)
@@ -454,6 +595,14 @@ export async function postEditView(root, ctx) {
         if (r) { setFields(f.language, r); toast(t('web.ai_done')) }
       })
     },
+    changes: {
+      'cover-file': async (el) => {
+        const file = el.files[0]
+        el.value = ''
+        if (!file) return
+        try { setCover(await uploadMedia(file, { alt: field('cover_alt').value })); toast(t('media.cover_ready')) } catch (err) { showError(err) }
+      }
+    },
     actions: {
       'topic-titles': (btn) => busy(btn, async () => {
         const f = formData(root.querySelector('form[data-form=draft]'))
@@ -485,6 +634,32 @@ export async function postEditView(root, ctx) {
         }
       }),
       save: (btn) => save(btn, btn.dataset.status),
+      'insert-media': (btn) => openInsert(btn.dataset.lang),
+      preview: (btn) => busy(btn, async () => {
+        const lang = btn.dataset.lang
+        try {
+          const { html: out } = await api.post('/api/website/preview', { body: field(lang === 'ar' ? 'body_ar' : 'body').value })
+          const title = field(lang === 'ar' ? 'title_ar' : 'title').value
+          modal({ title: t('media.preview'), size: 'xl', body: html`<div class="max-w-3xl mx-auto" dir="${lang === 'ar' ? 'rtl' : 'ltr'}">
+            ${title ? html`<h1 class="text-3xl font-bold mb-4" dir="auto">${title}</h1>` : ''}
+            ${coverInput.value ? html`<img src="${mediaUrl(coverInput.value)}" alt="" class="w-full aspect-[16/9] object-cover rounded-xl mb-6" />` : ''}
+            <div class="article-preview">${raw(out)}</div></div>` })
+        } catch (err) { showError(err) }
+      }),
+      'cover-library': () => mediaLibrary((x) => setCover(x), { imagesOnly: true }),
+      'cover-remove': () => setCover(null),
+      'cover-generate': (btn) => busy(btn, async () => {
+        const title = field('title').value.trim() || field('title_ar').value.trim()
+        if (!title) return toast(t('media.title_first'), 'error')
+        if (coverInput.value && !(await confirmDialog(t('media.replace_cover'), { danger: false }))) return
+        try {
+          const { media } = await api.post('/api/website/media/generate', {
+            title, excerpt: field('excerpt').value.trim() || field('excerpt_ar').value.trim() || undefined,
+            style: root.querySelector('[name=cover_style]').value, post_id: post.id
+          })
+          setCover(media); toast(t('media.cover_ready'))
+        } catch (err) { showError(err) }
+      }),
       delete: async () => {
         if (!(await confirmDialog(t('web.confirm_delete_post')))) return
         try { await api.del(`/api/website/posts/${post.id}`); dirty = false; toast(t('common.deleted')); navigate('/website?tab=blog') } catch (err) { showError(err) }

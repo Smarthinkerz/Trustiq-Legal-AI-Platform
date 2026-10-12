@@ -909,6 +909,30 @@ CREATE TABLE whatsapp_messages (
 CREATE UNIQUE INDEX whatsapp_messages_once ON whatsapp_messages (kind, entity_id, ref) WHERE entity_id IS NOT NULL;
 CREATE INDEX whatsapp_messages_org_idx ON whatsapp_messages (org_id, created_at DESC);
 `
+  },
+  {
+    version: 21,
+    name: 'blog_media',
+    sql: `
+CREATE TABLE blog_media (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  post_id UUID REFERENCES blog_posts(id) ON DELETE SET NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('image', 'video')),
+  mime TEXT NOT NULL,
+  size INTEGER NOT NULL,
+  file_name TEXT,
+  alt TEXT,
+  source TEXT NOT NULL DEFAULT 'upload' CHECK (source IN ('upload', 'ai')),
+  data BYTEA NOT NULL,
+  created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE blog_media ALTER COLUMN data SET STORAGE EXTERNAL;
+CREATE INDEX blog_media_org_idx ON blog_media (org_id, created_at DESC);
+ALTER TABLE blog_posts ADD COLUMN cover_media_id UUID REFERENCES blog_media(id) ON DELETE SET NULL;
+ALTER TABLE blog_posts ADD COLUMN cover_alt TEXT;
+`
   }
 ]
 

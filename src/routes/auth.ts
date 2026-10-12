@@ -46,6 +46,7 @@ export async function mePayload(c: Ctx) {
     branding: branding ?? null,
     client: client ?? null,
     features: { ai: ai.configured, email: mailer.configured, payments: c.get('deps').tap.configured },
+    limits: { max_upload_mb: Math.round(c.get('deps').config.maxUploadBytes / 1048576), max_video_mb: Math.round(c.get('deps').config.maxVideoBytes / 1048576) },
     prices: PLAN_PRICES,
     is_platform_admin: user.role !== 'client' && config.platformAdminEmails.includes(user.email.toLowerCase()),
     support_email: config.supportEmail,

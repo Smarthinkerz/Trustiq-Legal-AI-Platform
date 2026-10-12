@@ -24,7 +24,10 @@ export function fakeWeb() {
   return { pages, requested, fetch }
 }
 
-export type FakeAi = AiService & { calls: ChatMessage[][]; nextReply: string | null }
+export type FakeAi = AiService & { calls: ChatMessage[][]; nextReply: string | null; imagePrompts: string[] }
+
+// A valid 1x1 PNG, returned by the fake image generator.
+export const TINY_PNG = new Uint8Array(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64'))
 
 export function fakeAi(): FakeAi {
   const ai: FakeAi = {
@@ -32,6 +35,11 @@ export function fakeAi(): FakeAi {
     model: 'test-model',
     calls: [],
     nextReply: null,
+    imagePrompts: [],
+    async generateImage({ prompt }) {
+      ai.imagePrompts.push(prompt)
+      return { bytes: TINY_PNG, mime: 'image/png', model: 'test-image-model' }
+    },
     async complete({ messages, json }) {
       ai.calls.push(messages)
       const text = ai.nextReply ?? (json
