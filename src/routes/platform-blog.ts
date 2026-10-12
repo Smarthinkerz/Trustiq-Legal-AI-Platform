@@ -26,7 +26,8 @@ export function platformBlogRoutes(deps: Deps, assetVersion: string) {
   const blogOrg = async (): Promise<string | null> => {
     if (config.platformBlogSlug) {
       const [s] = await db.query('SELECT org_id FROM firm_sites WHERE slug = $1', [config.platformBlogSlug])
-      return s?.org_id ?? null
+      if (s) return s.org_id
+      // A slug that matches no website falls back to the admins' firm below.
     }
     if (!config.platformAdminEmails.length) return null
     const [o] = await db.query(

@@ -115,7 +115,7 @@ export function loadConfig(source: Record<string, string | undefined> = process.
     mailFrom: e.MAIL_FROM,
     salesEmail: e.SALES_EMAIL,
     supportEmail: e.SUPPORT_EMAIL,
-    platformBlogSlug: e.PLATFORM_BLOG_SLUG?.trim().toLowerCase() || undefined,
+    platformBlogSlug: blogSlug(e.PLATFORM_BLOG_SLUG),
     platformAdminEmails: e.PLATFORM_ADMIN_EMAILS.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
     trustProxy: e.TRUST_PROXY ? e.TRUST_PROXY === 'true' : isProduction,
     maxUploadBytes: Math.round(e.MAX_UPLOAD_MB * 1024 * 1024),
@@ -164,4 +164,13 @@ export function googleCredentials(rawId?: string, rawSecret?: string): Config['g
   if (!secret) problems.push('GOOGLE_CLIENT_SECRET is empty.')
   if (!id || !secret) return undefined
   return { clientId: id, clientSecret: secret, problems }
+}
+
+// Accepts "smarthinkerz", "/f/smarthinkerz" or a full firm-site URL, with or
+// without quotes, so a pasted link still names the right website.
+export function blogSlug(raw?: string): string | undefined {
+  const cleaned = (raw ?? '').trim().replace(/^["']|["']$/g, '').trim().toLowerCase()
+  const parts = cleaned.split(/[?#]/)[0].split('/').map((p) => p.trim()).filter(Boolean)
+  const f = parts.lastIndexOf('f')
+  return (f >= 0 && parts[f + 1] ? parts[f + 1] : parts.at(-1)) || undefined
 }
