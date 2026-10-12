@@ -23,6 +23,7 @@ import integrationsRoutes from './routes/integrations'
 import signaturesRoutes from './routes/signatures'
 import { signRoutes } from './routes/sign'
 import { invoiceWebhookRoutes, payRoutes } from './routes/pay'
+import whatsappRoutes from './routes/whatsapp'
 import { markCalendarsDirty } from './services/google-calendar'
 import { firmSiteRoutes } from './routes/firm-site'
 import { helpRoutes } from './routes/help'
@@ -167,7 +168,7 @@ export function createApp(deps: Deps) {
     ['/api/documents', documentsRoutes], ['/api/events', eventsRoutes], ['/api/ai', aiRoutes],
     ['/api/library', libraryRoutes], ['/api/billing', billingRoutes], ['/api/reports', reportsRoutes],
     ['/api/tasks', tasksRoutes], ['/api/workspace', workspaceRoutes], ['/api/portal', portalRoutes],
-    ['/api/deadlines', deadlinesRoutes], ['/api/import', importsRoutes], ['/api/website', websiteRoutes], ['/api/signatures', signaturesRoutes], ['/api/document-requests', documentRequestsRoutes], ['/api/hearings', hearingsRoutes]
+    ['/api/deadlines', deadlinesRoutes], ['/api/import', importsRoutes], ['/api/website', websiteRoutes], ['/api/signatures', signaturesRoutes], ['/api/document-requests', documentRequestsRoutes], ['/api/hearings', hearingsRoutes], ['/api/whatsapp', whatsappRoutes]
   ] as const) {
     app.use(`${path}/*`, requireActiveSubscription)
     app.use(path, requireActiveSubscription)

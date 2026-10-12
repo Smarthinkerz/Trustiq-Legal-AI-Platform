@@ -23,7 +23,7 @@ const ZONES: Record<string, string> = {
 }
 export const zoneFor = (jurisdiction: string | null | undefined) => ZONES[jurisdiction ?? ''] ?? 'Asia/Dubai'
 
-const when = (d: Date, lang: 'en' | 'ar', zone: string, allDay: boolean) =>
+export const when = (d: Date, lang: 'en' | 'ar', zone: string, allDay: boolean) =>
   new Intl.DateTimeFormat(lang === 'ar' ? 'ar-u-nu-latn' : 'en-GB', {
     weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: allDay ? 'UTC' : zone,
     ...(allDay ? {} : { hour: '2-digit', minute: '2-digit' })

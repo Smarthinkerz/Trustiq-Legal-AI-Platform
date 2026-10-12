@@ -1,5 +1,5 @@
 import { api } from '../api.js'
-import { bind, formData, html, qs, render } from '../dom.js'
+import { bind, formData, html, qs, raw, render } from '../dom.js'
 import { fmtDate, fmtMoney, fmtRelative, t } from '../i18n.js'
 import { can, canDelete, readOnly, refLabel } from '../store.js'
 import {
@@ -48,6 +48,9 @@ export function openClientForm({ client, onSaved } = {}) {
         ${inputField({ name: 'email', label: t('clients.email'), type: 'email', value: c.email, attrs: 'dir="ltr"' })}
         ${inputField({ name: 'phone', label: t('clients.phone'), type: 'tel', value: c.phone, attrs: 'dir="ltr"' })}
         ${inputField({ name: 'vat_number', label: t('clients.vat_number'), value: c.vat_number, hint: t('clients.vat_number_hint'), attrs: 'dir="ltr"' })}
+        ${selectField({ name: 'language', label: t('clients.language'), options: [{ value: 'ar', label: 'العربية' }, { value: 'en', label: 'English' }], value: c.language || '', empty: t('clients.language_auto') })}
+        <label class="sm:col-span-2 flex items-start gap-2 text-sm"><input type="checkbox" name="whatsapp_opt_in" class="mt-1" ${c.whatsapp_opt_in_at ? raw('checked') : ''} />
+          <span><i class="fab fa-whatsapp text-emerald-600"></i> ${t('clients.whatsapp_opt_in')}<span class="block hint">${t('clients.whatsapp_opt_in_hint')}</span></span></label>
         ${textareaField({ name: 'address', label: t('clients.address'), value: c.address, rows: 2, cls: 'sm:col-span-2' })}
         ${textareaField({ name: 'notes', label: t('clients.notes'), value: c.notes, rows: 3, cls: 'sm:col-span-2' })}
         <div class="sm:col-span-2">${formActions(client ? t('common.save') : t('clients.create'))}</div>
@@ -159,6 +162,7 @@ export async function clientDetailView(root, { params, isCurrent, rerender }) {
         ${row('fa-receipt', c.vat_number, true)}
         ${row('fa-envelope', c.email, true)}
         ${row('fa-phone', c.phone, true)}
+        ${c.whatsapp_opt_in_at ? html`<div class="text-xs text-emerald-700"><i class="fab fa-whatsapp"></i> ${t('clients.whatsapp_on', { date: fmtDate(c.whatsapp_opt_in_at) })}</div>` : ''}
         ${row('fa-location-dot', c.address)}
         ${c.notes ? html`<div class="pt-3 border-t border-slate-100"><h3 class="text-xs text-slate-500 mb-1">${t('clients.notes')}</h3><p class="text-sm whitespace-pre-wrap" dir="auto">${c.notes}</p></div>` : ''}
         <div class="pt-4 border-t border-slate-100">

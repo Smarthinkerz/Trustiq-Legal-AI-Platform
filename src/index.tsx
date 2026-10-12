@@ -8,6 +8,7 @@ import { RateLimiter } from './lib/rate-limit'
 import { createAiService } from './services/ai'
 import { runDailyDigest, runRenewalReminders } from './services/jobs'
 import { createTapClient } from './services/tap'
+import { runWhatsAppReminders } from './services/whatsapp'
 import { runLibraryImports } from './services/library-import'
 import { runCalendarSync } from './services/google-calendar'
 
@@ -55,6 +56,7 @@ async function main() {
   const jobs = setInterval(() => {
     runDailyDigest(db, mailer, config, log).catch((err) => log.error('daily digest failed', { err }))
     runRenewalReminders(db, mailer, config, log).catch((err) => log.error('renewal reminders failed', { err }))
+    runWhatsAppReminders({ db, config, log }).catch((err) => log.error('whatsapp reminders failed', { err }))
   }, 15 * 60_000)
   jobs.unref()
 

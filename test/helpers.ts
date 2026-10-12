@@ -83,6 +83,22 @@ export function fakeFirmTap() {
   return { tap, keys, forKey }
 }
 
+// A fake WhatsApp Cloud API: records requests; set `fail` to make the next calls return a Graph error.
+export function fakeWhatsApp() {
+  const wa = {
+    requests: [] as { url: string; method: string; auth: string | null; body: any }[],
+    fail: null as null | { status: number; message: string },
+    async fetch(url: string | URL | Request, init?: RequestInit) {
+      const body = init?.body ? JSON.parse(String(init.body)) : null
+      wa.requests.push({ url: String(url), method: init?.method ?? 'GET', auth: new Headers(init?.headers).get('authorization'), body })
+      if (wa.fail) return new Response(JSON.stringify({ error: { message: wa.fail.message, code: 132001 } }), { status: wa.fail.status })
+      if (init?.method === 'POST') return Response.json({ messages: [{ id: `wamid.${wa.requests.length}` }] })
+      return Response.json({ display_phone_number: '+968 2400 0000', verified_name: 'Al Noor Advocates', id: '1234567890' })
+    }
+  }
+  return wa
+}
+
 export async function setup(env: Record<string, string> = {}, opts: { googleFetch?: typeof fetch } = {}) {
   const config = loadConfig({
     NODE_ENV: 'test', APP_URL: 'http://localhost:8080', PLATFORM_ADMIN_EMAILS: 'ops@trustiq.test',
@@ -95,17 +111,18 @@ export async function setup(env: Record<string, string> = {}, opts: { googleFetc
   const ai = fakeAi()
   const tap = fakeTap()
   const firmTap = fakeFirmTap()
+  const wa = fakeWhatsApp()
   const web = fakeWeb()
   // Background work is queued and only runs when a test calls runDeferred().
   const deferred: (() => Promise<unknown>)[] = []
   const runDeferred = async () => { while (deferred.length) await deferred.shift()!() }
   const log = createLogger('error', true)
   const app = createApp({
-    config, db, ai, mailer, tap, firmTap: firmTap.forKey, defer: (task) => { deferred.push(task) }, webFetch: web.fetch, googleFetch: opts.googleFetch,
+    config, db, ai, mailer, tap, firmTap: firmTap.forKey, defer: (task) => { deferred.push(task) }, waFetch: wa.fetch as typeof fetch, webFetch: web.fetch, googleFetch: opts.googleFetch,
     log,
     limiters: { auth: new RateLimiter(1000, 60_000), api: new RateLimiter(10_000, 60_000), ai: new RateLimiter(1000, 60_000), webhook: new RateLimiter(1000, 60_000), apiKey: new RateLimiter(1000, 60_000) }
   })
-  return { app, db, ai, mails, config, tap, firmTap, web, log, runDeferred, deferred, runImports: () => runLibraryImports({ db, config, ai, log, webFetch: web.fetch }) }
+  return { app, db, ai, mails, config, tap, firmTap, wa, web, log, runDeferred, deferred, runImports: () => runLibraryImports({ db, config, ai, log, webFetch: web.fetch }) }
 }
 
 type App = Awaited<ReturnType<typeof setup>>['app']
