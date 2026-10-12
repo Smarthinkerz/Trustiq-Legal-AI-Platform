@@ -24,7 +24,7 @@ export function fakeWeb() {
   return { pages, requested, fetch }
 }
 
-export type FakeAi = AiService & { calls: ChatMessage[][]; nextReply: string | null; imagePrompts: string[] }
+export type FakeAi = AiService & { calls: ChatMessage[][]; nextReply: string | null; imagePrompts: string[]; transcriptions: { fileName: string; mime: string; size: number; language?: string }[]; nextTranscript: string }
 
 // A valid 1x1 PNG, returned by the fake image generator.
 export const TINY_PNG = new Uint8Array(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64'))
@@ -36,6 +36,12 @@ export function fakeAi(): FakeAi {
     calls: [],
     nextReply: null,
     imagePrompts: [],
+    transcriptions: [],
+    nextTranscript: 'Hearing today adjourned to the 20th for the employer to file payslips.',
+    async transcribe({ bytes, fileName, mime, language }) {
+      ai.transcriptions.push({ fileName, mime, size: bytes.length, language })
+      return { text: ai.nextTranscript, model: 'test-transcribe', promptTokens: 3, completionTokens: 4 }
+    },
     async generateImage({ prompt }) {
       ai.imagePrompts.push(prompt)
       return { bytes: TINY_PNG, mime: 'image/png', model: 'test-image-model' }

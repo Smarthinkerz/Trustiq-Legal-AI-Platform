@@ -16,6 +16,7 @@ const envSchema = z.object({
   OPENAI_MODEL: z.string().default('gpt-4.1'),
   // Model for AI cover images on the firm blog (gpt-image-1 or dall-e-3).
   OPENAI_IMAGE_MODEL: z.string().default('gpt-image-1'),
+  OPENAI_TRANSCRIBE_MODEL: z.string().default('gpt-4o-transcribe'),
   AI_TIMEOUT_MS: z.coerce.number().int().positive().default(90_000),
 
   SMTP_HOST: z.string().optional(),
@@ -65,7 +66,7 @@ export type Config = {
   databaseUrl?: string
   databaseSsl: boolean
   pgliteDataDir?: string
-  ai: { apiKey?: string; baseUrl: string; model: string; imageModel: string; timeoutMs: number }
+  ai: { apiKey?: string; baseUrl: string; model: string; imageModel: string; transcribeModel: string; timeoutMs: number }
   smtp?: { host: string; port: number; user?: string; pass?: string; secure: boolean }
   mailFrom: string
   salesEmail: string
@@ -108,7 +109,7 @@ export function loadConfig(source: Record<string, string | undefined> = process.
     databaseUrl: e.DATABASE_URL || undefined,
     databaseSsl: e.DATABASE_SSL === 'true',
     pgliteDataDir: e.PGLITE_DATA_DIR,
-    ai: { apiKey: e.OPENAI_API_KEY || undefined, baseUrl: e.OPENAI_BASE_URL.replace(/\/$/, ''), model: e.OPENAI_MODEL, imageModel: e.OPENAI_IMAGE_MODEL, timeoutMs: e.AI_TIMEOUT_MS },
+    ai: { apiKey: e.OPENAI_API_KEY || undefined, baseUrl: e.OPENAI_BASE_URL.replace(/\/$/, ''), model: e.OPENAI_MODEL, imageModel: e.OPENAI_IMAGE_MODEL, transcribeModel: e.OPENAI_TRANSCRIBE_MODEL, timeoutMs: e.AI_TIMEOUT_MS },
     smtp: e.SMTP_HOST
       ? { host: e.SMTP_HOST, port: e.SMTP_PORT, user: e.SMTP_USER, pass: e.SMTP_PASS, secure: e.SMTP_SECURE === 'true' || e.SMTP_PORT === 465 }
       : undefined,

@@ -10,6 +10,7 @@ import { assertCanCreateDocument, assertCanUseAi, recordAiUsage } from '../servi
 import { type Passage, citationLabel, citedRefs, findReferencedSources, lawReferences, referencedPassages, searchLibrary } from '../services/library'
 import { insertDocument } from './documents'
 import { briefMessages, briefText, gatherCaseFile, normalizeBrief } from '../services/case-brief'
+import { dictationMessages, localToday, MAX_AUDIO_BYTES, MAX_NOTES_CHARS, normalizeDictation, sniffAudio } from '../services/dictation'
 
 const HISTORY_MESSAGES = 20
 const TEMPLATE_IDS = DOCUMENT_TEMPLATES.map((t) => t.id) as unknown as [string, ...string[]]
@@ -300,3 +301,58 @@ aiRoutes.post('/cases/:id/brief/:briefId/save', async (c) => {
 })
 
 export default aiRoutes
+
+// Voice note or rough notes on a matter -> transcript plus a reviewed-before-saving file note,
+// tasks, dates and client update. Nothing is stored here; /api/cases/:id/dictation saves the result.
+aiRoutes.post('/cases/:id/dictation', async (c) => {
+  const { user, org } = auth(c)
+  const id = uuidParam(c.req.param('id'), 'Case')
+  const { db, ai } = c.get('deps')
+  const [kase] = await db.query(
+    `SELECT k.reference, k.title, k.opposing_party, k.court, k.jurisdiction, cl.name AS client_name
+       FROM cases k LEFT JOIN clients cl ON cl.id = k.client_id WHERE k.id = $1 AND k.org_id = $2`, [id, org.id])
+  if (!kase) throw notFound('Case')
+  const form = await c.req.formData().catch(() => { throw badRequest('Expected a recording or notes.') })
+  const opts = z.object({
+    language: z.enum(['auto', 'en', 'ar']).default('auto'),
+    output_language: z.enum(['en', 'ar']).default('en'),
+    text: z.string().max(MAX_NOTES_CHARS).optional()
+  }).safeParse(Object.fromEntries([...form.entries()].filter(([, v]) => typeof v === 'string')))
+  if (!opts.success) throw badRequest('Please check the dictation details.')
+  const file = form.get('file')
+  const typed = opts.data.text?.trim() ?? ''
+  if (!(file instanceof File && file.size > 0) && !typed) throw badRequest('Record a voice note, upload one, or type your notes.')
+  throttle(c)
+  await assertCanUseAi(db, org)
+
+  let transcript = typed
+  if (file instanceof File && file.size > 0) {
+    if (file.size > MAX_AUDIO_BYTES) throw new HttpError(413, 'file_too_large', 'Recordings must be smaller than 25 MB (about 25 minutes).')
+    const bytes = new Uint8Array(await file.arrayBuffer())
+    const kind = sniffAudio(bytes, file.name)
+    if (!kind) throw new HttpError(415, 'unsupported_file', 'Upload a voice note as MP3, M4A, OGG/Opus (WhatsApp), WebM or WAV.')
+    const lang = opts.data.language === 'auto' ? undefined : opts.data.language
+    const heard = await ai.transcribe({
+      bytes, mime: kind.mime, fileName: `dictation.${kind.ext}`, language: lang,
+      prompt: [kase.reference, kase.title, kase.client_name, kase.opposing_party, kase.court].filter(Boolean).join(', ')
+    })
+    await recordAiUsage(db, org.id, user.id, 'transcribe', heard)
+    if (!heard.text) throw new HttpError(422, 'audio_silent', 'No speech was found in this recording.')
+    transcript = typed ? `${heard.text}\n\n${typed}` : heard.text
+  }
+
+  const result = await ai.complete({
+    messages: dictationMessages({ transcript, lang: opts.data.output_language, today: localToday(kase.jurisdiction), kase: kase as any, lawyer: user.name }),
+    json: true, maxTokens: 3000, temperature: 0.1
+  })
+  await recordAiUsage(db, org.id, user.id, 'dictation', result)
+  let structured
+  try {
+    structured = normalizeDictation(parseJsonObject(result.text))
+  } catch {
+    throw new HttpError(502, 'ai_bad_output', 'The AI returned an unreadable result. Please try again.')
+  }
+  if (!structured.note) structured.note = transcript
+  await audit(c, 'ai.dictation', 'case', id, { audio: file instanceof File && file.size > 0, language: opts.data.output_language })
+  return c.json({ transcript, result: structured, has_client: !!kase.client_name })
+})
