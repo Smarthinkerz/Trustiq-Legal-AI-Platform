@@ -1,5 +1,6 @@
 import { PRACTICE_AREAS } from '../services/reference'
 import { plainText, practiceAreaName, renderArticle } from '../services/website'
+import type { MediaRef } from '../services/blog-media'
 import { esc } from './layout'
 
 // ---------------------------------------------------------------------------
@@ -34,6 +35,8 @@ export type PublicSite = {
 }
 
 export type PublicPost = {
+  cover_media_id?: string | null
+  cover_alt?: string | null
   slug: string
   title: string | null
   title_ar: string | null
@@ -86,7 +89,7 @@ const fmtDate = (d: string | Date, lang: Lang) =>
 const firmName = (s: PublicSite, lang: Lang) => pick(lang, s.firm_name, s.firm_name_ar)
 const withLang = (path: string, lang: Lang) => (lang === 'ar' ? `${path}${path.includes('?') ? '&' : '?'}lang=ar` : path)
 
-type PageOpts = { site: PublicSite; lang: Lang; assetVersion: string; appUrl: string; title: string; description: string; path: string; body: string; otherPath: string }
+type PageOpts = { site: PublicSite; lang: Lang; assetVersion: string; appUrl: string; title: string; description: string; path: string; body: string; otherPath: string; image?: string | null }
 
 function page(o: PageOpts) {
   const { site, lang } = o
@@ -118,6 +121,7 @@ function page(o: PageOpts) {
   <meta property="og:description" content="${esc(o.description)}" />
   <meta property="og:type" content="website" />
   <meta property="og:url" content="${esc(canonical)}" />
+  ${o.image ? `<meta property="og:image" content="${esc(o.image)}" /><meta name="twitter:card" content="summary_large_image" />` : ''}
   ${site.has_logo ? `<link rel="icon" href="${base}/logo" />` : '<link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />'}
   <link rel="stylesheet" href="/static/app.css?v=${o.assetVersion}" />
   <link rel="stylesheet" href="/vendor/fa/css/all.min.css?v=${o.assetVersion}" />
@@ -129,6 +133,10 @@ function page(o: PageOpts) {
     .article h3 { font-size: 1.1rem; font-weight: 700; margin: 1.3rem 0 .5rem; }
     .article p { margin: .8rem 0; line-height: 1.85; } .article ul, .article ol { margin: .8rem 0; padding-inline-start: 1.4rem; line-height: 1.8; }
     .article ul { list-style: disc; } .article ol { list-style: decimal; }
+    .article-media { margin: 1.6rem 0; } .article-media img, .article-media video { width: 100%; height: auto; border-radius: .75rem; background: #f1f5f9; }
+    .article-media figcaption { font-size: .85rem; color: #64748b; text-align: center; margin-top: .5rem; }
+    .article-embed { position: relative; padding-top: 56.25%; border-radius: .75rem; overflow: hidden; background: #0f172a; }
+    .article-embed iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
   </style>
 </head>
 <body class="bg-white text-slate-800 antialiased">
@@ -164,8 +172,9 @@ function postCard(p: PublicPost, base: string, lang: Lang) {
   // Prefer a summary in the same language as the title shown.
   const own = lang === 'ar' ? (p.title_ar ? [p.excerpt_ar, p.body_ar] : null) : (p.title ? [p.excerpt, p.body] : null)
   const excerpt = own ? own[0] || plainText(own[1], 220) : pick(lang, p.excerpt, p.excerpt_ar) || plainText(pick(lang, p.body, p.body_ar), 220)
+  const cover = p.cover_media_id ? `<a href="${withLang(`${base}/blog/${p.slug}`, lang)}" class="-mx-5 -mt-5 mb-4 block aspect-[16/9] overflow-hidden rounded-t-xl bg-slate-100" tabindex="-1" aria-hidden="true"><img src="${base}/media/${esc(p.cover_media_id)}" alt="" loading="lazy" class="w-full h-full object-cover" /></a>` : ''
   return `<article class="border border-slate-200 rounded-xl p-5 flex flex-col">
-    <time class="text-xs text-slate-500" datetime="${new Date(p.published_at).toISOString()}">${fmtDate(p.published_at, lang)}</time>
+    ${cover}<time class="text-xs text-slate-500" datetime="${new Date(p.published_at).toISOString()}">${fmtDate(p.published_at, lang)}</time>
     <h3 class="font-semibold text-lg mt-1" dir="auto"><a class="hover:underline" href="${withLang(`${base}/blog/${p.slug}`, lang)}">${esc(title)}</a></h3>
     <p class="text-slate-600 mt-2 flex-1" dir="auto">${esc(excerpt)}</p>
     <a class="firm-text text-sm font-semibold mt-3" href="${withLang(`${base}/blog/${p.slug}`, lang)}">${t.readMore} <i class="fas fa-arrow-right rtl:rotate-180 text-xs"></i></a>
@@ -270,7 +279,7 @@ export function firmBlogPage(o: Common & { posts: PublicPost[] }) {
   return page({ ...o, body, path: `${base}/blog`, otherPath: withLang(`${base}/blog`, lang === 'ar' ? 'en' : 'ar'), title: `${t.blogTitle} – ${firmName(site, lang)}`, description: t.blogIntro })
 }
 
-export function firmPostPage(o: Common & { post: PublicPost }) {
+export function firmPostPage(o: Common & { post: PublicPost; media?: (id: string) => MediaRef | undefined }) {
   const { site, lang, post } = o
   const t = copy[lang]
   const base = `/f/${site.slug}`
@@ -281,14 +290,16 @@ export function firmPostPage(o: Common & { post: PublicPost }) {
     <a class="firm-text text-sm font-semibold" href="${withLang(`${base}/blog`, lang)}"><i class="fas fa-arrow-left rtl:rotate-180 me-1"></i>${t.back}</a>
     <h1 class="text-3xl sm:text-4xl font-bold mt-4 leading-tight" dir="auto">${esc(title)}</h1>
     <p class="text-sm text-slate-500 mt-3">${t.published} <time datetime="${new Date(post.published_at).toISOString()}">${fmtDate(post.published_at, lang)}</time></p>
-    <div class="article mt-6 text-slate-800 text-[1.05rem]" dir="auto">${renderArticle(content)}</div>
+    ${post.cover_media_id ? `<img src="${base}/media/${esc(post.cover_media_id)}" alt="${esc(post.cover_alt || title)}" class="mt-6 w-full aspect-[16/9] object-cover rounded-xl bg-slate-100" />` : ''}
+    <div class="article mt-6 text-slate-800 text-[1.05rem]" dir="auto">${renderArticle(content, o.media)}</div>
     <div class="mt-10 rounded-xl border border-slate-200 bg-slate-50 p-6 flex flex-wrap items-center justify-between gap-4">
       <p class="text-slate-700">${t.contactIntro.split('.')[0]}.</p>
       <a href="${withLang(base, lang)}#contact" class="firm-btn rounded-lg px-5 py-3 font-semibold">${t.consult}</a>
     </div>
   </article>`
   const path = `${base}/blog/${post.slug}`
-  return page({ ...o, body, path, otherPath: withLang(path, lang === 'ar' ? 'en' : 'ar'), title: `${title} – ${firmName(site, lang)}`, description: plainText(excerpt, 160) })
+  const image = post.cover_media_id ? `${o.appUrl}${base}/media/${post.cover_media_id}` : null
+  return page({ ...o, body, path, otherPath: withLang(path, lang === 'ar' ? 'en' : 'ar'), title: `${title} – ${firmName(site, lang)}`, description: plainText(excerpt, 160), image })
 }
 
 export function firmNotFoundPage(o: Common) {

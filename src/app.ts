@@ -89,6 +89,9 @@ export function createApp(deps: Deps) {
       frameAncestors: ["'none'"],
       baseUri: ["'self'"],
       // The invoice payment form redirects to Tap's hosted checkout, which form-action also governs.
+      // YouTube and Vimeo videos placed in blog articles.
+      frameSrc: ["'self'", 'https://www.youtube-nocookie.com', 'https://player.vimeo.com'],
+      mediaSrc: ["'self'"],
       formAction: ["'self'", (c) => (/^\/pay\/[\w-]+$/.test(c.req.path) ? 'https://*.tap.company' : '')]
     },
     strictTransportSecurity: config.isProduction ? 'max-age=31536000; includeSubDomains' : false,
@@ -131,9 +134,11 @@ export function createApp(deps: Deps) {
 
   const uploadLimit = bodyLimit({ maxSize: config.maxUploadBytes + 1024 * 1024 })
   const jsonLimit = bodyLimit({ maxSize: 3 * 1024 * 1024 })
+  const mediaLimit = bodyLimit({ maxSize: Math.max(config.maxUploadBytes, config.maxVideoBytes) + 1024 * 1024 })
   app.use('/api/*', async (c, next) => {
     const p = c.req.path
     const isUpload = p === '/api/documents/upload' || p === '/api/v1/documents/upload' || p === '/api/org/branding/logo' || p === '/api/library/sources' || p === '/api/portal/documents' || p === '/api/import' || p === '/api/import/preview'
+    if (p === '/api/website/media') return mediaLimit(c, next)
     return (isUpload ? uploadLimit : jsonLimit)(c, next)
   })
 
