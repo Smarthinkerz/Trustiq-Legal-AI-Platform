@@ -88,8 +88,9 @@ describe('TrustiqLegal blog', () => {
     expect(blogSlug('smarthinkerz')).toBe('smarthinkerz')
     expect(blogSlug('  ')).toBeUndefined()
 
-    const custom = await setup({ PLATFORM_BLOG_SLUG: 'no-such-site', PLATFORM_ADMIN_EMAILS: ADMIN })
-    const { c } = await registered(custom.app, { email: ADMIN })
+    const admin = `admin-${crypto.randomUUID().slice(0, 6)}@trustiq.test`
+    const custom = await setup({ PLATFORM_BLOG_SLUG: 'no-such-site', PLATFORM_ADMIN_EMAILS: admin })
+    const { c } = await registered(custom.app, { email: admin })
     await c.post('/api/website/posts', { title: 'Admin firm article', body: 'Hello', status: 'published' })
     expect(await (await custom.app.request('/blog')).text()).toContain('Admin firm article')
   })
