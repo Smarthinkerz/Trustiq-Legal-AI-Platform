@@ -15,6 +15,7 @@ const TABS = [
   ['team', 'fa-users', () => true],
   ['branding', 'fa-palette', () => canManageTeam()],
   ['plan', 'fa-credit-card', () => true],
+  ['whatsapp', 'fa-comment-dots', () => canManageTeam()],
   ['api', 'fa-key', () => canManageTeam()],
   ['audit', 'fa-clipboard-list', () => canManageTeam()]
 ]
@@ -29,7 +30,7 @@ export async function settingsView(root, ctx) {
     </div>
     <div id="tab-body">${spinner()}</div>`)
   const body = root.querySelector('#tab-body')
-  await ({ profile, firm, team, branding, plan, api: apiKeys, audit })[active](body, ctx)
+  await ({ profile, firm, team, branding, plan, whatsapp, api: apiKeys, audit })[active](body, ctx)
 }
 
 // ---------------- Profile ----------------
@@ -534,6 +535,99 @@ async function plan(root, { isCurrent, query }) {
 }
 
 // ---------------- API keys ----------------
+// ---------------- WhatsApp reminders ----------------
+
+const WA_KINDS = ['hearing', 'invoice', 'documents']
+const WA_STATUS = { sent: 'bg-emerald-100 text-emerald-700', failed: 'bg-red-100 text-red-700', sending: 'bg-slate-100 text-slate-600' }
+
+async function whatsapp(root, { isCurrent, rerender }) {
+  const w = await api.get('/api/whatsapp')
+  if (!isCurrent()) return
+  const ro = readOnly()
+  render(root, html`<div class="grid lg:grid-cols-2 gap-6 max-w-6xl">
+    <section class="card card-pad space-y-4">
+      <div>
+        <h2 class="font-semibold flex items-center gap-2"><i class="fab fa-whatsapp text-emerald-600 text-lg"></i>${t('wa.title')}</h2>
+        <p class="text-sm text-slate-500 mt-1">${t('wa.help')}</p>
+      </div>
+      ${!w.available ? html`<p class="text-sm rounded-lg bg-amber-50 border border-amber-200 text-amber-800 p-3">${t('wa.no_encryption')}</p>`
+        : w.connected ? html`<div class="text-sm space-y-3">
+            <p><i class="fas fa-circle-check text-emerald-600 me-1"></i>${t('wa.connected', { phone: w.display_phone || w.phone_number_id })}</p>
+            <p class="text-xs text-slate-500">${t('wa.clients_opted_in', { n: w.stats.opted_in })}${w.stats.opted_in_no_phone ? ` · ${t('wa.no_phone', { n: w.stats.opted_in_no_phone })}` : ''}</p>
+            ${!ro ? html`<button class="btn btn-danger-ghost btn-sm" data-action="disconnect">${t('wa.disconnect')}</button>` : ''}
+          </div>`
+        : html`${w.needs_reconnect ? html`<p class="text-sm rounded-lg bg-amber-50 border border-amber-200 text-amber-800 p-3">${t('wa.needs_reconnect')}</p>` : ''}
+          <ol class="text-sm text-slate-600 list-decimal ms-5 space-y-1">
+            <li>${t('wa.step1')}</li><li>${t('wa.step2')}</li><li>${t('wa.step3')}</li>
+          </ol>
+          ${!ro ? html`<form data-form="connect" class="space-y-3" novalidate>
+            ${inputField({ name: 'phone_number_id', label: t('wa.phone_number_id'), required: true, attrs: 'dir="ltr" inputmode="numeric" autocomplete="off"' })}
+            ${inputField({ name: 'access_token', label: t('wa.access_token'), type: 'password', required: true, hint: t('wa.access_token_hint'), attrs: 'dir="ltr" autocomplete="off" spellcheck="false"' })}
+            <div class="flex justify-end"><button type="submit" class="btn btn-primary">${t('wa.connect')}</button></div>
+          </form>` : ''}`}
+    </section>
+    <section class="card card-pad space-y-4">
+      <div>
+        <h2 class="font-semibold">${t('wa.reminders')}</h2>
+        <p class="text-sm text-slate-500 mt-1">${t('wa.templates_help')}</p>
+      </div>
+      <form data-form="settings" class="space-y-4" novalidate>
+        ${WA_KINDS.map((k) => html`<div class="rounded-lg border border-slate-200 p-3 space-y-2">
+          <label class="flex items-center gap-2 font-medium text-sm"><input type="checkbox" name="${k}_enabled" ${w.settings[k].enabled ? raw('checked') : ''} ${ro ? raw('disabled') : ''} />${t(`wa.kind_${k}`)}</label>
+          <p class="text-xs text-slate-500">${t(`wa.when_${k}`)}</p>
+          ${inputField({ name: `${k}_template`, label: t('wa.template_name'), value: w.settings[k].template, attrs: `dir="ltr" ${ro ? 'disabled' : ''}` })}
+          <details class="text-xs"><summary class="cursor-pointer text-brand-700">${t('wa.template_text')}</summary>
+            <p class="mt-2 text-slate-500">${t('wa.template_hint')}</p>
+            <p class="mt-2 font-semibold">English (en)</p><p class="bg-slate-50 rounded p-2 select-all" dir="ltr">${w.templates[k].en}</p>
+            <p class="mt-2 font-semibold">العربية (ar)</p><p class="bg-slate-50 rounded p-2 select-all" dir="rtl">${w.templates[k].ar}</p>
+          </details>
+        </div>`)}
+        ${!ro ? html`<div class="flex justify-end"><button type="submit" class="btn btn-outline">${t('common.save')}</button></div>` : ''}
+      </form>
+      ${w.connected && !ro ? html`<form data-form="test" class="pt-4 border-t border-slate-100 grid sm:grid-cols-3 gap-3 items-end" novalidate>
+        <h3 class="sm:col-span-3 font-semibold text-sm">${t('wa.test')}</h3>
+        ${inputField({ name: 'phone', label: t('wa.test_phone'), required: true, placeholder: '+968 9123 4567', attrs: 'dir="ltr" inputmode="tel"' })}
+        ${selectField({ name: 'kind', label: t('wa.test_kind'), options: WA_KINDS.map((k) => ({ value: k, label: t(`wa.kind_${k}`) })) })}
+        ${selectField({ name: 'language', label: t('settings.language'), options: [{ value: 'ar', label: 'العربية' }, { value: 'en', label: 'English' }] })}
+        <div class="sm:col-span-3 flex justify-end"><button type="submit" class="btn btn-outline"><i class="fab fa-whatsapp"></i>${t('wa.send_test')}</button></div>
+      </form>` : ''}
+    </section>
+    <section class="card lg:col-span-2">
+      <div class="px-5 py-4 border-b border-slate-100"><h2 class="font-semibold">${t('wa.log')}</h2></div>
+      ${w.messages.length ? html`<div class="overflow-x-auto"><table class="table">
+        <thead><tr><th>${t('wa.when')}</th><th>${t('cases.client')}</th><th>${t('wa.type')}</th><th>${t('common.status')}</th></tr></thead>
+        <tbody>${w.messages.map((m) => html`<tr>
+          <td class="text-sm whitespace-nowrap">${fmtDateTime(m.created_at)}</td>
+          <td class="text-sm">${m.client_id ? html`<a class="hover:underline" href="#/clients/${m.client_id}">${m.client_name}</a>` : html`<span dir="ltr">+${m.to_phone}</span>`}</td>
+          <td class="text-sm">${t(`wa.kind_${m.kind}`)} <span class="text-xs text-slate-400">(${m.language})</span></td>
+          <td><span class="badge ${WA_STATUS[m.status]}">${t(`wa.status_${m.status}`)}</span>${m.error ? html`<div class="text-xs text-red-700 max-w-md">${m.error}</div>` : ''}</td>
+        </tr>`)}</tbody></table></div>` : html`<p class="px-5 py-6 text-sm text-slate-500">${t('wa.no_messages')}</p>`}
+    </section>
+  </div>`)
+  bind(root, {
+    forms: {
+      connect: (form) => busy(submitButton(form), async () => {
+        clearFieldErrors(form)
+        try { const r = await api.put('/api/whatsapp/connect', formData(form)); toast(t('wa.connected_toast', { phone: r.display_phone })); rerender() } catch (err) { showError(err, form) }
+      }),
+      settings: (form) => busy(submitButton(form), async () => {
+        const d = formData(form)
+        const body = Object.fromEntries(WA_KINDS.map((k) => [k, { enabled: !!d[`${k}_enabled`], template: d[`${k}_template`] || '' }]))
+        try { await api.patch('/api/whatsapp/settings', body); toast(t('common.saved')); rerender() } catch (err) { showError(err, form) }
+      }),
+      test: (form) => busy(submitButton(form), async () => {
+        try { await api.post('/api/whatsapp/test', formData(form)); toast(t('wa.test_sent')); rerender() } catch (err) { showError(err, form) }
+      })
+    },
+    actions: {
+      disconnect: async () => {
+        if (!(await confirmDialog(t('wa.confirm_disconnect')))) return
+        try { await api.del('/api/whatsapp'); toast(t('common.saved')); rerender() } catch (err) { showError(err) }
+      }
+    }
+  })
+}
+
 async function apiKeys(root, { isCurrent, rerender }) {
   const { items } = await api.get('/api/org/api-keys')
   if (!isCurrent()) return

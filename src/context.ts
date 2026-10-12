@@ -48,6 +48,8 @@ export type Deps = {
   firmTap?: (secretKey: string) => TapClient
   // Runs work after the response (e.g. AI intake of a new enquiry). Tests replace it to run tasks on demand.
   defer?: (task: () => Promise<unknown>) => void
+  // Overridable in tests; used for the WhatsApp Cloud API (graph.facebook.com).
+  waFetch?: typeof fetch
   // Overridable in tests; defaults to a fetcher that refuses private network addresses.
   webFetch?: WebFetcher
   // Overridable in tests; used for Google OAuth and Calendar API calls.

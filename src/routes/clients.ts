@@ -22,11 +22,14 @@ const clientFields = {
   id_number: optText(80),
   vat_number: optText(40),
   address: optText(500),
-  notes: optText(5000)
+  notes: optText(5000),
+  language: z.enum(['en', 'ar']).nullish().or(z.literal('')).transform((v) => v || null),
+  // The client agreed to receive reminders on WhatsApp (recorded with the time).
+  whatsapp_opt_in: z.boolean().optional()
 }
 const createSchema = z.object({ ...clientFields, kind: clientFields.kind.default('individual'), conflict_override: conflictOverride })
 const updateSchema = z.object({ ...clientFields, archived: z.boolean() }).partial()
-const UPDATABLE = ['kind', 'name', 'name_ar', 'email', 'phone', 'id_number', 'vat_number', 'address', 'notes'] as const
+const UPDATABLE = ['kind', 'name', 'name_ar', 'email', 'phone', 'id_number', 'vat_number', 'address', 'notes', 'language'] as const
 
 const clientsRoutes = new Hono<AppEnv>()
 
@@ -72,9 +75,9 @@ clientsRoutes.post('/', jsonBody(createSchema), async (c) => {
   const blocking = await opposingConflicts(db, org.id, [b.name, b.name_ar])
   const gate = gateConflicts(c, blocking, b.conflict_override)
   const client = await c.get('deps').db.one(
-    `INSERT INTO clients (org_id, kind, name, name_ar, email, phone, id_number, vat_number, address, notes, created_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
-    [org.id, b.kind, b.name, b.name_ar, b.email, b.phone, b.id_number, b.vat_number, b.address, b.notes, user.id])
+    `INSERT INTO clients (org_id, kind, name, name_ar, email, phone, id_number, vat_number, address, notes, created_by, language, whatsapp_opt_in_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, CASE WHEN $13::boolean THEN now() END) RETURNING *`,
+    [org.id, b.kind, b.name, b.name_ar, b.email, b.phone, b.id_number, b.vat_number, b.address, b.notes, user.id, b.language, b.whatsapp_opt_in ?? false])
   await logConflictCheck(db, { orgId: org.id, userId: user.id, subjectType: 'client', subjectId: client!.id, subjectName: b.name, matches: blocking, ...gate })
   await audit(c, 'client.created', 'client', client!.id, gate.decision === 'override' ? { conflict_override: gate.reason } : undefined)
   return c.json({ client, conflict_check: { decision: gate.decision, matches: blocking } }, 201)
@@ -86,11 +89,12 @@ clientsRoutes.patch('/:id', jsonBody(updateSchema), async (c) => {
   const b = c.req.valid('json')
   const { sets, values } = buildUpdate(b, UPDATABLE, 3)
   if (b.archived !== undefined) sets.push(`archived_at = ${b.archived ? 'COALESCE(archived_at, now())' : 'NULL'}`)
+  if (b.whatsapp_opt_in !== undefined) sets.push(`whatsapp_opt_in_at = ${b.whatsapp_opt_in ? 'COALESCE(whatsapp_opt_in_at, now())' : 'NULL'}`)
   const client = await c.get('deps').db.one(
     `UPDATE clients SET ${[...sets, 'updated_at = now()'].join(', ')} WHERE id = $1 AND org_id = $2 RETURNING *`,
     [id, org.id, ...values])
   if (!client) throw notFound('Client')
-  await audit(c, 'client.updated', 'client', id, { fields: Object.keys(b) })
+  await audit(c, 'client.updated', 'client', id, { fields: Object.keys(b), ...(b.whatsapp_opt_in !== undefined ? { whatsapp_opt_in: b.whatsapp_opt_in } : {}) })
   return c.json({ client })
 })
 

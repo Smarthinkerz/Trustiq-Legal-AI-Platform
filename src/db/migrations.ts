@@ -878,6 +878,37 @@ ALTER TABLE leads ADD COLUMN urgency TEXT CHECK (urgency IN ('urgent', 'soon', '
 ALTER TABLE leads ADD COLUMN conflicts JSONB;
 ALTER TABLE leads ADD COLUMN replied_at TIMESTAMPTZ;
 `
+  },
+  {
+    version: 20,
+    name: 'whatsapp_reminders',
+    sql: `
+ALTER TABLE organizations ADD COLUMN wa_token_sealed TEXT;
+ALTER TABLE organizations ADD COLUMN wa_phone_number_id TEXT;
+ALTER TABLE organizations ADD COLUMN wa_display_phone TEXT;
+ALTER TABLE organizations ADD COLUMN wa_connected_at TIMESTAMPTZ;
+ALTER TABLE organizations ADD COLUMN wa_settings JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE clients ADD COLUMN language TEXT CHECK (language IN ('en', 'ar'));
+ALTER TABLE clients ADD COLUMN whatsapp_opt_in_at TIMESTAMPTZ;
+CREATE TABLE whatsapp_messages (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  client_id UUID REFERENCES clients(id) ON DELETE SET NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('hearing', 'invoice', 'documents', 'test')),
+  entity_id UUID,
+  ref TEXT NOT NULL DEFAULT '',
+  to_phone TEXT NOT NULL,
+  template TEXT NOT NULL,
+  language TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'sending' CHECK (status IN ('sending', 'sent', 'failed')),
+  wamid TEXT,
+  error TEXT,
+  sent_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX whatsapp_messages_once ON whatsapp_messages (kind, entity_id, ref) WHERE entity_id IS NOT NULL;
+CREATE INDEX whatsapp_messages_org_idx ON whatsapp_messages (org_id, created_at DESC);
+`
   }
 ]
 
