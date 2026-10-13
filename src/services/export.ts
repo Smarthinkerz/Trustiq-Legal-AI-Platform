@@ -398,3 +398,64 @@ export async function renderRedlineDocx(opts: {
   })
   return Packer.toBuffer(doc)
 }
+
+// ---------------------------------------------------------------------------
+// Receipt voucher (سند قبض) for client funds received, bilingual.
+// ---------------------------------------------------------------------------
+
+const METHOD_LABELS: Record<string, [string, string]> = {
+  cash: ['Cash', 'نقداً'], bank_transfer: ['Bank transfer', 'تحويل بنكي'], cheque: ['Cheque', 'شيك'], card: ['Card', 'بطاقة'], other: ['Other', 'أخرى']
+}
+
+export async function renderFundReceipt(o: {
+  receiptNo: string; date: string; firmName: string; clientName: string; clientNameAr?: string | null; amount: number; currency: string
+  method: string | null; reference: string | null; description: string; caseLabel: string | null; receivedBy: string | null; letterhead?: Letterhead | null
+}): Promise<Buffer> {
+  const color = (o.letterhead?.primary_color ?? '#1a365d').replace('#', '')
+  const cell = (text: string, opts: { rtl?: boolean; bold?: boolean; width?: number; shade?: boolean } = {}) => new TableCell({
+    width: { size: opts.width ?? 33, type: WidthType.PERCENTAGE },
+    shading: opts.shade ? { fill: 'F1F5F9' } : undefined,
+    children: [new Paragraph({ bidirectional: !!opts.rtl, alignment: opts.rtl ? AlignmentType.RIGHT : AlignmentType.LEFT,
+      children: [new TextRun({ text, bold: opts.bold, size: 20, font: opts.rtl ? 'Arial' : 'Calibri', rightToLeft: !!opts.rtl || hasArabic(text) })] })]
+  })
+  const amount = o.amount.toLocaleString('en', { minimumFractionDigits: decimalsFor(o.currency), maximumFractionDigits: decimalsFor(o.currency) })
+  const rows: [string, string, string][] = [
+    ['Receipt no.', o.receiptNo, 'رقم السند'],
+    ['Date', o.date, 'التاريخ'],
+    ['Received from', [o.clientName, o.clientNameAr].filter(Boolean).join(' / '), 'استلمنا من'],
+    ['Amount', `${amount} ${o.currency}`, 'المبلغ'],
+    ['Payment method', o.method ? METHOD_LABELS[o.method]!.join(' / ') : '—', 'طريقة الدفع'],
+    ['Reference', o.reference || '—', 'المرجع'],
+    ['For', o.description, 'وذلك عن'],
+    ...(o.caseLabel ? [['Matter', o.caseLabel, 'القضية'] as [string, string, string]] : []),
+    ['Held as', 'Client funds (advance on account)', 'أموال موكل (دفعة مقدمة تحت الحساب)']
+  ]
+  const table = new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    rows: rows.map(([en, value, ar]) => new TableRow({ children: [cell(en, { bold: true, width: 25, shade: true }), cell(value, { width: 50 }), cell(ar, { rtl: true, bold: true, width: 25, shade: true })] }))
+  })
+  const p = (text: string, opts: { size?: number; bold?: boolean; rtl?: boolean; after?: number; align?: (typeof AlignmentType)[keyof typeof AlignmentType] } = {}) => new Paragraph({
+    bidirectional: !!opts.rtl, alignment: opts.align ?? AlignmentType.CENTER, spacing: { after: opts.after ?? 120 },
+    children: [new TextRun({ text, bold: opts.bold, size: opts.size ?? 22, font: opts.rtl ? 'Arial' : 'Calibri', color: opts.bold ? color : undefined, rightToLeft: !!opts.rtl })]
+  })
+  const headerChildren = letterheadParagraphs(o.letterhead, false, 'Calibri', color)
+  const doc = new Document({
+    creator: o.firmName,
+    title: `Receipt ${o.receiptNo}`,
+    sections: [{
+      properties: { page: { margin: { top: 1300, bottom: 1100, left: 1200, right: 1200 } } },
+      headers: headerChildren.length ? { default: new Header({ children: headerChildren }) } : undefined,
+      children: [
+        p('سند قبض', { size: 32, bold: true, rtl: true, after: 40 }),
+        p('RECEIPT VOUCHER', { size: 26, bold: true, after: 300 }),
+        table,
+        p('', { after: 400 }),
+        new Paragraph({ children: [new TextRun({ text: `Received by / المستلم: ${o.receivedBy ?? ''}`, size: 20, font: 'Calibri' })], spacing: { after: 500 } }),
+        new Paragraph({ children: [new TextRun({ text: 'Signature / التوقيع: ______________________', size: 20, font: 'Calibri' })], spacing: { after: 300 } }),
+        p(`${o.firmName} – This amount is held on the client's behalf and applied only to their fees and expenses as agreed.`, { size: 16 }),
+        p('يُحتفظ بهذا المبلغ لحساب الموكل ولا يُستخدم إلا لسداد أتعابه ومصاريفه وفق الاتفاق.', { size: 16, rtl: true })
+      ]
+    }]
+  })
+  return Packer.toBuffer(doc)
+}

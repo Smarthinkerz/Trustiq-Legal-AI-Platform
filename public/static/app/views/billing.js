@@ -1,3 +1,4 @@
+import { fundsReport } from './funds.js'
 import { api, download } from '../api.js'
 import { bind, formData, html, qs, raw, render } from '../dom.js'
 import { fmtDate, fmtDateTime, fmtMoney, t } from '../i18n.js'
@@ -12,6 +13,7 @@ const TABS = [
   ['invoices', 'fa-file-invoice-dollar', () => true],
   ['time', 'fa-stopwatch', () => true],
   ['expenses', 'fa-receipt', () => true],
+  ['funds', 'fa-vault', () => can('owner', 'admin')],
   ['settings', 'fa-sliders', () => can('owner', 'admin')]
 ]
 const today = () => new Date().toISOString().slice(0, 10)
@@ -211,7 +213,7 @@ export async function billingView(root, ctx) {
       'new-invoice': () => openInvoiceWizard()
     }
   })
-  await ({ invoices, time, expenses, settings })[active](body, ctx)
+  await ({ invoices, time, expenses, funds: fundsReport, settings })[active](body, ctx)
 }
 
 async function invoices(root, { query, isCurrent }) {

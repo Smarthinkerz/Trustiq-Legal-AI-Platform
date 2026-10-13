@@ -1033,6 +1033,37 @@ CREATE TABLE client_kyc (
 );
 CREATE INDEX client_kyc_org_idx ON client_kyc (org_id, status, next_review_on);
 `
+  },
+  {
+    version: 25,
+    name: 'client_funds',
+    sql: `
+CREATE TABLE client_fund_entries (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  client_id UUID NOT NULL REFERENCES clients(id) ON DELETE RESTRICT,
+  case_id UUID REFERENCES cases(id) ON DELETE SET NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('deposit', 'disbursement', 'applied', 'refund')),
+  delta NUMERIC(14,3) NOT NULL,
+  currency TEXT NOT NULL,
+  entry_date DATE NOT NULL,
+  description TEXT NOT NULL,
+  method TEXT CHECK (method IN ('cash', 'bank_transfer', 'cheque', 'card', 'other')),
+  reference TEXT,
+  receipt_no TEXT,
+  invoice_id UUID REFERENCES invoices(id) ON DELETE SET NULL,
+  reversal_of UUID REFERENCES client_fund_entries(id) ON DELETE RESTRICT,
+  created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX client_fund_entries_client_idx ON client_fund_entries (client_id, currency, entry_date, created_at);
+CREATE INDEX client_fund_entries_org_idx ON client_fund_entries (org_id, created_at DESC);
+CREATE UNIQUE INDEX client_fund_entries_reversal_key ON client_fund_entries (reversal_of) WHERE reversal_of IS NOT NULL;
+CREATE UNIQUE INDEX client_fund_entries_receipt_key ON client_fund_entries (org_id, receipt_no) WHERE receipt_no IS NOT NULL;
+ALTER TABLE organizations ADD COLUMN fund_receipt_seq INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE invoice_payments DROP CONSTRAINT IF EXISTS invoice_payments_method_check;
+ALTER TABLE invoice_payments ADD CONSTRAINT invoice_payments_method_check CHECK (method IN ('manual', 'online', 'client_funds'));
+`
   }
 ]
 

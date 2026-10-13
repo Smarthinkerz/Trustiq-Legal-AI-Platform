@@ -1,3 +1,4 @@
+import { fundsActions, fundsCard } from './funds.js'
 import { kycActions, kycCard, kycStatusBadge, riskBadge } from './kyc.js'
 import { credentialActions, credentialsCard } from './credentials.js'
 import { api } from '../api.js'
@@ -131,14 +132,15 @@ export async function clientsListView(root, { query, isCurrent }) {
 }
 
 export async function clientDetailView(root, { params, isCurrent, rerender }) {
-  const [{ client: c, cases, documents }, portal, messages, invoices, docRequests, creds, kyc] = await Promise.all([
+  const [{ client: c, cases, documents }, portal, messages, invoices, docRequests, creds, kyc, funds] = await Promise.all([
     api.get(`/api/clients/${params.id}`),
     api.get(`/api/clients/${params.id}/portal`),
     api.get(`/api/clients/${params.id}/messages`),
     api.get(`/api/billing/invoices?client_id=${params.id}&pageSize=10`),
     api.get(`/api/document-requests?client_id=${params.id}`),
     api.get(`/api/credentials?client_id=${params.id}`),
-    api.get(`/api/kyc/client/${params.id}`)
+    api.get(`/api/kyc/client/${params.id}`),
+    api.get(`/api/funds/client/${params.id}`)
   ])
   if (!isCurrent()) return
   const canInvite = can('owner', 'admin', 'lawyer')
@@ -183,6 +185,7 @@ export async function clientDetailView(root, { params, isCurrent, rerender }) {
       <div class="lg:col-span-2 space-y-6">
         ${kycCard(kyc, { ro })}
         ${credentialsCard(creds.items, { ro })}
+        ${fundsCard(funds, { ro })}
         <section class="card">
           <div class="px-5 py-4 border-b border-slate-100"><h2 class="font-semibold">${t('nav.cases')} <span class="text-slate-400 font-normal">(${cases.length})</span></h2></div>
           ${cases.length ? html`<ul class="divide-y divide-slate-100">${cases.map((k) => html`<li><a href="#/cases/${k.id}" class="px-5 py-3 flex flex-wrap items-center gap-3 hover:bg-slate-50">
@@ -236,6 +239,7 @@ export async function clientDetailView(root, { params, isCurrent, rerender }) {
     actions: {
       ...credentialActions({ client: c, cases, documents, items: creds.items, onChange: rerender }),
       ...kycActions({ data: kyc, onChange: rerender }),
+      ...fundsActions({ client: c, cases, data: funds, onChange: rerender }),
       invoice: () => openInvoiceWizard({ clientId: c.id, clientName: c.name }),
       'request-docs': () => openRequestForm({ clientId: c.id, cases, onSaved: rerender }),
       'open-request': (el) => openRequest(el.dataset.id, { onChange: rerender }),
