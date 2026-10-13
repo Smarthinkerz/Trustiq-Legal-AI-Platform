@@ -1,3 +1,4 @@
+import { balances } from '../services/funds'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { audit, auth, type AppEnv, type Ctx } from '../context'
@@ -258,3 +259,17 @@ portalRoutes.post('/signatures/:id/open', async (c) => {
 })
 
 export default portalRoutes
+
+// The client's own statement of money the firm holds for them.
+portalRoutes.get('/funds', async (c) => {
+  const { org, clientId } = portalUser(c)
+  const { db } = c.get('deps')
+  const [bal, rows] = await Promise.all([
+    balances(db, org.id, clientId!),
+    db.query(
+      `SELECT e.id, e.kind, e.delta, e.currency, to_char(e.entry_date, 'YYYY-MM-DD') AS entry_date, e.description, e.receipt_no, k.reference AS case_reference, i.number AS invoice_number
+         FROM client_fund_entries e LEFT JOIN cases k ON k.id = e.case_id LEFT JOIN invoices i ON i.id = e.invoice_id
+        WHERE e.org_id = $1 AND e.client_id = $2 ORDER BY e.entry_date DESC, e.created_at DESC LIMIT 500`, [org.id, clientId])
+  ])
+  return c.json({ balances: bal, entries: rows })
+})

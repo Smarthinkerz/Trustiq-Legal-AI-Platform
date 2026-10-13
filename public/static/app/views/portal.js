@@ -1,3 +1,4 @@
+import { portalFundsCard } from './funds.js'
 import { api, download } from '../api.js'
 import { bind, html, render } from '../dom.js'
 import { fmtDate, fmtDateTime, fmtMoney, fmtRelative, getLang, t } from '../i18n.js'
@@ -61,10 +62,11 @@ const docList = (docs) => docs.length ? html`<ul class="divide-y divide-slate-10
 </li>`)}</ul>` : html`<p class="px-5 py-6 text-sm text-slate-500">${t('portal.no_documents')}</p>`
 
 export async function portalHomeView(root, { isCurrent, rerender }) {
-  const [o, sig, reqs] = await Promise.all([
+  const [o, sig, reqs, funds] = await Promise.all([
     api.get('/api/portal/overview'),
     api.get('/api/portal/signatures').catch(() => ({ items: [] })),
-    api.get('/api/portal/document-requests').catch(() => ({ items: [] }))
+    api.get('/api/portal/document-requests').catch(() => ({ items: [] })),
+    api.get('/api/portal/funds').catch(() => ({ balances: [], entries: [] }))
   ])
   const openRequests = reqs.items.filter((r) => r.status === 'open')
   if (!isCurrent()) return
@@ -115,6 +117,7 @@ export async function portalHomeView(root, { isCurrent, rerender }) {
         </section>
       </div>
       <div class="space-y-6">
+        ${portalFundsCard(funds)}
         <section class="card">
           <div class="px-5 py-4 border-b border-slate-100"><h2 class="font-semibold">${t('portal.invoices')}</h2>
             ${outstanding.length ? html`<p class="text-xs text-slate-500">${t('portal.outstanding', { n: outstanding.length })}</p>` : ''}</div>
