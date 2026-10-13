@@ -991,6 +991,48 @@ CREATE TABLE client_credential_cases (
 );
 CREATE INDEX client_credential_cases_case_idx ON client_credential_cases (case_id);
 `
+  },
+  {
+    version: 24,
+    name: 'client_kyc',
+    sql: `
+CREATE TABLE client_kyc (
+  client_id UUID PRIMARY KEY REFERENCES clients(id) ON DELETE CASCADE,
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  identity_verified BOOLEAN NOT NULL DEFAULT false,
+  identity_method TEXT,
+  nationality TEXT,
+  residence_country TEXT,
+  occupation TEXT,
+  purpose TEXT,
+  source_of_funds TEXT,
+  source_of_wealth TEXT,
+  pep BOOLEAN NOT NULL DEFAULT false,
+  pep_details TEXT,
+  high_risk_country BOOLEAN NOT NULL DEFAULT false,
+  cash_involved BOOLEAN NOT NULL DEFAULT false,
+  complex_structure BOOLEAN NOT NULL DEFAULT false,
+  non_face_to_face BOOLEAN NOT NULL DEFAULT false,
+  beneficial_owners JSONB NOT NULL DEFAULT '[]',
+  sanctions_checked_on DATE,
+  sanctions_lists TEXT,
+  sanctions_match BOOLEAN NOT NULL DEFAULT false,
+  sanctions_notes TEXT,
+  risk_score INTEGER NOT NULL DEFAULT 0,
+  risk_level TEXT NOT NULL DEFAULT 'low' CHECK (risk_level IN ('low', 'medium', 'high')),
+  risk_override TEXT CHECK (risk_override IN ('low', 'medium', 'high')),
+  override_reason TEXT,
+  status TEXT NOT NULL DEFAULT 'in_progress' CHECK (status IN ('in_progress', 'approved', 'rejected')),
+  decided_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  decided_at TIMESTAMPTZ,
+  decision_note TEXT,
+  next_review_on DATE,
+  updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX client_kyc_org_idx ON client_kyc (org_id, status, next_review_on);
+`
   }
 ]
 

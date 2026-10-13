@@ -1,3 +1,4 @@
+import { kycActions, kycCard, kycStatusBadge, riskBadge } from './kyc.js'
 import { credentialActions, credentialsCard } from './credentials.js'
 import { api } from '../api.js'
 import { bind, formData, html, qs, raw, render } from '../dom.js'
@@ -80,7 +81,7 @@ export async function clientsListView(root, { query, isCurrent }) {
   const state = { page: Number(query.get('page')) || 1, q: query.get('q') || '', archived: query.get('archived') === 'true' }
   const ro = readOnly()
   render(root, html`
-    ${pageHeader(t('nav.clients'), t('clients.subtitle'), ro ? '' : html`<div class="flex flex-wrap gap-2">${can('owner', 'admin', 'lawyer') ? html`<button class="btn btn-outline" data-action="import"><i class="fas fa-file-excel"></i>${t('import_xl.button')}</button>` : ''}<button class="btn btn-primary" data-action="new"><i class="fas fa-plus"></i>${t('clients.new')}</button></div>`)}
+    ${pageHeader(t('nav.clients'), t('clients.subtitle'), ro ? '' : html`<div class="flex flex-wrap gap-2">${can('owner', 'admin', 'lawyer') ? html`<a class="btn btn-outline" href="#/compliance"><i class="fas fa-user-shield"></i>${t('kyc.register')}</a><button class="btn btn-outline" data-action="import"><i class="fas fa-file-excel"></i>${t('import_xl.button')}</button>` : ''}<button class="btn btn-primary" data-action="new"><i class="fas fa-plus"></i>${t('clients.new')}</button></div>`)}
     <div class="card">
       <div class="p-4 border-b border-slate-100 flex flex-wrap gap-3 items-center">
         <div class="relative flex-1 min-w-52">
@@ -97,13 +98,14 @@ export async function clientsListView(root, { query, isCurrent }) {
     if (!isCurrent()) return
     render(results, res.items.length ? html`
       <div class="overflow-x-auto"><table class="table">
-        <thead><tr><th>${t('clients.name')}</th><th>${t('clients.contact')}</th><th>${t('clients.id_number')}</th><th>${t('clients.open_cases')}</th><th>${t('common.created')}</th></tr></thead>
+        <thead><tr><th>${t('clients.name')}</th><th>${t('clients.contact')}</th><th>${t('clients.id_number')}</th><th>${t('clients.open_cases')}</th><th>${t('kyc.short')}</th><th>${t('common.created')}</th></tr></thead>
         <tbody>${res.items.map((c) => html`<tr class="clickable" data-action="open" data-id="${c.id}">
           <td><div class="flex items-center gap-2"><i class="fas ${c.kind === 'company' ? 'fa-building' : 'fa-user'} text-slate-400"></i>
             <div><div class="font-medium">${c.name}${c.unread_messages ? html` <span class="badge bg-brand-600 text-white ms-1" title="${t('clients.unread_messages')}"><i class="fas fa-envelope"></i> ${c.unread_messages}</span>` : ''}</div>${c.name_ar ? html`<div class="text-xs text-slate-500" dir="rtl">${c.name_ar}</div>` : ''}</div></div></td>
           <td class="text-slate-600"><div dir="ltr" class="text-start">${c.email || ''}</div><div dir="ltr" class="text-start text-xs">${c.phone || ''}</div></td>
           <td class="text-slate-600 text-xs">${c.id_number || '—'}</td>
           <td>${c.open_cases}</td>
+          <td><div class="flex flex-wrap gap-1">${kycStatusBadge(c.kyc_status)}${riskBadge(c.kyc_risk)}</div></td>
           <td class="text-xs text-slate-500">${fmtDate(c.created_at)}</td>
         </tr>`)}</tbody></table></div>
       ${pagination(res)}`
@@ -129,13 +131,14 @@ export async function clientsListView(root, { query, isCurrent }) {
 }
 
 export async function clientDetailView(root, { params, isCurrent, rerender }) {
-  const [{ client: c, cases, documents }, portal, messages, invoices, docRequests, creds] = await Promise.all([
+  const [{ client: c, cases, documents }, portal, messages, invoices, docRequests, creds, kyc] = await Promise.all([
     api.get(`/api/clients/${params.id}`),
     api.get(`/api/clients/${params.id}/portal`),
     api.get(`/api/clients/${params.id}/messages`),
     api.get(`/api/billing/invoices?client_id=${params.id}&pageSize=10`),
     api.get(`/api/document-requests?client_id=${params.id}`),
-    api.get(`/api/credentials?client_id=${params.id}`)
+    api.get(`/api/credentials?client_id=${params.id}`),
+    api.get(`/api/kyc/client/${params.id}`)
   ])
   if (!isCurrent()) return
   const canInvite = can('owner', 'admin', 'lawyer')
@@ -178,6 +181,7 @@ export async function clientDetailView(root, { params, isCurrent, rerender }) {
         </div>
       </section>
       <div class="lg:col-span-2 space-y-6">
+        ${kycCard(kyc, { ro })}
         ${credentialsCard(creds.items, { ro })}
         <section class="card">
           <div class="px-5 py-4 border-b border-slate-100"><h2 class="font-semibold">${t('nav.cases')} <span class="text-slate-400 font-normal">(${cases.length})</span></h2></div>
@@ -231,6 +235,7 @@ export async function clientDetailView(root, { params, isCurrent, rerender }) {
     },
     actions: {
       ...credentialActions({ client: c, cases, documents, items: creds.items, onChange: rerender }),
+      ...kycActions({ data: kyc, onChange: rerender }),
       invoice: () => openInvoiceWizard({ clientId: c.id, clientName: c.name }),
       'request-docs': () => openRequestForm({ clientId: c.id, cases, onSaved: rerender }),
       'open-request': (el) => openRequest(el.dataset.id, { onChange: rerender }),
