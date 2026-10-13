@@ -147,7 +147,7 @@ export async function casesListView(root, { query, isCurrent }) {
   const ro = readOnly()
 
   render(root, html`
-    ${pageHeader(t('nav.cases'), t('cases.subtitle'), ro ? '' : html`<div class="flex flex-wrap gap-2">${can('owner', 'admin', 'lawyer') ? html`<button class="btn btn-outline" data-action="import"><i class="fas fa-file-excel"></i>${t('import_xl.button')}</button>` : ''}<button class="btn btn-primary" data-action="new"><i class="fas fa-plus"></i>${t('cases.new')}</button></div>`)}
+    ${pageHeader(t('nav.cases'), t('cases.subtitle'), ro ? '' : html`<div class="flex flex-wrap gap-2">${can('owner', 'admin', 'lawyer') ? html`<a class="btn btn-outline" href="#/onboarding"><i class="fas fa-clipboard-check"></i>${t('onb.title')}</a><button class="btn btn-outline" data-action="import"><i class="fas fa-file-excel"></i>${t('import_xl.button')}</button>` : ''}<button class="btn btn-primary" data-action="new"><i class="fas fa-plus"></i>${t('cases.new')}</button></div>`)}
     <div class="card">
       <div class="p-4 border-b border-slate-100 flex flex-wrap gap-3">
         <div class="relative flex-1 min-w-52">

@@ -1133,6 +1133,13 @@ CREATE TABLE engagement_letters (
 CREATE INDEX engagement_letters_case_idx ON engagement_letters (case_id, created_at DESC);
 CREATE INDEX engagement_letters_org_idx ON engagement_letters (org_id, created_at DESC);
 `
+  },
+  {
+    version: 28,
+    name: 'onboarding_checks',
+    sql: `
+ALTER TABLE organizations ADD COLUMN onboarding_checks TEXT[] NOT NULL DEFAULT ARRAY['conflict', 'kyc', 'poa', 'engagement'];
+`
   }
 ]
 

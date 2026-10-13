@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { auth, type AppEnv } from '../context'
 import { usageThisMonth } from '../services/usage'
 import { CREDENTIAL_COLUMNS, GULF_TODAY } from '../services/credentials'
+import { gaps, onboardingRows } from '../services/onboarding'
 
 const dashboardRoutes = new Hono<AppEnv>()
 
@@ -36,6 +37,9 @@ dashboardRoutes.get('/', async (c) => {
         WHERE cc.org_id = $1 AND cc.revoked_at IS NULL AND cc.replaced_by IS NULL AND cl.archived_at IS NULL AND cc.expires_on <= ${GULF_TODAY} + 30
         ORDER BY cc.expires_on LIMIT 8`, [org.id])
   ])
+  const o = await db.one('SELECT onboarding_checks FROM organizations WHERE id = $1', [org.id])
+  const required: string[] = o?.onboarding_checks ?? []
+  counts.onboarding_gaps = required.length ? (await onboardingRows(db, org.id)).filter((r) => gaps(r, required).length).length : 0
   return c.json({
     counts,
     cases_by_status: Object.fromEntries(byStatus.map((r) => [r.status, r.n])),
