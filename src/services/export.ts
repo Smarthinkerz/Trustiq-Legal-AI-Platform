@@ -341,3 +341,60 @@ export async function renderSignedDocx(d: SignedCopy): Promise<Buffer> {
   const doc = new Document({ creator: d.letterhead?.firm_name ?? 'TrustiqLegal', title: d.title, sections: [section(body), section(page)] })
   return Packer.toBuffer(doc)
 }
+
+// ---------------------------------------------------------------------------
+// Redline (comparison) as Word: deletions struck through in red, insertions
+// underlined in blue, with a short header saying what was compared.
+// ---------------------------------------------------------------------------
+
+export async function renderRedlineDocx(opts: {
+  title: string; subtitle: string; ops: { t: 'eq' | 'ins' | 'del'; s: string }[]; language: 'en' | 'ar'; letterhead?: Letterhead | null
+  legend: { inserted: string; deleted: string }
+}): Promise<Buffer> {
+  const rtl = opts.language === 'ar'
+  const font = rtl ? 'Arial' : 'Calibri'
+  const color = (opts.letterhead?.primary_color ?? '#1a365d').replace('#', '')
+  const headerChildren = letterheadParagraphs(opts.letterhead, rtl, font, color)
+  const run = (text: string, t: 'eq' | 'ins' | 'del', lineRtl: boolean) => new TextRun({
+    text, size: 22, font, rightToLeft: lineRtl,
+    ...(t === 'del' ? { strike: true, color: 'C00000' } : t === 'ins' ? { underline: {}, color: '1F4E99' } : {})
+  })
+  const body: Paragraph[] = [
+    new Paragraph({ bidirectional: rtl, alignment: AlignmentType.CENTER, spacing: { after: 120 },
+      children: [new TextRun({ text: opts.title, bold: true, size: 30, font, rightToLeft: rtl || hasArabic(opts.title) })] }),
+    new Paragraph({ bidirectional: rtl, alignment: AlignmentType.CENTER, spacing: { after: 120 },
+      children: [new TextRun({ text: opts.subtitle, size: 18, color: '555555', font, rightToLeft: rtl || hasArabic(opts.subtitle) })] }),
+    new Paragraph({ bidirectional: rtl, alignment: AlignmentType.CENTER, spacing: { after: 300 },
+      children: [run(opts.legend.inserted, 'ins', rtl), new TextRun({ text: '   ', size: 18 }), run(opts.legend.deleted, 'del', rtl)] })
+  ]
+  // Split the op stream into paragraphs at newlines, keeping each piece's formatting.
+  let pieces: { t: 'eq' | 'ins' | 'del'; s: string }[] = []
+  const flush = () => {
+    const text = pieces.map((p) => p.s).join('')
+    const lineRtl = rtl || hasArabic(text)
+    body.push(new Paragraph({
+      bidirectional: lineRtl, alignment: lineRtl ? AlignmentType.RIGHT : AlignmentType.JUSTIFIED, spacing: { after: text.trim() ? 120 : 60, line: 300 },
+      children: pieces.filter((p) => p.s).map((p) => run(p.s, p.t, lineRtl))
+    }))
+    pieces = []
+  }
+  for (const op of opts.ops) {
+    const parts = op.s.split('\n')
+    parts.forEach((part, i) => {
+      if (i > 0) flush()
+      if (part) pieces.push({ t: op.t, s: part })
+    })
+  }
+  if (pieces.length) flush()
+  const doc = new Document({
+    creator: opts.letterhead?.firm_name ?? 'TrustiqLegal',
+    title: opts.title,
+    sections: [{
+      properties: { page: { margin: { top: 1300, bottom: 1100, left: 1200, right: 1200 } } },
+      headers: headerChildren.length ? { default: new Header({ children: headerChildren }) } : undefined,
+      footers: { default: new Footer({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ children: [PageNumber.CURRENT, ' / ', PageNumber.TOTAL_PAGES], size: 14, color: '777777', font })] })] }) },
+      children: body
+    }]
+  })
+  return Packer.toBuffer(doc)
+}
