@@ -1114,6 +1114,25 @@ CREATE TABLE playbook_reviews (
 );
 CREATE INDEX playbook_reviews_doc_idx ON playbook_reviews (document_id, created_at DESC);
 `
+  },
+  {
+    version: 27,
+    name: 'engagement_letters',
+    sql: `
+CREATE TABLE engagement_letters (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  case_id UUID NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+  client_id UUID REFERENCES clients(id) ON DELETE SET NULL,
+  document_id UUID REFERENCES documents(id) ON DELETE SET NULL,
+  language TEXT NOT NULL CHECK (language IN ('en', 'ar')),
+  terms JSONB NOT NULL,
+  created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX engagement_letters_case_idx ON engagement_letters (case_id, created_at DESC);
+CREATE INDEX engagement_letters_org_idx ON engagement_letters (org_id, created_at DESC);
+`
   }
 ]
 

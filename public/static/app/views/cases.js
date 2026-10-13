@@ -20,6 +20,7 @@ import { openCaseBrief } from './case-brief.js'
 import { openDictation } from './dictation.js'
 import { casePoaBanner } from './credentials.js'
 import { caseKycBanner } from './kyc.js'
+import { caseEngagementBanner } from './engagement.js'
 
 export const CASE_STATUSES = ['active', 'pending', 'under_review', 'on_hold', 'closed']
 export const PRIORITIES = ['low', 'medium', 'high', 'urgent']
@@ -241,6 +242,7 @@ export async function caseDetailView(root, { params, isCurrent, rerender }) {
     </div>
 
     <div data-kyc-banner></div>
+    <div data-eng-banner></div>
     <div data-poa-banner></div>
     <div class="grid lg:grid-cols-3 gap-6">
       <div class="lg:col-span-2 space-y-6">
@@ -348,6 +350,7 @@ export async function caseDetailView(root, { params, isCurrent, rerender }) {
   const taskShared = taskHandlers(() => tasks.items, refresh)
   casePoaBanner(root.querySelector('[data-poa-banner]'), k, { onChange: rerender })
   caseKycBanner(root.querySelector('[data-kyc-banner]'), k)
+  caseEngagementBanner(root.querySelector('[data-eng-banner]'), k, { onChange: rerender })
   bind(root, {
     actions: {
       ...taskShared.actions,
