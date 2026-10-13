@@ -10,6 +10,7 @@ import { searchPicker, wirePickers } from './pickers.js'
 import { setLeaveGuard } from '../main.js'
 import { openSignatureDialog } from './signatures.js'
 import { openComparePicker } from './compare.js'
+import { openClausePicker, playbookPanel } from './clauses.js'
 
 const DOC_STATUSES = ['draft', 'review', 'final']
 const OTHER_TYPES = ['contract', 'correspondence', 'evidence', 'court_filing', 'other']
@@ -138,7 +139,8 @@ export async function documentsListView(root, { query, isCurrent }) {
   const state = { page: Number(query.get('page')) || 1, q: query.get('q') || '', status: query.get('status') || '' }
   const ro = readOnly()
   render(root, html`
-    ${pageHeader(t('nav.documents'), t('docs.subtitle'), ro ? html`<a class="btn btn-outline" href="#/glossary"><i class="fas fa-language"></i>${t('glossary.title')}</a>` : html`
+    ${pageHeader(t('nav.documents'), t('docs.subtitle'), ro ? html`<a class="btn btn-outline" href="#/clauses"><i class="fas fa-book-bookmark"></i>${t('clause.title')}</a><a class="btn btn-outline" href="#/glossary"><i class="fas fa-language"></i>${t('glossary.title')}</a>` : html`
+      <a class="btn btn-outline" href="#/clauses"><i class="fas fa-book-bookmark"></i>${t('clause.title')}</a>
       <a class="btn btn-outline" href="#/glossary"><i class="fas fa-language"></i>${t('glossary.title')}</a>
       <button class="btn btn-outline" data-action="new-blank"><i class="fas fa-file-circle-plus"></i>${t('docs.new_blank')}</button>
       <button class="btn btn-outline" data-action="upload"><i class="fas fa-upload"></i>${t('docs.upload')}</button>
@@ -274,6 +276,8 @@ export async function documentDetailView(root, { params, isCurrent, rerender }) 
         <textarea class="doc-editor" data-editor dir="${dir}" ${ro ? raw('readonly') : ''} spellcheck="true" aria-label="${t('docs.content')}" placeholder="${t('docs.content_placeholder')}">${d.content}</textarea>
         ${ro ? '' : html`<div class="flex items-center justify-between gap-3">
           <span class="text-xs text-slate-500" data-save-state>${t('docs.all_saved')}</span>
+          <span class="flex-1"></span>
+          <button class="btn btn-outline" data-action="insert-clause"><i class="fas fa-book-bookmark"></i>${t('clause.insert')}</button>
           <button class="btn btn-primary" data-action="save" disabled><i class="fas fa-floppy-disk"></i>${t('common.save')}</button>
         </div>`}
       </div>
@@ -299,6 +303,7 @@ export async function documentDetailView(root, { params, isCurrent, rerender }) 
         <div class="space-y-3" data-analyses>
           ${analyses.map((a, i) => analysisCard(a, i === 0))}
         </div>
+        <div data-playbook></div>
         ${versions.length ? html`<section class="card">
           <div class="px-5 py-4 border-b border-slate-100"><h2 class="font-semibold">${t('docs.history')}</h2></div>
           <ul class="divide-y divide-slate-100">${versions.map((v) => html`<li class="px-5 py-3 flex items-center justify-between gap-3 text-sm">
@@ -320,6 +325,23 @@ export async function documentDetailView(root, { params, isCurrent, rerender }) 
   }
   editor.addEventListener('input', markDirty)
   titleInput?.addEventListener('input', markDirty)
+  // Inserts text at the cursor (or replaces the selection) on its own paragraph.
+  const insertText = (text) => {
+    if (ro || !text) return
+    const start = editor.selectionStart ?? editor.value.length
+    const end = editor.selectionEnd ?? start
+    const before = editor.value.slice(0, start)
+    const after = editor.value.slice(end)
+    const lead = !before || before.endsWith('\n\n') ? '' : before.endsWith('\n') ? '\n' : '\n\n'
+    const trail = !after || after.startsWith('\n\n') ? '' : after.startsWith('\n') ? '\n' : '\n\n'
+    editor.value = before + lead + text + trail + after
+    const pos = (before + lead + text).length
+    editor.focus()
+    editor.setSelectionRange(pos, pos)
+    markDirty()
+    toast(t('clause.inserted'))
+  }
+  playbookPanel(root.querySelector('[data-playbook]'), d, { onInsert: ro ? null : insertText, canEdit: !ro })
   editor.addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); save() }
   })
@@ -354,6 +376,7 @@ export async function documentDetailView(root, { params, isCurrent, rerender }) 
         download(`/api/documents/${d.id}/export?format=docx`)
       },
       original: () => download(`/api/documents/${d.id}/file`),
+      'insert-clause': () => openClausePicker(d.language, insertText),
       'compare-docs': async () => {
         if (dirty && !(await confirmLeaveUnsaved())) return
         openComparePicker(d, versions)
