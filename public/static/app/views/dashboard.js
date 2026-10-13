@@ -1,3 +1,4 @@
+import { statusBadge as credStatusBadge } from './credentials.js'
 import { api } from '../api.js'
 import { bind, html, render } from '../dom.js'
 import { fmtDate, fmtDateTime, fmtNumber, fmtRelative, t } from '../i18n.js'
@@ -73,6 +74,15 @@ export async function dashboardView(root, { isCurrent, rerender }) {
         <div class="flex-1 min-w-0"><div class="text-sm font-medium truncate" dir="auto">${e.title}</div>
           <div class="text-xs text-slate-500"><a class="hover:underline" href="#/cases/${e.case_id}">${e.case_reference}</a> · ${e.all_day ? fmtDate(e.starts_at) : fmtDateTime(e.starts_at)}</div></div>
         ${ro ? '' : html`<button class="btn btn-primary btn-sm" data-action="record-outcome" data-id="${e.id}"><i class="fas fa-pen"></i>${t('hearing.record')}</button>`}</li>`)}</ul>
+    </section>` : ''}
+
+    ${d.credentials?.length ? html`<section class="card mb-6 border-red-200">
+      <div class="px-5 py-4 border-b border-slate-100"><h2 class="font-semibold"><i class="fas fa-file-signature text-red-500 me-2"></i>${t('cred.dash_title', { n: d.credentials.length })}</h2>
+        <p class="text-xs text-slate-500 mt-1">${t('cred.dash_help')}</p></div>
+      <ul class="divide-y divide-slate-100">${d.credentials.map((x) => html`<li><a class="px-5 py-3 flex flex-wrap items-center gap-3 hover:bg-slate-50" href="#/clients/${x.client_id}">
+        <div class="flex-1 min-w-0"><div class="text-sm font-medium truncate" dir="auto">${x.client_name}</div>
+          <div class="text-xs text-slate-500">${x.label || t(`cred.kind_${x.kind}`)}${x.number ? html` · <span dir="ltr">${x.number}</span>` : ''} · ${fmtDate(x.expires_on)}</div></div>
+        ${credStatusBadge(x)}</a></li>`)}</ul>
     </section>` : ''}
 
     <div class="grid lg:grid-cols-3 gap-6">

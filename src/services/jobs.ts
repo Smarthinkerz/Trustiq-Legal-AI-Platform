@@ -2,6 +2,7 @@ import type { Db } from '../db'
 import type { Config } from '../config'
 import type { Logger } from '../lib/logger'
 import type { Mailer } from '../lib/mailer'
+import { expiringForDigest, KIND_LABELS } from './credentials'
 
 // ---------------------------------------------------------------------------
 // iCalendar feed (RFC 5545) so users can subscribe from Outlook, Google or Apple Calendar.
@@ -80,9 +81,9 @@ export async function runDailyDigest(db: Db, mailer: Mailer, config: Config, log
       `UPDATE users SET last_digest_on = $1
         WHERE id = (SELECT id FROM users WHERE notify_email AND role <> 'client' AND deactivated_at IS NULL
                       AND (last_digest_on IS NULL OR last_digest_on < $1) LIMIT 1 FOR UPDATE SKIP LOCKED)
-        RETURNING id, org_id, name, email, locale`, [today])
+        RETURNING id, org_id, name, email, locale, role`, [today])
     if (!user) break
-    const [events, tasks] = await Promise.all([
+    const [events, tasks, credentials] = await Promise.all([
       db.query(
         `SELECT e.title, e.kind, e.starts_at, e.all_day, e.location, k.reference FROM events e LEFT JOIN cases k ON k.id = e.case_id
           WHERE e.org_id = $1 AND e.completed_at IS NULL AND e.starts_at >= $2::date AND e.starts_at < $2::date + 2
@@ -91,9 +92,10 @@ export async function runDailyDigest(db: Db, mailer: Mailer, config: Config, log
       db.query(
         `SELECT t.title, t.due_date, k.reference FROM tasks t LEFT JOIN cases k ON k.id = t.case_id
           WHERE t.org_id = $1 AND t.assigned_to = $2 AND t.status <> 'done' AND t.due_date <= $3::date + 1
-          ORDER BY t.due_date LIMIT 30`, [user.org_id, user.id, today])
+          ORDER BY t.due_date LIMIT 30`, [user.org_id, user.id, today]),
+      ['owner', 'admin', 'lawyer'].includes(user.role) ? expiringForDigest(db, user.org_id) : Promise.resolve([])
     ])
-    if (!events.length && !tasks.length) continue
+    if (!events.length && !tasks.length && !credentials.length) continue
     const ar = user.locale === 'ar'
     const fmt = (d: Date, allDay: boolean) => new Intl.DateTimeFormat(ar ? 'ar-OM-u-nu-latn' : 'en-GB',
       allDay ? { weekday: 'short', day: 'numeric', month: 'short' } : { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Muscat' }).format(d)
@@ -108,11 +110,19 @@ export async function runDailyDigest(db: Db, mailer: Mailer, config: Config, log
       for (const t of tasks) lines.push(`• ${new Date(t.due_date).toISOString().slice(0, 10)} – ${t.title}${t.reference ? ` (${t.reference})` : ''}`)
       lines.push('')
     }
+    if (credentials.length) {
+      lines.push(ar ? 'وكالات ووثائق هوية تنتهي قريباً أو انتهت:' : 'Powers of attorney and IDs expiring or expired:')
+      for (const x of credentials) {
+        const when = x.days_left < 0 ? (ar ? `انتهت منذ ${-x.days_left} يوم` : `expired ${-x.days_left} days ago`) : x.days_left === 0 ? (ar ? 'تنتهي اليوم' : 'expires today') : (ar ? `تنتهي خلال ${x.days_left} يوم` : `expires in ${x.days_left} days`)
+        lines.push(`• ${x.client_name} – ${x.label || KIND_LABELS[x.kind as keyof typeof KIND_LABELS]?.[ar ? 1 : 0]} (${x.expires_on}, ${when})`)
+      }
+      lines.push('')
+    }
     lines.push(`${config.appUrl}/app#/dashboard`, '', ar ? 'يمكنك إيقاف هذه الرسائل من الإعدادات > الملف الشخصي.' : 'You can turn these emails off in Settings > Profile.')
     try {
       await mailer.send({
         to: user.email,
-        subject: ar ? `TrustiqLegal: ${events.length} موعد و${tasks.length} مهمة` : `TrustiqLegal: ${events.length} upcoming, ${tasks.length} tasks due`,
+        subject: (ar ? `TrustiqLegal: ${events.length} موعد و${tasks.length} مهمة` : `TrustiqLegal: ${events.length} upcoming, ${tasks.length} tasks due`) + (credentials.length ? (ar ? ` و${credentials.length} وثيقة تنتهي` : `, ${credentials.length} expiring`) : ''),
         text: lines.join('\n')
       })
       sent++

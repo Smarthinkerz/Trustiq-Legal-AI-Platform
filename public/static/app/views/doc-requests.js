@@ -36,20 +36,20 @@ export function requestsCard(requests, { canRequest = true } = {}) {
   </section>`
 }
 
-export function openRequestForm({ clientId, caseId = null, cases = [], onSaved }) {
+export function openRequestForm({ clientId, caseId = null, cases = [], onSaved, prefill = {} }) {
   const m = modal({
     title: t('docreq.new'),
     size: 'lg',
     body: html`<form data-form="save" class="space-y-4" novalidate>
-      ${inputField({ name: 'title', label: t('docreq.request_title'), required: true, placeholder: t('docreq.title_placeholder') })}
+      ${inputField({ name: 'title', label: t('docreq.request_title'), required: true, placeholder: t('docreq.title_placeholder'), value: prefill.title })}
       ${!caseId && cases.length ? html`<div><label class="label" for="dr-case">${t('cases.matter')}</label>
         <select id="dr-case" name="case_id" class="input"><option value="">—</option>${cases.map((k) => html`<option value="${k.id}">${k.reference} · ${k.title}</option>`)}</select></div>` : ''}
       <div>
-        ${textareaField({ name: 'items', label: t('docreq.items'), rows: 5, required: true, hint: t('docreq.items_hint') })}
+        ${textareaField({ name: 'items', label: t('docreq.items'), rows: 5, required: true, hint: t('docreq.items_hint'), value: (prefill.items || []).join('\n') })}
         <div class="flex flex-wrap gap-1.5 mt-2">${PRESETS.map((p) => html`<button type="button" class="badge bg-slate-100 text-slate-700 hover:bg-brand-50" data-action="preset" data-label="${t(`docreq.preset_${p}`)}"><i class="fas fa-plus text-[10px]"></i> ${t(`docreq.preset_${p}`)}</button>`)}</div>
       </div>
       <div class="grid sm:grid-cols-2 gap-4">${inputField({ name: 'due_date', label: t('docreq.due'), type: 'date' })}</div>
-      ${textareaField({ name: 'message', label: t('docreq.message'), rows: 3 })}
+      ${textareaField({ name: 'message', label: t('docreq.message'), rows: 3, value: prefill.message })}
       ${formActions(t('docreq.send'))}
     </form>`,
     actions: {

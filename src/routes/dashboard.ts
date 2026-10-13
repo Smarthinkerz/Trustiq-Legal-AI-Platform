@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { auth, type AppEnv } from '../context'
 import { usageThisMonth } from '../services/usage'
+import { CREDENTIAL_COLUMNS, GULF_TODAY } from '../services/credentials'
 
 const dashboardRoutes = new Hono<AppEnv>()
 
@@ -16,7 +17,7 @@ dashboardRoutes.get('/', async (c) => {
        (SELECT count(*)::int FROM documents WHERE org_id = $1) AS documents,
        (SELECT count(*)::int FROM events WHERE org_id = $1 AND kind IN ('deadline','filing') AND completed_at IS NULL AND starts_at < now()) AS overdue_deadlines`,
     [org.id, user.id])
-  const [byStatus, upcoming, recentCases, recentDocs] = await Promise.all([
+  const [byStatus, upcoming, recentCases, recentDocs, credentials] = await Promise.all([
     db.query(`SELECT status, count(*)::int AS n FROM cases WHERE org_id = $1 GROUP BY status`, [org.id]),
     db.query(
       `SELECT e.id, e.title, e.kind, e.starts_at, e.all_day, e.location, e.case_id, k.reference AS case_reference
@@ -26,7 +27,11 @@ dashboardRoutes.get('/', async (c) => {
     db.query(
       `SELECT k.id, k.reference, k.title, k.title_ar, k.status, k.priority, k.updated_at, cl.name AS client_name
          FROM cases k LEFT JOIN clients cl ON cl.id = k.client_id WHERE k.org_id = $1 ORDER BY k.updated_at DESC LIMIT 6`, [org.id]),
-    db.query(`SELECT id, title, doc_type, status, source, updated_at FROM documents WHERE org_id = $1 ORDER BY updated_at DESC LIMIT 6`, [org.id])
+    db.query(`SELECT id, title, doc_type, status, source, updated_at FROM documents WHERE org_id = $1 ORDER BY updated_at DESC LIMIT 6`, [org.id]),
+    db.query(
+      `SELECT ${CREDENTIAL_COLUMNS()}, cl.name AS client_name FROM client_credentials cc JOIN clients cl ON cl.id = cc.client_id
+        WHERE cc.org_id = $1 AND cc.revoked_at IS NULL AND cc.replaced_by IS NULL AND cl.archived_at IS NULL AND cc.expires_on <= ${GULF_TODAY} + 30
+        ORDER BY cc.expires_on LIMIT 8`, [org.id])
   ])
   return c.json({
     counts,
@@ -34,6 +39,7 @@ dashboardRoutes.get('/', async (c) => {
     upcoming,
     recent_cases: recentCases,
     recent_documents: recentDocs,
+    credentials,
     usage: await usageThisMonth(db, org.id)
   })
 })
