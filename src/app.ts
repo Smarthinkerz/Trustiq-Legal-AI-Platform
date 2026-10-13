@@ -18,6 +18,7 @@ import documentsRoutes from './routes/documents'
 import glossaryRoutes from './routes/glossary'
 import credentialsRoutes from './routes/credentials'
 import kycRoutes from './routes/kyc'
+import compareRoutes from './routes/compare'
 import eventsRoutes from './routes/events'
 import deadlinesRoutes from './routes/deadlines'
 import importsRoutes from './routes/imports'
@@ -179,7 +180,7 @@ export function createApp(deps: Deps) {
     ['/api/documents', documentsRoutes], ['/api/events', eventsRoutes], ['/api/ai', aiRoutes],
     ['/api/library', libraryRoutes], ['/api/billing', billingRoutes], ['/api/reports', reportsRoutes],
     ['/api/tasks', tasksRoutes], ['/api/workspace', workspaceRoutes], ['/api/portal', portalRoutes],
-    ['/api/deadlines', deadlinesRoutes], ['/api/import', importsRoutes], ['/api/website', websiteRoutes], ['/api/signatures', signaturesRoutes], ['/api/document-requests', documentRequestsRoutes], ['/api/hearings', hearingsRoutes], ['/api/whatsapp', whatsappRoutes], ['/api/glossary', glossaryRoutes], ['/api/credentials', credentialsRoutes], ['/api/kyc', kycRoutes]
+    ['/api/deadlines', deadlinesRoutes], ['/api/import', importsRoutes], ['/api/website', websiteRoutes], ['/api/signatures', signaturesRoutes], ['/api/document-requests', documentRequestsRoutes], ['/api/hearings', hearingsRoutes], ['/api/whatsapp', whatsappRoutes], ['/api/glossary', glossaryRoutes], ['/api/credentials', credentialsRoutes], ['/api/kyc', kycRoutes], ['/api/compare', compareRoutes]
   ] as const) {
     app.use(`${path}/*`, requireActiveSubscription)
     app.use(path, requireActiveSubscription)

@@ -9,6 +9,7 @@ import {
 import { searchPicker, wirePickers } from './pickers.js'
 import { setLeaveGuard } from '../main.js'
 import { openSignatureDialog } from './signatures.js'
+import { openComparePicker } from './compare.js'
 
 const DOC_STATUSES = ['draft', 'review', 'final']
 const OTHER_TYPES = ['contract', 'correspondence', 'evidence', 'court_filing', 'other']
@@ -259,6 +260,7 @@ export async function documentDetailView(root, { params, isCurrent, rerender }) 
       <div class="flex flex-wrap gap-2">
         ${ro ? '' : selectField({ name: 'status', options: DOC_STATUSES.map((s) => ({ value: s, label: t(`status.${s}`) })), value: d.status, cls: 'w-32', attrs: `data-change="status" aria-label="${t('common.status')}"` })}
         ${!readOnly() && aiEnabled() && !d.translation_status?.match(/running/) ? html`<button class="btn btn-outline" data-action="translate"><i class="fas fa-language"></i>${t('translate.button')}</button>` : ''}
+        <button class="btn btn-outline" data-action="compare-docs"><i class="fas fa-code-compare"></i>${t('cmp.button')}</button>
         <button class="btn btn-outline" data-action="export"><i class="fas fa-file-word"></i>${t('docs.export_word')}</button>
         ${!ro && can('owner', 'admin', 'lawyer') ? html`<button class="btn btn-outline" data-action="sign"><i class="fas fa-signature"></i>${t('sig.send_for_signature')}</button>` : ''}
         ${d.file_name ? html`<button class="btn btn-outline" data-action="original" title="${d.file_name}"><i class="fas fa-download"></i>${t('docs.original')}</button>` : ''}
@@ -352,6 +354,10 @@ export async function documentDetailView(root, { params, isCurrent, rerender }) 
         download(`/api/documents/${d.id}/export?format=docx`)
       },
       original: () => download(`/api/documents/${d.id}/file`),
+      'compare-docs': async () => {
+        if (dirty && !(await confirmLeaveUnsaved())) return
+        openComparePicker(d, versions)
+      },
       translate: async () => {
         if (dirty && !(await confirmLeaveUnsaved())) return
         openTranslateDialog(d)
