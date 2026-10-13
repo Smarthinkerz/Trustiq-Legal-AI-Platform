@@ -1064,6 +1064,56 @@ ALTER TABLE organizations ADD COLUMN fund_receipt_seq INTEGER NOT NULL DEFAULT 0
 ALTER TABLE invoice_payments DROP CONSTRAINT IF EXISTS invoice_payments_method_check;
 ALTER TABLE invoice_payments ADD CONSTRAINT invoice_payments_method_check CHECK (method IN ('manual', 'online', 'client_funds'));
 `
+  },
+  {
+    version: 26,
+    name: 'clause_bank_playbook',
+    sql: `
+CREATE TABLE clauses (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  category TEXT NOT NULL,
+  body_en TEXT,
+  body_ar TEXT,
+  note TEXT,
+  usage_count INTEGER NOT NULL DEFAULT 0,
+  created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CHECK (body_en IS NOT NULL OR body_ar IS NOT NULL)
+);
+CREATE INDEX clauses_org_idx ON clauses (org_id, category, lower(title));
+CREATE TABLE playbook_rules (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  category TEXT NOT NULL,
+  topic TEXT NOT NULL,
+  standard_position TEXT NOT NULL,
+  fallback_position TEXT,
+  red_flags TEXT,
+  severity TEXT NOT NULL DEFAULT 'medium' CHECK (severity IN ('low', 'medium', 'high')),
+  clause_id UUID REFERENCES clauses(id) ON DELETE SET NULL,
+  active BOOLEAN NOT NULL DEFAULT true,
+  created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX playbook_rules_org_idx ON playbook_rules (org_id, active, category);
+CREATE TABLE playbook_reviews (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+  document_version INTEGER NOT NULL,
+  language TEXT NOT NULL,
+  acting_for TEXT,
+  result JSONB NOT NULL,
+  model TEXT,
+  created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX playbook_reviews_doc_idx ON playbook_reviews (document_id, created_at DESC);
+`
   }
 ]
 
