@@ -9,6 +9,7 @@ import { casesListView, caseDetailView } from './views/cases.js'
 import { clientsListView, clientDetailView } from './views/clients.js'
 import { documentsListView, documentDetailView } from './views/documents.js'
 import { glossaryView } from './views/glossary.js'
+import { kycRegisterView } from './views/kyc.js'
 import { assistantView } from './views/assistant.js'
 import { calendarView } from './views/calendar.js'
 import { settingsView } from './views/settings.js'
@@ -38,6 +39,7 @@ const routes = [
   { path: '/documents', view: documentsListView, nav: 'documents' },
   { path: '/documents/:id', view: documentDetailView, nav: 'documents' },
   { path: '/glossary', view: glossaryView, nav: 'documents' },
+  { path: '/compliance', view: kycRegisterView, nav: 'clients' },
   { path: '/assistant', view: assistantView, nav: 'assistant' },
   { path: '/assistant/:id', view: assistantView, nav: 'assistant' },
   { path: '/calendar', view: calendarView, nav: 'calendar' },

@@ -76,6 +76,10 @@ export async function dashboardView(root, { isCurrent, rerender }) {
         ${ro ? '' : html`<button class="btn btn-primary btn-sm" data-action="record-outcome" data-id="${e.id}"><i class="fas fa-pen"></i>${t('hearing.record')}</button>`}</li>`)}</ul>
     </section>` : ''}
 
+    ${counts.kyc_attention ? html`<a href="#/compliance" class="card card-pad mb-6 flex items-center gap-3 border-sky-200 hover:shadow-md">
+      <i class="fas fa-user-shield text-sky-600 text-xl"></i>
+      <div class="flex-1"><div class="font-semibold text-sm">${t('kyc.dash_title', { n: counts.kyc_attention })}</div><div class="text-xs text-slate-500">${t('kyc.dash_help')}</div></div>
+      <i class="fas fa-chevron-right text-slate-400 rtl:rotate-180"></i></a>` : ''}
     ${d.credentials?.length ? html`<section class="card mb-6 border-red-200">
       <div class="px-5 py-4 border-b border-slate-100"><h2 class="font-semibold"><i class="fas fa-file-signature text-red-500 me-2"></i>${t('cred.dash_title', { n: d.credentials.length })}</h2>
         <p class="text-xs text-slate-500 mt-1">${t('cred.dash_help')}</p></div>

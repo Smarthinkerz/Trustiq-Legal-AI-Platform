@@ -47,8 +47,11 @@ clientsRoutes.get('/', queryParams(z.object({ ...pageSchema, archived: z.enum(['
   const items = await db.query(
     `SELECT c.id, c.kind, c.name, c.name_ar, c.email, c.phone, c.id_number, c.created_at, c.archived_at,
             (SELECT count(*)::int FROM cases k WHERE k.client_id = c.id AND k.status <> 'closed') AS open_cases,
-            (SELECT count(*)::int FROM client_messages m WHERE m.client_id = c.id AND m.from_client AND m.read_at IS NULL) AS unread_messages
-       FROM clients c WHERE ${where} ORDER BY c.name LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+            (SELECT count(*)::int FROM client_messages m WHERE m.client_id = c.id AND m.from_client AND m.read_at IS NULL) AS unread_messages,
+            CASE WHEN ky.client_id IS NULL THEN 'not_started'
+                 WHEN ky.status = 'approved' AND ky.next_review_on < (now() AT TIME ZONE 'Asia/Muscat')::date THEN 'review_due' ELSE ky.status END AS kyc_status,
+            coalesce(ky.risk_override, ky.risk_level) AS kyc_risk
+       FROM clients c LEFT JOIN client_kyc ky ON ky.client_id = c.id WHERE ${where} ORDER BY c.name LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
     [...params, pageSize, (page - 1) * pageSize])
   return c.json(paged(items, n, page, pageSize))
 })
