@@ -957,6 +957,40 @@ CREATE TABLE glossary_terms (
 );
 CREATE UNIQUE INDEX glossary_terms_org_en_idx ON glossary_terms (org_id, lower(term_en));
 `
+  },
+  {
+    version: 23,
+    name: 'client_credentials',
+    sql: `
+CREATE TABLE client_credentials (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  client_id UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL CHECK (kind IN ('power_of_attorney', 'civil_id', 'passport', 'residence', 'commercial_registration', 'trade_licence', 'other')),
+  label TEXT,
+  number TEXT,
+  issued_by TEXT,
+  issued_on DATE,
+  expires_on DATE,
+  scope TEXT,
+  all_cases BOOLEAN NOT NULL DEFAULT true,
+  document_id UUID REFERENCES documents(id) ON DELETE SET NULL,
+  notes TEXT,
+  revoked_at TIMESTAMPTZ,
+  replaced_by UUID REFERENCES client_credentials(id) ON DELETE SET NULL,
+  created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX client_credentials_client_idx ON client_credentials (client_id);
+CREATE INDEX client_credentials_expiry_idx ON client_credentials (org_id, expires_on) WHERE revoked_at IS NULL AND replaced_by IS NULL;
+CREATE TABLE client_credential_cases (
+  credential_id UUID NOT NULL REFERENCES client_credentials(id) ON DELETE CASCADE,
+  case_id UUID NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+  PRIMARY KEY (credential_id, case_id)
+);
+CREATE INDEX client_credential_cases_case_idx ON client_credential_cases (case_id);
+`
   }
 ]
 
