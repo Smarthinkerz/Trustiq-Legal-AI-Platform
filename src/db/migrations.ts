@@ -1357,6 +1357,19 @@ CREATE TABLE original_movements (
 );
 CREATE INDEX original_movements_original_idx ON original_movements (original_id, created_at);
 `
+  },
+  {
+    version: 37,
+    name: 'matter_closing',
+    sql: `
+ALTER TABLE organizations ADD COLUMN retention_years INT NOT NULL DEFAULT 10 CHECK (retention_years BETWEEN 1 AND 50);
+ALTER TABLE cases ADD COLUMN closing_outcome TEXT CHECK (closing_outcome IN ('won', 'partly_won', 'lost', 'settled', 'withdrawn', 'advice_given', 'transaction_completed', 'other'));
+ALTER TABLE cases ADD COLUMN closing_note TEXT;
+ALTER TABLE cases ADD COLUMN closed_by UUID REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE cases ADD COLUMN retain_until DATE;
+UPDATE cases SET retain_until = closed_on + interval '10 years' WHERE status = 'closed' AND closed_on IS NOT NULL;
+CREATE INDEX cases_retention_idx ON cases (org_id, retain_until) WHERE status = 'closed';
+`
   }
 ]
 

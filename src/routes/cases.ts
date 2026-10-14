@@ -113,7 +113,7 @@ casesRoutes.get('/:id', async (c) => {
   const id = uuidParam(c.req.param('id'), 'Case')
   const { db } = c.get('deps')
   const kase = await db.one(
-    `SELECT k.*, cl.name AS client_name, cl.name_ar AS client_name_ar, u.name AS assignee_name
+    `SELECT k.*, to_char(k.retain_until, 'YYYY-MM-DD') AS retain_until, to_char(k.closed_on, 'YYYY-MM-DD') AS closed_on, cl.name AS client_name, cl.name_ar AS client_name_ar, cl.language AS client_language, u.name AS assignee_name
        FROM cases k LEFT JOIN clients cl ON cl.id = k.client_id LEFT JOIN users u ON u.id = k.assigned_to
       WHERE k.id = $1 AND k.org_id = $2`, [id, org.id])
   if (!kase) throw notFound('Case')
@@ -173,8 +173,11 @@ casesRoutes.patch('/:id', jsonBody(updateSchema), async (c) => {
     gate = gateConflicts(c, blocking, b.conflict_override)
   }
   const { sets, values } = buildUpdate(b, UPDATABLE, 3)
-  if (b.status === 'closed' && current.status !== 'closed') sets.push('closed_on = CURRENT_DATE')
-  if (b.status && b.status !== 'closed') sets.push('closed_on = NULL')
+  if (b.status === 'closed' && current.status !== 'closed') {
+    sets.push('closed_on = CURRENT_DATE', 'closed_by = $' + (values.length + 3), `retain_until = COALESCE(retain_until, CURRENT_DATE + make_interval(years => (SELECT retention_years FROM organizations WHERE id = $2)))`)
+    values.push(user.id)
+  }
+  if (b.status && b.status !== 'closed') sets.push('closed_on = NULL', 'retain_until = NULL', 'closed_by = NULL', 'closing_outcome = NULL')
   // A new fee or budget starts the 80% / 100% alerts again.
   if (b.fee_arrangement !== undefined || b.fee_amount !== undefined || b.budget_amount !== undefined) sets.push('budget_alert_level = 0')
   const kase = await db.one(`UPDATE cases SET ${[...sets, 'updated_at = now()'].join(', ')} WHERE id = $1 AND org_id = $2 RETURNING *`, [id, org.id, ...values])
