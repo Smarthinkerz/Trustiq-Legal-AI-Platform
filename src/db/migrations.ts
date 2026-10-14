@@ -1410,6 +1410,24 @@ CREATE TABLE settlement_offers (
 CREATE INDEX settlement_offers_case_idx ON settlement_offers (case_id, made_on DESC, created_at DESC);
 CREATE INDEX settlement_offers_open_idx ON settlement_offers (org_id, expires_on) WHERE status = 'open';
 `
+  },
+  {
+    version: 39,
+    name: 'hearing_preps',
+    sql: `
+CREATE TABLE hearing_preps (
+  event_id UUID PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  case_id UUID NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+  language TEXT CHECK (language IN ('en', 'ar')),
+  content JSONB,
+  checklist JSONB NOT NULL DEFAULT '[]',
+  model TEXT,
+  created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+`
   }
 ]
 

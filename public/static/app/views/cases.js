@@ -338,7 +338,8 @@ export async function caseDetailView(root, { params, isCurrent, rerender }) {
                 <div class="flex items-center gap-2 mb-1">${eventBadge(e.kind)}${!e.completed_at && new Date(e.starts_at) < new Date() && ['deadline', 'filing'].includes(e.kind) ? html`<span class="badge bg-red-100 text-red-700">${t('events.overdue')}</span>` : ''}</div>
                 <div class="text-sm font-medium ${e.completed_at ? 'line-through' : ''}">${e.title}</div>
                 <div class="text-xs text-slate-500">${e.all_day ? fmtDate(e.starts_at) : fmtDateTime(e.starts_at)}${e.location ? ' · ' + e.location : ''}</div>
-              </button></li>`)}</ul>`
+              </button>
+              ${e.kind === 'hearing' && !e.completed_at ? html`<a class="text-xs text-brand-600 hover:underline mt-1 inline-block" href="#/hearing-prep/${e.id}"><i class="fas fa-clipboard-list"></i> ${t('prep.button')}</a>` : ''}</li>`)}</ul>`
             : html`<p class="px-5 py-6 text-sm text-slate-500">${t('cases.no_events')}</p>`}
         </section>
         <section class="card">

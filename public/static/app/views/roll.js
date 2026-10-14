@@ -74,7 +74,8 @@ export async function rollView(root, { query, isCurrent }) {
                 <div class="text-slate-600 line-clamp-2" dir="auto">${h.last_summary}</div>
                 ${h.last_next_steps ? html`<div class="text-emerald-800 mt-1 line-clamp-2" dir="auto"><i class="fas fa-list-check"></i> ${h.last_next_steps}</div>` : ''}` : html`<span class="text-slate-400">—</span>`}</td>
               <td class="text-end whitespace-nowrap">${h.recorded ? html`<span class="badge bg-emerald-100 text-emerald-800"><i class="fas fa-check"></i> ${t('roll.recorded')}</span>`
-                : editable && h.case_id && new Date(h.starts_at).getTime() <= now ? html`<button class="btn btn-primary btn-sm" data-action="outcome" data-id="${h.id}"><i class="fas fa-gavel"></i>${t('hearing.record')}</button>` : ''}</td>
+                : editable && h.case_id && new Date(h.starts_at).getTime() <= now ? html`<button class="btn btn-primary btn-sm" data-action="outcome" data-id="${h.id}"><i class="fas fa-gavel"></i>${t('hearing.record')}</button>`
+                : h.case_id ? html`<a class="btn btn-outline btn-sm" href="#/hearing-prep/${h.id}"><i class="fas fa-clipboard-list"></i>${t('prep.button')}</a>` : ''}</td>
             </tr>`)}</tbody></table></div></div>`)}</div>
       </section>`)}</div>`
       : emptyState('fa-landmark', t('roll.empty'), ''))
