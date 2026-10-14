@@ -1493,6 +1493,70 @@ CREATE TABLE corporate_obligations (
 CREATE INDEX corporate_obligations_client_idx ON corporate_obligations (client_id, due_on);
 CREATE INDEX corporate_obligations_open_idx ON corporate_obligations (org_id, due_on) WHERE done_on IS NULL;
 `
+  },
+  {
+    version: 41,
+    name: 'arbitrations',
+    sql: `
+CREATE TABLE arbitrations (
+  case_id UUID PRIMARY KEY REFERENCES cases(id) ON DELETE CASCADE,
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  institution TEXT NOT NULL DEFAULT 'ocac' CHECK (institution IN ('ocac', 'diac', 'arbitratead', 'scca', 'qicca', 'bcdr', 'kcac', 'gcc_cac', 'icc', 'lcia', 'ad_hoc', 'other')),
+  institution_ref TEXT,
+  rules TEXT,
+  seat TEXT,
+  language TEXT,
+  governing_law TEXT,
+  our_side TEXT NOT NULL DEFAULT 'claimant' CHECK (our_side IN ('claimant', 'respondent')),
+  amount_claimed NUMERIC(18, 3),
+  counterclaim NUMERIC(18, 3),
+  currency TEXT,
+  commenced_on DATE,
+  constituted_on DATE,
+  award_on DATE,
+  award_result TEXT CHECK (award_result IN ('won', 'partly', 'lost', 'settled', 'withdrawn')),
+  notes TEXT,
+  updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX arbitrations_org_idx ON arbitrations (org_id);
+
+CREATE TABLE arbitration_members (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  case_id UUID NOT NULL REFERENCES arbitrations(case_id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  role TEXT NOT NULL CHECK (role IN ('sole', 'chair', 'co_arbitrator', 'secretary', 'expert')),
+  nominated_by TEXT CHECK (nominated_by IN ('us', 'them', 'institution', 'co_arbitrators', 'agreed')),
+  appointed_on DATE,
+  contact TEXT,
+  notes TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX arbitration_members_case_idx ON arbitration_members (case_id);
+
+CREATE TABLE arbitration_steps (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  case_id UUID NOT NULL REFERENCES arbitrations(case_id) ON DELETE CASCADE,
+  kind TEXT NOT NULL CHECK (kind IN ('submission', 'document_production', 'hearing', 'deposit', 'order', 'award', 'other')),
+  title TEXT NOT NULL,
+  party TEXT NOT NULL CHECK (party IN ('us', 'them', 'both', 'tribunal')),
+  due_on DATE NOT NULL,
+  done_on DATE,
+  amount NUMERIC(18, 3),
+  currency TEXT,
+  event_id UUID REFERENCES events(id) ON DELETE SET NULL,
+  source TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('manual', 'ai')),
+  notes TEXT,
+  created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX arbitration_steps_case_idx ON arbitration_steps (case_id, due_on);
+CREATE INDEX arbitration_steps_open_idx ON arbitration_steps (org_id, due_on) WHERE done_on IS NULL;
+`
   }
 ]
 
