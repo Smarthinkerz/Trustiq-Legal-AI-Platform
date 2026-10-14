@@ -6,6 +6,7 @@ import { gaps, onboardingRows } from '../services/onboarding'
 import { updatesDue } from '../services/client-updates'
 import { expertDeadlinesDue } from './experts'
 import { originalsToReturn } from './originals'
+import { teamWorkload } from '../services/workload'
 
 const dashboardRoutes = new Hono<AppEnv>()
 
@@ -49,6 +50,8 @@ dashboardRoutes.get('/', async (c) => {
   counts.client_updates_due = (await updatesDue(db, org.id, { userId: user.id })).length
   counts.expert_deadlines = await expertDeadlinesDue(db, org.id)
   counts.originals_to_return = await originalsToReturn(db, org.id)
+  // Court clashes in the next two weeks (a person due in two courts on one day), for those who plan the team.
+  counts.court_clashes = user.role === 'staff' ? 0 : (await teamWorkload(db, org.id)).clashes
   counts.retention_due = (await db.query(`SELECT count(*)::int AS n FROM cases WHERE org_id = $1 AND status = 'closed' AND retain_until <= ${GULF_TODAY}`, [org.id]))[0].n
   return c.json({
     counts,

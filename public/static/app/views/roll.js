@@ -31,6 +31,7 @@ export async function rollView(root, { query, isCurrent }) {
   const draw = () => {
     render(root, html`
       ${pageHeader(t('roll.title'), t('roll.subtitle'), html`
+        <a class="btn btn-outline" href="#/workload"><i class="fas fa-people-arrows"></i>${t('wl.title')}</a>
         <button class="btn btn-outline" data-action="word" data-lang="ar"><i class="fas fa-file-word"></i>${t('roll.word_ar')}</button>
         <button class="btn btn-outline" data-action="word" data-lang="en"><i class="fas fa-file-word"></i>${t('roll.word_en')}</button>`)}
       <div class="card card-pad mb-6 flex flex-wrap items-end gap-3">
