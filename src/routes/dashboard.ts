@@ -3,6 +3,7 @@ import { auth, type AppEnv } from '../context'
 import { usageThisMonth } from '../services/usage'
 import { CREDENTIAL_COLUMNS, GULF_TODAY } from '../services/credentials'
 import { gaps, onboardingRows } from '../services/onboarding'
+import { updatesDue } from '../services/client-updates'
 
 const dashboardRoutes = new Hono<AppEnv>()
 
@@ -40,6 +41,8 @@ dashboardRoutes.get('/', async (c) => {
   const o = await db.one('SELECT onboarding_checks FROM organizations WHERE id = $1', [org.id])
   const required: string[] = o?.onboarding_checks ?? []
   counts.onboarding_gaps = required.length ? (await onboardingRows(db, org.id)).filter((r) => gaps(r, required).length).length : 0
+  // My open matters whose client has not had an update for a month.
+  counts.client_updates_due = (await updatesDue(db, org.id, { userId: user.id })).length
   return c.json({
     counts,
     cases_by_status: Object.fromEntries(byStatus.map((r) => [r.status, r.n])),

@@ -48,7 +48,9 @@ portalRoutes.get('/overview', async (c) => {
     db.one('SELECT id, name, name_ar, email, phone FROM clients WHERE id = $1 AND org_id = $2', [clientId, org.id]),
     db.query(
       `SELECT k.id, k.reference, k.title, k.title_ar, k.status, k.jurisdiction, k.court, k.updated_at, u.name AS lawyer_name, u.email AS lawyer_email,
-              (SELECT min(e.starts_at) FROM events e WHERE e.case_id = k.id AND e.kind = 'hearing' AND e.starts_at >= now()) AS next_hearing
+              (SELECT min(e.starts_at) FROM events e WHERE e.case_id = k.id AND e.kind = 'hearing' AND e.starts_at >= now()) AS next_hearing,
+              (SELECT count(*)::int FROM case_updates x WHERE x.case_id = k.id AND x.status = 'published' AND x.read_at IS NULL) AS unread_updates,
+              (SELECT max(x.published_at) FROM case_updates x WHERE x.case_id = k.id AND x.status = 'published') AS last_update
          FROM cases k LEFT JOIN users u ON u.id = k.assigned_to
         WHERE k.org_id = $1 AND k.client_id = $2 ORDER BY (k.status = 'closed'), k.updated_at DESC`, [org.id, clientId]),
     db.query(
@@ -75,16 +77,20 @@ portalRoutes.get('/cases/:id', async (c) => {
             u.name AS lawyer_name, u.email AS lawyer_email
        FROM cases k LEFT JOIN users u ON u.id = k.assigned_to WHERE k.id = $1 AND k.org_id = $2 AND k.client_id = $3`, [id, org.id, clientId])
   if (!kase) throw notFound('Case')
-  const [events, documents, hearings] = await Promise.all([
+  const [events, documents, hearings, updates] = await Promise.all([
     db.query(`SELECT id, title, kind, starts_at, all_day, location FROM events WHERE case_id = $1 AND kind IN ('hearing', 'meeting') AND starts_at >= now() - interval '30 days' ORDER BY starts_at`, [id]),
     db.query(`SELECT id, title, file_name, uploaded_by_client, updated_at FROM documents WHERE case_id = $1 AND org_id = $2 AND (shared_with_client OR uploaded_by_client) ORDER BY updated_at DESC`, [id, org.id]),
     // Only the outcome and the update the firm chose to send; the lawyer's notes stay internal.
     db.query(
       `SELECT h.id, h.outcome, h.client_message, e.starts_at AS hearing_at, e.all_day AS hearing_all_day, n.starts_at AS next_hearing_at, n.all_day AS next_hearing_all_day
          FROM hearing_records h JOIN events e ON e.id = h.event_id LEFT JOIN events n ON n.id = h.next_event_id
-        WHERE h.case_id = $1 AND h.org_id = $2 AND h.shared_with_client ORDER BY e.starts_at DESC`, [id, org.id])
+        WHERE h.case_id = $1 AND h.org_id = $2 AND h.shared_with_client ORDER BY e.starts_at DESC`, [id, org.id]),
+    db.query(
+      `SELECT x.id, x.title, x.body, x.language, x.published_at, x.read_at, u.name AS author_name FROM case_updates x LEFT JOIN users u ON u.id = x.published_by
+        WHERE x.case_id = $1 AND x.org_id = $2 AND x.status = 'published' ORDER BY x.published_at DESC LIMIT 50`, [id, org.id])
   ])
-  return c.json({ case: kase, events, documents, hearings })
+  await db.query(`UPDATE case_updates SET read_at = now() WHERE case_id = $1 AND org_id = $2 AND status = 'published' AND read_at IS NULL`, [id, org.id])
+  return c.json({ case: kase, events, documents, hearings, updates })
 })
 
 async function portalDocument(c: Ctx, id: string) {

@@ -1206,6 +1206,31 @@ CREATE TABLE time_suggestion_dismissals (
   PRIMARY KEY (user_id, key)
 );
 `
+  },
+  {
+    version: 32,
+    name: 'client_updates',
+    sql: `
+CREATE TABLE case_updates (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  case_id UUID NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+  language TEXT NOT NULL CHECK (language IN ('en', 'ar')),
+  title TEXT NOT NULL,
+  body TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published')),
+  ai_drafted BOOLEAN NOT NULL DEFAULT false,
+  published_at TIMESTAMPTZ,
+  published_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  emailed INT NOT NULL DEFAULT 0,
+  read_at TIMESTAMPTZ,
+  created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX case_updates_case_idx ON case_updates (case_id, created_at DESC);
+CREATE INDEX case_updates_published_idx ON case_updates (org_id, case_id, published_at DESC) WHERE status = 'published';
+`
   }
 ]
 
