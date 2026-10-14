@@ -537,7 +537,7 @@ async function plan(root, { isCurrent, query }) {
 // ---------------- API keys ----------------
 // ---------------- WhatsApp reminders ----------------
 
-const WA_KINDS = ['hearing', 'invoice', 'documents']
+const WA_KINDS = ['hearing', 'invoice', 'documents', 'case_update']
 const WA_STATUS = { sent: 'bg-emerald-100 text-emerald-700', failed: 'bg-red-100 text-red-700', sending: 'bg-slate-100 text-slate-600' }
 
 async function whatsapp(root, { isCurrent, rerender }) {

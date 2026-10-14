@@ -38,7 +38,8 @@ export async function caseClientUpdatesCard(box, kase) {
         <span class="text-sm font-medium flex-1 min-w-0 truncate" dir="auto">${u.title}</span>
         <span class="text-xs text-slate-500">${u.status === 'draft' ? fmtDateTime(u.created_at) : fmtDateTime(u.published_at)}</span>
       </div>
-      ${u.status === 'published' ? html`<div class="text-xs text-slate-500 mt-1">${u.published_by_name || ''}${u.emailed ? ` · ${t('cu.emailed', { n: u.emailed })}` : ''} ·
+      ${u.status === 'published' ? html`<div class="text-xs text-slate-500 mt-1">${u.published_by_name || ''}${u.emailed ? ` · ${t('cu.emailed', { n: u.emailed })}` : ''}
+        ${u.whatsapp_status === 'sent' ? html` · <span class="text-emerald-700"><i class="fab fa-whatsapp"></i> ${t('cu.wa_status_sent')}</span>` : u.whatsapp_status === 'failed' ? html` · <span class="text-red-700"><i class="fab fa-whatsapp"></i> ${t('cu.wa_status_failed')}</span>` : ''} ·
         ${u.read_at ? html`<span class="text-emerald-700"><i class="fas fa-check-double"></i> ${t('cu.read', { date: fmtDate(u.read_at) })}</span>` : html`<span>${t('cu.unread')}</span>`}</div>` : ''}
       <details class="mt-1 text-sm"><summary class="cursor-pointer text-slate-500 text-xs">${t('cu.show')}</summary><p class="whitespace-pre-wrap mt-2 text-slate-700" dir="auto">${u.body}</p></details>
       ${editable && u.status === 'draft' ? html`<div class="flex gap-2 mt-2">
@@ -100,6 +101,8 @@ function openEditor(kase, u, d, done) {
       </div>
       ${textareaField({ name: 'body', label: t('cu.body'), value: u?.body ?? '', rows: 12, required: true })}
       <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="email" checked /> ${t('cu.also_email')}</label>
+      ${d.whatsapp === 'ready' ? html`<label class="flex items-center gap-2 text-sm"><input type="checkbox" name="whatsapp" checked /> <i class="fab fa-whatsapp text-emerald-600"></i> ${t('cu.also_whatsapp')}</label>`
+        : d.whatsapp === 'no_opt_in' || d.whatsapp === 'no_phone' ? html`<p class="hint"><i class="fab fa-whatsapp"></i> ${t(`cu.wa_${d.whatsapp}`)}</p>` : ''}
       ${d.has_portal ? '' : html`<p class="hint text-amber-700">${t('cu.no_portal')}</p>`}
       <div class="flex flex-wrap justify-end gap-2">
         <button type="button" class="btn btn-ghost" data-action="close-modal">${t('common.cancel')}</button>
@@ -115,9 +118,11 @@ function openEditor(kase, u, d, done) {
         const saved = await save(form)
         if (!saved) return
         try {
-          const r = await api.post(`/api/client-updates/${saved.id}/publish`, { email: !!form.elements.email.checked })
+          const r = await api.post(`/api/client-updates/${saved.id}/publish`, { email: !!form.elements.email.checked, whatsapp: !!form.elements.whatsapp?.checked })
           m.close()
           toast(r.emailed ? t('cu.sent_emailed', { n: r.emailed }) : t('cu.sent_portal'))
+          if (r.whatsapp === 'sent') toast(t('cu.wa_sent'))
+          if (r.whatsapp === 'failed') toast(t('cu.wa_failed'), 'error')
           done()
         } catch (err) { showError(err, form) }
       })

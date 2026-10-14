@@ -9,11 +9,13 @@ import { assertCanUseAi, recordAiUsage } from '../services/usage'
 import { gatherClientFacts, isolateDates, normalizeUpdate, updateMessages, updatesDue, UPDATE_EVERY_DAYS } from '../services/client-updates'
 import { throttle } from './ai'
 import { caseActivity } from './cases'
+import { caseUpdateWhatsApp, sendCaseUpdateWhatsApp, type CaseUpdateWa } from '../services/whatsapp'
 
 // Client updates on a matter: drafts (AI or by hand), then published to the portal.
 const clientUpdateRoutes = new Hono<AppEnv>()
 const writers = ['owner', 'admin', 'lawyer'] as const
 const COLUMNS = `u.id, u.case_id, u.language, u.title, u.body, u.status, u.ai_drafted, u.published_at, u.emailed, u.read_at, u.created_at, u.updated_at,
+  (SELECT w.status FROM whatsapp_messages w WHERE w.kind = 'case_update' AND w.entity_id = u.id LIMIT 1) AS whatsapp_status,
   cu.name AS created_by_name, pu.name AS published_by_name`
 const FROM = `case_updates u LEFT JOIN users cu ON cu.id = u.created_by LEFT JOIN users pu ON pu.id = u.published_by`
 
@@ -47,7 +49,10 @@ clientUpdateRoutes.get('/case/:id', async (c) => {
   const items = await db.query(`SELECT ${COLUMNS} FROM ${FROM} WHERE u.case_id = $1 AND u.org_id = $2 ORDER BY (u.status = 'draft') DESC, COALESCE(u.published_at, u.created_at) DESC`, [k.id, org.id])
   const last = items.find((u: any) => u.status === 'published')
   const days = last ? Math.floor((Date.now() - Date.parse(last.published_at)) / 86_400_000) : null
-  return c.json({ items, has_client: !!k.client_id, has_portal: k.has_portal, client_language: k.client_language, days_since: days, every_days: UPDATE_EVERY_DAYS })
+  // Whether publishing can also send a WhatsApp notice (portal clients only: the notice links to the portal).
+  const wa = k.client_id && k.has_portal ? (await caseUpdateWhatsApp(db, c.get('deps').config, org.id, k.client_id)).status : null
+  return c.json({ items, has_client: !!k.client_id, has_portal: k.has_portal, client_language: k.client_language, days_since: days, every_days: UPDATE_EVERY_DAYS,
+    whatsapp: wa === 'ready' ? 'ready' : wa })
 })
 
 const draftShape = {
@@ -128,7 +133,7 @@ clientUpdateRoutes.delete('/:id', async (c) => {
 })
 
 // Publishes to the client portal and, optionally, emails the client's portal users.
-clientUpdateRoutes.post('/:id/publish', jsonBody(z.object({ email: z.boolean().default(true) })), async (c) => {
+clientUpdateRoutes.post('/:id/publish', jsonBody(z.object({ email: z.boolean().default(true), whatsapp: z.boolean().default(true) })), async (c) => {
   requireRole(c, ...writers)
   const { user, org } = auth(c)
   const { db, mailer, config, log } = c.get('deps')
@@ -164,7 +169,12 @@ clientUpdateRoutes.post('/:id/publish', jsonBody(z.object({ email: z.boolean().d
     if (emailed) await db.query('UPDATE case_updates SET emailed = $2 WHERE id = $1', [u.id, emailed])
   }
   await audit(c, 'case.client_update_published', 'case', k.id, { update: u.id, emailed })
-  return c.json({ update: await loadUpdate(db, org.id, u.id), emailed, has_portal: k.has_portal })
+  let whatsapp: CaseUpdateWa | null = null
+  if (c.req.valid('json').whatsapp && k.has_portal) {
+    whatsapp = await sendCaseUpdateWhatsApp(c.get('deps'), { orgId: org.id, clientId: k.client_id, updateId: u.id, caseId: k.id, reference: k.reference, title: u.title })
+  }
+  if (whatsapp === 'sent' || whatsapp === 'failed') await audit(c, 'case.client_update_whatsapp', 'case', k.id, { update: u.id, status: whatsapp })
+  return c.json({ update: await loadUpdate(db, org.id, u.id), emailed, whatsapp, has_portal: k.has_portal })
 })
 
 export default clientUpdateRoutes
