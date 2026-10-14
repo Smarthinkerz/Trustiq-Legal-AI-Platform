@@ -1428,6 +1428,71 @@ CREATE TABLE hearing_preps (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 `
+  },
+  {
+    version: 40,
+    name: 'corporate_secretarial',
+    sql: `
+CREATE TABLE corporate_profiles (
+  client_id UUID PRIMARY KEY REFERENCES clients(id) ON DELETE CASCADE,
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  legal_form TEXT NOT NULL DEFAULT 'llc' CHECK (legal_form IN ('llc', 'spc', 'saog', 'saoc', 'partnership', 'branch', 'sole', 'free_zone', 'other')),
+  jurisdiction TEXT,
+  cr_number TEXT,
+  registered_on DATE,
+  capital NUMERIC(18, 3),
+  currency TEXT,
+  total_shares NUMERIC(18, 3),
+  fiscal_year_end SMALLINT NOT NULL DEFAULT 12 CHECK (fiscal_year_end BETWEEN 1 AND 12),
+  registered_address TEXT,
+  activities TEXT,
+  notes TEXT,
+  updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE corporate_people (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  client_id UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  name_ar TEXT,
+  role TEXT NOT NULL CHECK (role IN ('shareholder', 'director', 'manager', 'signatory', 'secretary', 'auditor')),
+  is_entity BOOLEAN NOT NULL DEFAULT false,
+  nationality TEXT,
+  id_number TEXT,
+  shares NUMERIC(18, 3),
+  position TEXT,
+  signing_authority TEXT,
+  appointed_on DATE,
+  ceased_on DATE,
+  notes TEXT,
+  created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX corporate_people_client_idx ON corporate_people (client_id, role);
+
+CREATE TABLE corporate_obligations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  client_id UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL CHECK (kind IN ('cr_renewal', 'chamber_renewal', 'licence_renewal', 'agm', 'accounts', 'tax_return', 'other')),
+  title TEXT NOT NULL,
+  due_on DATE NOT NULL,
+  recurs_yearly BOOLEAN NOT NULL DEFAULT true,
+  done_on DATE,
+  next_id UUID REFERENCES corporate_obligations(id) ON DELETE SET NULL,
+  event_id UUID REFERENCES events(id) ON DELETE SET NULL,
+  notes TEXT,
+  created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX corporate_obligations_client_idx ON corporate_obligations (client_id, due_on);
+CREATE INDEX corporate_obligations_open_idx ON corporate_obligations (org_id, due_on) WHERE done_on IS NULL;
+`
   }
 ]
 

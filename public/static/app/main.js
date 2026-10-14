@@ -22,6 +22,7 @@ import { retentionView } from './views/closing.js'
 import { settlementRegisterView } from './views/settlement.js'
 import { hearingPrepView } from './views/hearing-prep.js'
 import { workloadView } from './views/workload.js'
+import { corporateRegisterView } from './views/corporate.js'
 import { assistantView } from './views/assistant.js'
 import { calendarView } from './views/calendar.js'
 import { settingsView } from './views/settings.js'
@@ -59,6 +60,7 @@ const routes = [
   { path: '/notices', view: noticesRegisterView, nav: 'cases' },
   { path: '/experts', view: expertsRegisterView, nav: 'cases' },
   { path: '/originals', view: originalsRegisterView, nav: 'clients' },
+  { path: '/corporate', view: corporateRegisterView, nav: 'clients' },
   { path: '/retention', view: retentionView, nav: 'cases' },
   { path: '/settlement', view: settlementRegisterView, nav: 'cases' },
   { path: '/assistant', view: assistantView, nav: 'assistant' },
