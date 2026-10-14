@@ -23,7 +23,8 @@ dashboardRoutes.get('/', async (c) => {
        (SELECT count(*)::int FROM clients cl LEFT JOIN client_kyc ky ON ky.client_id = cl.id
          WHERE cl.org_id = $1 AND cl.archived_at IS NULL AND EXISTS (SELECT 1 FROM cases x WHERE x.client_id = cl.id AND x.status <> 'closed')
            AND (ky.client_id IS NULL OR ky.status <> 'approved' OR ky.next_review_on < (now() AT TIME ZONE 'Asia/Muscat')::date)) AS kyc_attention,
-       (SELECT count(*)::int FROM legal_notices WHERE org_id = $1 AND status IN ('sent', 'delivered') AND response_due <= (now() AT TIME ZONE 'Asia/Muscat')::date + 7) AS notices_due`,
+       (SELECT count(*)::int FROM legal_notices WHERE org_id = $1 AND status IN ('sent', 'delivered') AND response_due <= (now() AT TIME ZONE 'Asia/Muscat')::date + 7) AS notices_due,
+       (SELECT count(*)::int FROM settlement_offers WHERE org_id = $1 AND status = 'open' AND expires_on <= (now() AT TIME ZONE 'Asia/Muscat')::date + 3) AS offers_expiring`,
     [org.id, user.id])
   const [byStatus, upcoming, recentCases, recentDocs, credentials] = await Promise.all([
     db.query(`SELECT status, count(*)::int AS n FROM cases WHERE org_id = $1 GROUP BY status`, [org.id]),
