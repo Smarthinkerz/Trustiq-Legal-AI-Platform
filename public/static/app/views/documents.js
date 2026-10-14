@@ -66,14 +66,14 @@ export function openUploadForm({ caseId, caseLabel, clientId, onSaved } = {}) {
   })
 }
 
-export function openDraftForm({ caseId, caseLabel, clientId, jurisdiction, onSaved } = {}) {
+export function openDraftForm({ caseId, caseLabel, clientId, jurisdiction, template, onSaved } = {}) {
   const m = modal({
     title: t('docs.ai_draft'),
     size: 'lg',
     body: html`
       <form data-form="draft" class="space-y-4" novalidate>
         <div class="grid sm:grid-cols-2 gap-4">
-          ${selectField({ name: 'template', label: t('docs.template'), options: refOptions('templates'), required: true })}
+          ${selectField({ name: 'template', label: t('docs.template'), options: refOptions('templates'), value: template, required: true })}
           ${selectField({ name: 'language', label: t('docs.language'), options: langOptions(), value: getLang() })}
           ${selectField({ name: 'jurisdiction', label: t('common.jurisdiction'), options: refOptions('jurisdictions'), value: jurisdiction || store.me.org.default_jurisdiction, required: true })}
           ${inputField({ name: 'title', label: t('docs.title'), hint: t('docs.title_optional') })}

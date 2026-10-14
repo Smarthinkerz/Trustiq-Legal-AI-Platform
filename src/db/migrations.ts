@@ -1231,6 +1231,39 @@ CREATE TABLE case_updates (
 CREATE INDEX case_updates_case_idx ON case_updates (case_id, created_at DESC);
 CREATE INDEX case_updates_published_idx ON case_updates (org_id, case_id, published_at DESC) WHERE status = 'published';
 `
+  },
+  {
+    version: 33,
+    name: 'legal_notices',
+    sql: `
+CREATE TABLE legal_notices (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  case_id UUID NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+  direction TEXT NOT NULL CHECK (direction IN ('outgoing', 'incoming')),
+  party TEXT NOT NULL,
+  subject TEXT NOT NULL,
+  method TEXT NOT NULL CHECK (method IN ('notary', 'court_bailiff', 'courier', 'registered_mail', 'email', 'whatsapp', 'hand', 'other')),
+  reference_no TEXT,
+  notice_date DATE NOT NULL,
+  delivered_on DATE,
+  response_days INT CHECK (response_days BETWEEN 1 AND 365),
+  response_due DATE,
+  status TEXT NOT NULL DEFAULT 'sent' CHECK (status IN ('sent', 'delivered', 'responded', 'no_response', 'failed', 'withdrawn', 'closed')),
+  response_on DATE,
+  response_summary TEXT,
+  amount NUMERIC(16, 3),
+  currency TEXT,
+  document_id UUID REFERENCES documents(id) ON DELETE SET NULL,
+  deadline_event_id UUID REFERENCES events(id) ON DELETE SET NULL,
+  notes TEXT,
+  created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX legal_notices_case_idx ON legal_notices (case_id, notice_date DESC);
+CREATE INDEX legal_notices_open_idx ON legal_notices (org_id, response_due) WHERE status IN ('sent', 'delivered');
+`
   }
 ]
 
