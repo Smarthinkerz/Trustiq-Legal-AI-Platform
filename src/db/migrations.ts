@@ -1191,6 +1191,21 @@ CREATE TABLE judgment_collections (
 );
 CREATE INDEX judgment_collections_judgment_idx ON judgment_collections (judgment_id, collected_on);
 `
+   },
+  {
+    version: 31,
+    name: 'time_capture',
+    sql: `
+ALTER TABLE time_entries ADD COLUMN source_key TEXT;
+CREATE UNIQUE INDEX time_entries_source_key ON time_entries (user_id, source_key) WHERE source_key IS NOT NULL;
+CREATE TABLE time_suggestion_dismissals (
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  key TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, key)
+);
+`
   }
 ]
 

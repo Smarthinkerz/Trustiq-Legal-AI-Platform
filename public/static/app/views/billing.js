@@ -8,6 +8,7 @@ import {
   showError, spinner, submitButton, textareaField, toast
 } from '../ui.js'
 import { searchPicker, wirePickers } from './pickers.js'
+import { timeSuggestionsPanel } from './time-capture.js'
 
 const TABS = [
   ['invoices', 'fa-file-invoice-dollar', () => true],
@@ -252,7 +253,7 @@ async function time(root, { query, isCurrent, rerender }) {
   if (!isCurrent()) return
   const me = store.me.user
   const mayEdit = (x) => !x.invoice_id && !readOnly() && (x.user_id === me.id || can('owner', 'admin'))
-  render(root, html`<div class="card">
+  render(root, html`<div data-suggest></div><div class="card">
     <div class="p-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
       <label class="flex items-center gap-2 text-sm"><input type="checkbox" data-change="unbilled" ${state.unbilled ? raw('checked') : ''} />${t('billing.only_unbilled')}</label>
       <div class="text-sm text-slate-600">${t('billing.summary', { hours: fmtHours(res.summary.minutes), billable: fmtHours(res.summary.billable_minutes) })}</div>
@@ -271,6 +272,7 @@ async function time(root, { query, isCurrent, rerender }) {
       </tr>`)}</tbody></table></div>${pagination(res)}`
       : emptyState('fa-stopwatch', t('billing.no_time'), t('billing.no_time_text'))}
   </div>`)
+  timeSuggestionsPanel(root.querySelector('[data-suggest]'), { onAccepted: rerender })
   bind(root, {
     actions: {
       edit: (el) => openTimeForm({ entry: res.items.find((x) => x.id === el.dataset.id), onSaved: rerender }),
