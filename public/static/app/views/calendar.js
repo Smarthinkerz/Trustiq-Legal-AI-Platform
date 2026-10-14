@@ -111,7 +111,7 @@ export async function calendarView(root, { query, isCurrent, rerender }) {
   const days = Array.from({ length: 42 }, (_, i) => { const d = new Date(gridStart); d.setDate(gridStart.getDate() + i); return d })
 
   render(root, html`
-    ${pageHeader(t('nav.calendar'), t('events.subtitle'), ro ? '' : html`<button class="btn btn-primary" data-action="new"><i class="fas fa-plus"></i>${t('events.new')}</button>`)}
+    ${pageHeader(t('nav.calendar'), t('events.subtitle'), html`<a class="btn btn-outline" href="#/roll"><i class="fas fa-landmark"></i>${t('roll.title')}</a>${ro ? '' : html`<button class="btn btn-primary" data-action="new"><i class="fas fa-plus"></i>${t('events.new')}</button>`}`)}
     ${overdueItems.length ? html`<div class="rounded-lg bg-red-50 border border-red-200 p-4 mb-6">
       <h2 class="font-semibold text-red-800 mb-2"><i class="fas fa-triangle-exclamation"></i> ${t('events.overdue_title', { n: overdueItems.length })}</h2>
       <ul class="space-y-1 text-sm">${overdueItems.map((e) => html`<li><button class="text-red-800 hover:underline text-start" data-action="edit" data-id="${e.id}" data-src="overdue">${fmtDate(e.starts_at)} – ${e.title}${e.case_reference ? ` (${e.case_reference})` : ''}</button></li>`)}</ul>

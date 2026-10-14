@@ -21,7 +21,7 @@ const isHeading = (line: string) =>
   line.length < 90 && (/^(\d+(\.\d+)*[.)]?|article|clause|المادة|البند)\s/i.test(line) || (line === line.toUpperCase() && /[A-Z]/.test(line)))
 
 
-function letterheadParagraphs(lh: Letterhead | null | undefined, rtl: boolean, font: string, color: string): Paragraph[] {
+export function letterheadParagraphs(lh: Letterhead | null | undefined, rtl: boolean, font: string, color: string): Paragraph[] {
   const headerChildren: Paragraph[] = []
   if (lh) {
     const logoType = lh.logo_mime === 'image/png' ? 'png' : lh.logo_mime === 'image/jpeg' ? 'jpg' : null
