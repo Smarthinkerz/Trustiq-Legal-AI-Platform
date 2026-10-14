@@ -78,6 +78,10 @@ export async function dashboardView(root, { isCurrent, rerender }) {
     </section>` : ''}
 
     <div data-time-nudge></div>
+    ${counts.client_updates_due && can('owner', 'admin', 'lawyer') ? html`<a href="#/client-updates" class="card card-pad mb-6 flex items-center gap-3 border-sky-200 hover:shadow-md">
+      <i class="fas fa-paper-plane text-sky-600 text-xl"></i>
+      <div class="flex-1"><div class="font-semibold text-sm">${t('cu.dash_title', { n: counts.client_updates_due })}</div><div class="text-xs text-slate-500">${t('cu.dash_help')}</div></div>
+      <i class="fas fa-chevron-right text-slate-400 rtl:rotate-180"></i></a>` : ''}
     ${counts.onboarding_gaps && can('owner', 'admin', 'lawyer') ? html`<a href="#/onboarding?show=not_ready" class="card card-pad mb-6 flex items-center gap-3 border-amber-200 hover:shadow-md">
       <i class="fas fa-clipboard-check text-amber-600 text-xl"></i>
       <div class="flex-1"><div class="font-semibold text-sm">${t('onb.dash_title', { n: counts.onboarding_gaps })}</div><div class="text-xs text-slate-500">${t('onb.dash_help')}</div></div>

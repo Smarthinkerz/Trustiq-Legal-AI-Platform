@@ -107,7 +107,8 @@ export async function portalHomeView(root, { isCurrent, rerender }) {
           ${o.cases.length ? html`<ul class="divide-y divide-slate-100">${o.cases.map((k) => html`<li><a href="#/portal/cases/${k.id}" class="px-5 py-4 flex flex-wrap items-center gap-3 hover:bg-slate-50">
             <div class="flex-1 min-w-0"><div class="font-medium" dir="auto">${caseTitle(k)}</div>
               <div class="text-xs text-slate-500">${k.reference} · ${refLabel('jurisdictions', k.jurisdiction)}${k.lawyer_name ? ` · ${k.lawyer_name}` : ''}</div>
-              ${k.next_hearing ? html`<div class="text-xs text-red-700 mt-1"><i class="fas fa-gavel"></i> ${t('portal.next_hearing')}: ${fmtDateTime(k.next_hearing)}</div>` : ''}</div>
+              ${k.next_hearing ? html`<div class="text-xs text-red-700 mt-1"><i class="fas fa-gavel"></i> ${t('portal.next_hearing')}: ${fmtDateTime(k.next_hearing)}</div>` : ''}
+              ${k.unread_updates ? html`<div class="text-xs text-brand-700 font-medium mt-1"><i class="fas fa-paper-plane"></i> ${t('portal.new_updates', { n: k.unread_updates })}</div>` : ''}</div>
             ${statusBadge(k.status)}</a></li>`)}</ul>` : emptyState('fa-folder-open', t('portal.no_matters'), '')}
         </section>
         <section class="card">
@@ -172,7 +173,7 @@ export async function portalHomeView(root, { isCurrent, rerender }) {
 }
 
 export async function portalCaseView(root, { params, isCurrent, rerender }) {
-  const [{ case: k, events, documents, hearings = [] }, overview] = await Promise.all([api.get(`/api/portal/cases/${params.id}`), api.get('/api/portal/overview')])
+  const [{ case: k, events, documents, hearings = [], updates = [] }, overview] = await Promise.all([api.get(`/api/portal/cases/${params.id}`), api.get('/api/portal/overview')])
   if (!isCurrent()) return
   const info = (label, value) => value ? html`<div><dt class="text-xs text-slate-500">${label}</dt><dd class="text-sm font-medium mt-0.5" dir="auto">${value}</dd></div>` : ''
   render(root, html`
@@ -194,6 +195,14 @@ export async function portalCaseView(root, { params, isCurrent, rerender }) {
           ${info(t('portal.your_lawyer'), k.lawyer_name)}
           ${info(t('cases.opened_on'), k.opened_on ? fmtDate(isoDay(k.opened_on)) : '')}
         </dl></section>
+        ${updates.length ? html`<section class="card"><div class="px-5 py-4 border-b border-slate-100"><h2 class="font-semibold"><i class="fas fa-paper-plane text-brand-600 me-1"></i>${t('portal.updates')}</h2></div>
+          <ol class="divide-y divide-slate-100">${updates.map((u, n) => html`<li class="px-5 py-4">
+            <div class="flex flex-wrap items-center gap-2"><h3 class="font-semibold text-sm flex-1 min-w-0" dir="auto">${u.title}</h3>
+              ${u.read_at ? '' : html`<span class="badge bg-brand-100 text-brand-800">${t('portal.new')}</span>`}
+              <span class="text-xs text-slate-500">${fmtDate(u.published_at)}${u.author_name ? ` · ${u.author_name}` : ''}</span></div>
+            ${n === 0 ? html`<p class="whitespace-pre-wrap text-sm text-slate-700 mt-2" dir="${u.language === 'ar' ? 'rtl' : 'ltr'}">${u.body}</p>`
+              : html`<details class="text-sm mt-1"><summary class="cursor-pointer text-slate-500 text-xs">${t('portal.read_update')}</summary><p class="whitespace-pre-wrap mt-2 text-slate-700" dir="${u.language === 'ar' ? 'rtl' : 'ltr'}">${u.body}</p></details>`}
+          </li>`)}</ol></section>` : ''}
         ${hearings.length ? html`<section class="card"><div class="px-5 py-4 border-b border-slate-100"><h2 class="font-semibold"><i class="fas fa-gavel text-slate-400 me-1"></i>${t('portal.hearing_updates')}</h2></div>
           <ol class="divide-y divide-slate-100">${hearings.map((h) => html`<li class="px-5 py-4 space-y-2">
             <div class="flex flex-wrap items-center gap-2"><span class="text-sm font-semibold">${h.hearing_all_day ? fmtDate(h.hearing_at) : fmtDateTime(h.hearing_at)}</span>${outcomeBadge(h.outcome)}</div>

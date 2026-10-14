@@ -15,7 +15,7 @@ import { dictationMessages, localToday, MAX_AUDIO_BYTES, MAX_NOTES_CHARS, normal
 const HISTORY_MESSAGES = 20
 const TEMPLATE_IDS = DOCUMENT_TEMPLATES.map((t) => t.id) as unknown as [string, ...string[]]
 
-function throttle(c: Ctx) {
+export function throttle(c: Ctx) {
   const { user } = auth(c)
   const r = c.get('deps').limiters.ai.take(user.id)
   if (!r.ok) {

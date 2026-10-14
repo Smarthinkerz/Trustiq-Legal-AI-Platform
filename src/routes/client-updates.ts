@@ -1,0 +1,170 @@
+import { Hono } from 'hono'
+import { z } from 'zod'
+import { audit, auth, requireRole, type AppEnv } from '../context'
+import type { Queryable } from '../db'
+import { badRequest, conflict, HttpError, notFound } from '../lib/errors'
+import { jsonBody, queryParams, updateBody, uuidParam } from '../lib/http'
+import { parseJsonObject } from '../services/legal-prompts'
+import { assertCanUseAi, recordAiUsage } from '../services/usage'
+import { gatherClientFacts, isolateDates, normalizeUpdate, updateMessages, updatesDue, UPDATE_EVERY_DAYS } from '../services/client-updates'
+import { throttle } from './ai'
+import { caseActivity } from './cases'
+
+// Client updates on a matter: drafts (AI or by hand), then published to the portal.
+const clientUpdateRoutes = new Hono<AppEnv>()
+const writers = ['owner', 'admin', 'lawyer'] as const
+const COLUMNS = `u.id, u.case_id, u.language, u.title, u.body, u.status, u.ai_drafted, u.published_at, u.emailed, u.read_at, u.created_at, u.updated_at,
+  cu.name AS created_by_name, pu.name AS published_by_name`
+const FROM = `case_updates u LEFT JOIN users cu ON cu.id = u.created_by LEFT JOIN users pu ON pu.id = u.published_by`
+
+async function loadCase(db: Queryable, orgId: string, id: string) {
+  const [k] = await db.query(
+    `SELECT k.id, k.reference, k.title, k.client_id, cl.language AS client_language,
+            EXISTS (SELECT 1 FROM users p WHERE p.client_id = k.client_id AND p.role = 'client' AND p.deactivated_at IS NULL) AS has_portal
+       FROM cases k LEFT JOIN clients cl ON cl.id = k.client_id WHERE k.id = $1 AND k.org_id = $2`, [id, orgId])
+  if (!k) throw notFound('Case')
+  return k
+}
+
+async function loadUpdate(db: Queryable, orgId: string, id: string) {
+  const [u] = await db.query(`SELECT ${COLUMNS} FROM ${FROM} WHERE u.id = $1 AND u.org_id = $2`, [id, orgId])
+  if (!u) throw notFound('Update')
+  return u
+}
+
+// Matters whose client has not had an update for a month (everyone's, or only mine).
+clientUpdateRoutes.get('/due', queryParams(z.object({ mine: z.enum(['1', '0']).optional() })), async (c) => {
+  const { user, org } = auth(c)
+  const mine = c.req.valid('query').mine === '1' || user.role === 'staff' ? user.id : null
+  const items = await updatesDue(c.get('deps').db, org.id, { userId: mine })
+  return c.json({ items, every_days: UPDATE_EVERY_DAYS })
+})
+
+clientUpdateRoutes.get('/case/:id', async (c) => {
+  const { org } = auth(c)
+  const { db } = c.get('deps')
+  const k = await loadCase(db, org.id, uuidParam(c.req.param('id'), 'Case'))
+  const items = await db.query(`SELECT ${COLUMNS} FROM ${FROM} WHERE u.case_id = $1 AND u.org_id = $2 ORDER BY (u.status = 'draft') DESC, COALESCE(u.published_at, u.created_at) DESC`, [k.id, org.id])
+  const last = items.find((u: any) => u.status === 'published')
+  const days = last ? Math.floor((Date.now() - Date.parse(last.published_at)) / 86_400_000) : null
+  return c.json({ items, has_client: !!k.client_id, has_portal: k.has_portal, client_language: k.client_language, days_since: days, every_days: UPDATE_EVERY_DAYS })
+})
+
+const draftShape = {
+  language: z.enum(['en', 'ar']),
+  title: z.string().trim().min(2).max(200),
+  body: z.string().trim().min(10).max(10_000)
+}
+
+clientUpdateRoutes.post('/case/:id', jsonBody(z.object(draftShape)), async (c) => {
+  requireRole(c, ...writers)
+  const { user, org } = auth(c)
+  const { db } = c.get('deps')
+  const k = await loadCase(db, org.id, uuidParam(c.req.param('id'), 'Case'))
+  if (!k.client_id) throw badRequest('This matter has no client to update.')
+  const b = c.req.valid('json')
+  const fix = (v: string) => (b.language === 'ar' ? isolateDates(v) : v)
+  const [row] = await db.query(
+    `INSERT INTO case_updates (org_id, case_id, language, title, body, created_by) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+    [org.id, k.id, b.language, fix(b.title), fix(b.body), user.id])
+  return c.json({ update: await loadUpdate(db, org.id, row.id) }, 201)
+})
+
+// AI draft from what happened since the last update; saved as a draft for the lawyer to edit.
+clientUpdateRoutes.post('/case/:id/draft', jsonBody(z.object({
+  language: z.enum(['en', 'ar']).optional(),
+  points: z.string().trim().max(3000).optional()
+})), async (c) => {
+  requireRole(c, ...writers)
+  const { user, org } = auth(c)
+  const { db, ai } = c.get('deps')
+  const k = await loadCase(db, org.id, uuidParam(c.req.param('id'), 'Case'))
+  if (!k.client_id) throw badRequest('This matter has no client to update.')
+  const b = c.req.valid('json')
+  const language = b.language ?? (k.client_language === 'en' ? 'en' : 'ar')
+  const facts = (await gatherClientFacts(db, org.id, k.id))!
+  throttle(c)
+  await assertCanUseAi(db, org)
+  const [firm] = await db.query('SELECT firm_name, firm_name_ar FROM branding WHERE org_id = $1', [org.id])
+  const firmName = (language === 'ar' && firm?.firm_name_ar) || firm?.firm_name || org.name
+  const result = await ai.complete({ messages: updateMessages(language, facts.text, b.points || null, firmName), json: true, maxTokens: 1500, temperature: 0.3 })
+  let draft
+  try { draft = normalizeUpdate(parseJsonObject(result.text), language) } catch { draft = { title: '', body: '' } }
+  if (draft.body.length < 10) throw new HttpError(502, 'ai_bad_output', 'The AI returned an empty update. Please try again.')
+  const title = draft.title.length >= 2 ? draft.title : `${language === 'ar' ? 'مستجدات القضية' : 'Update on your matter'} ${k.reference}`
+  const id = await db.tx(async (q) => {
+    const [row] = await q.query(
+      `INSERT INTO case_updates (org_id, case_id, language, title, body, ai_drafted, created_by) VALUES ($1, $2, $3, $4, $5, true, $6) RETURNING id`,
+      [org.id, k.id, language, title, draft.body, user.id])
+    await recordAiUsage(q, org.id, user.id, 'client_update', result)
+    return row.id as string
+  })
+  await audit(c, 'ai.client_update_drafted', 'case', k.id, { language, model: result.model })
+  return c.json({ update: await loadUpdate(db, org.id, id), since: facts.since, facts: facts.facts }, 201)
+})
+
+clientUpdateRoutes.patch('/:id', jsonBody(updateBody(draftShape)), async (c) => {
+  requireRole(c, ...writers)
+  const { org } = auth(c)
+  const { db } = c.get('deps')
+  const u = await loadUpdate(db, org.id, uuidParam(c.req.param('id'), 'Update'))
+  if (u.status !== 'draft') throw conflict('A published update cannot be changed. Send a new update instead.')
+  const b = c.req.valid('json') as Partial<{ language: string; title: string; body: string }>
+  const fix = (v: string | undefined) => (v != null && (b.language ?? u.language) === 'ar' ? isolateDates(v) : v ?? null)
+  await db.query(
+    `UPDATE case_updates SET language = COALESCE($2, language), title = COALESCE($3, title), body = COALESCE($4, body), updated_at = now() WHERE id = $1`,
+    [u.id, b.language ?? null, fix(b.title), fix(b.body)])
+  return c.json({ update: await loadUpdate(db, org.id, u.id) })
+})
+
+clientUpdateRoutes.delete('/:id', async (c) => {
+  requireRole(c, ...writers)
+  const { org } = auth(c)
+  const { db } = c.get('deps')
+  const u = await loadUpdate(db, org.id, uuidParam(c.req.param('id'), 'Update'))
+  if (u.status !== 'draft') throw conflict('A published update cannot be deleted.')
+  await db.query('DELETE FROM case_updates WHERE id = $1', [u.id])
+  return c.json({ ok: true })
+})
+
+// Publishes to the client portal and, optionally, emails the client's portal users.
+clientUpdateRoutes.post('/:id/publish', jsonBody(z.object({ email: z.boolean().default(true) })), async (c) => {
+  requireRole(c, ...writers)
+  const { user, org } = auth(c)
+  const { db, mailer, config, log } = c.get('deps')
+  const u = await loadUpdate(db, org.id, uuidParam(c.req.param('id'), 'Update'))
+  if (u.status !== 'draft') throw conflict('This update has already been sent.')
+  const k = await loadCase(db, org.id, u.case_id)
+  if (!k.client_id) throw badRequest('This matter has no client to update.')
+  const claimed = await db.query(
+    `UPDATE case_updates SET status = 'published', published_at = now(), published_by = $2, updated_at = now() WHERE id = $1 AND status = 'draft' RETURNING id`, [u.id, user.id])
+  if (!claimed.length) throw conflict('This update has already been sent.')
+  await caseActivity(db, org.id, k.id, user.id, 'note', `Client update sent: ${u.title}`)
+  let emailed = 0
+  if (c.req.valid('json').email && mailer.configured) {
+    // Portal users get a link to read it there; a client without portal access gets it at the email on file.
+    const portalUsers = await db.query(`SELECT email, locale FROM users WHERE org_id = $1 AND client_id = $2 AND role = 'client' AND deactivated_at IS NULL AND notify_email`, [org.id, k.client_id])
+    const recipients = portalUsers.length || k.has_portal ? portalUsers.map((r: any) => ({ ...r, portal: true }))
+      : (await db.query(`SELECT email FROM clients WHERE id = $1 AND email IS NOT NULL AND email <> ''`, [k.client_id])).map((r: any) => ({ email: r.email, locale: u.language, portal: false }))
+    const [firm] = await db.query('SELECT firm_name, firm_name_ar FROM branding WHERE org_id = $1', [org.id])
+    for (const r of recipients.slice(0, 20)) {
+      const ar = (r.locale ?? u.language) === 'ar'
+      const firmName = (ar && firm?.firm_name_ar) || firm?.firm_name || org.name
+      try {
+        await mailer.send({
+          to: r.email,
+          subject: `${u.title} – ${firmName}`,
+          text: `${u.title}\n${k.reference}\n\n${u.body}\n\n` + (r.portal
+            ? `${ar ? 'يمكنكم الاطلاع على ملفكم والرد عبر بوابة الموكلين:' : 'View your matter and reply in your client portal:'}\n${config.appUrl}/app#/portal/cases/${k.id}`
+            : `${firmName}`)
+        })
+        emailed++
+      } catch (err) { log.warn('client update email failed', { err }) }
+    }
+    if (emailed) await db.query('UPDATE case_updates SET emailed = $2 WHERE id = $1', [u.id, emailed])
+  }
+  await audit(c, 'case.client_update_published', 'case', k.id, { update: u.id, emailed })
+  return c.json({ update: await loadUpdate(db, org.id, u.id), emailed, has_portal: k.has_portal })
+})
+
+export default clientUpdateRoutes
