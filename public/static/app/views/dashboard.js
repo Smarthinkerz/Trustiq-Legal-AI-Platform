@@ -2,7 +2,7 @@ import { statusBadge as credStatusBadge } from './credentials.js'
 import { api } from '../api.js'
 import { bind, html, render } from '../dom.js'
 import { fmtDate, fmtDateTime, fmtNumber, fmtRelative, t } from '../i18n.js'
-import { aiEnabled, readOnly, store } from '../store.js'
+import { aiEnabled, can, readOnly, store } from '../store.js'
 import { eventBadge, statusBadge, priorityBadge, toast } from '../ui.js'
 import { openCaseForm } from './cases.js'
 import { openUploadForm, openDraftForm } from './documents.js'
@@ -76,6 +76,10 @@ export async function dashboardView(root, { isCurrent, rerender }) {
         ${ro ? '' : html`<button class="btn btn-primary btn-sm" data-action="record-outcome" data-id="${e.id}"><i class="fas fa-pen"></i>${t('hearing.record')}</button>`}</li>`)}</ul>
     </section>` : ''}
 
+    ${counts.onboarding_gaps && can('owner', 'admin', 'lawyer') ? html`<a href="#/onboarding?show=not_ready" class="card card-pad mb-6 flex items-center gap-3 border-amber-200 hover:shadow-md">
+      <i class="fas fa-clipboard-check text-amber-600 text-xl"></i>
+      <div class="flex-1"><div class="font-semibold text-sm">${t('onb.dash_title', { n: counts.onboarding_gaps })}</div><div class="text-xs text-slate-500">${t('onb.dash_help')}</div></div>
+      <i class="fas fa-chevron-right text-slate-400 rtl:rotate-180"></i></a>` : ''}
     ${counts.kyc_attention ? html`<a href="#/compliance" class="card card-pad mb-6 flex items-center gap-3 border-sky-200 hover:shadow-md">
       <i class="fas fa-user-shield text-sky-600 text-xl"></i>
       <div class="flex-1"><div class="font-semibold text-sm">${t('kyc.dash_title', { n: counts.kyc_attention })}</div><div class="text-xs text-slate-500">${t('kyc.dash_help')}</div></div>
