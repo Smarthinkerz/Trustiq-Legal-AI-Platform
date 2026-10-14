@@ -2,14 +2,14 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { audit, auth, requireRole, type AppEnv } from '../context'
 import { badRequest, HttpError, notFound, tooMany } from '../lib/errors'
-import { jsonBody, optText, optUuid, queryParams, uuidParam } from '../lib/http'
+import { jsonBody, optText, optUuid, queryParams, updateBody, uuidParam } from '../lib/http'
 import { parseJsonObject } from '../services/legal-prompts'
 import { CLAUSE_CATEGORIES, CLAUSE_LIMIT, normalizeReview, reviewMessages, RULE_LIMIT, SEVERITIES, STARTER_CLAUSES, STARTER_RULES, type Rule } from '../services/playbook'
 import { jurisdictionName } from '../services/reference'
 import { assertCanUseAi, recordAiUsage } from '../services/usage'
 
 // The firm's negotiation playbook, and AI review of a contract against it.
-const ruleSchema = z.object({
+const ruleFields = {
   category: z.enum(CLAUSE_CATEGORIES).default('general'),
   topic: z.string().trim().min(2).max(200),
   standard_position: z.string().trim().min(2).max(3000),
@@ -18,7 +18,8 @@ const ruleSchema = z.object({
   severity: z.enum(SEVERITIES).default('medium'),
   clause_id: optUuid,
   active: z.boolean().default(true)
-})
+}
+const ruleSchema = z.object(ruleFields)
 const RULE_COLS = `r.id, r.category, r.topic, r.standard_position, r.fallback_position, r.red_flags, r.severity, r.clause_id, r.active, r.created_at, r.updated_at, cl.title AS clause_title`
 const REVIEW_COLS = `v.id, v.document_id, v.document_version, v.language, v.acting_for, v.result, v.model, v.created_at, u.name AS created_by_name`
 
@@ -54,7 +55,7 @@ playbookRoutes.post('/rules', jsonBody(ruleSchema), async (c) => {
   return c.json({ rule }, 201)
 })
 
-playbookRoutes.patch('/rules/:id', jsonBody(ruleSchema.partial()), async (c) => {
+playbookRoutes.patch('/rules/:id', jsonBody(updateBody(ruleFields)), async (c) => {
   requireRole(c, ...managers)
   const { org } = auth(c)
   const id = uuidParam(c.req.param('id'), 'Rule')

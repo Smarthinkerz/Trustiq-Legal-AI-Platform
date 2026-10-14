@@ -48,3 +48,12 @@ export function buildUpdate(data: Record<string, unknown>, allowed: readonly str
   }
   return { sets, values }
 }
+
+// Schema for PATCH bodies: every field optional and none falls back to a default.
+// (Zod applies .default() values even inside .partial(), which would silently overwrite
+// fields the client did not send.)
+export function updateBody<T extends z.ZodRawShape>(shape: T) {
+  const out: Record<string, ZodType> = {}
+  for (const [k, v] of Object.entries(shape)) out[k] = (v instanceof z.ZodDefault ? (v.unwrap() as ZodType) : (v as ZodType)).optional()
+  return z.object(out) as unknown as z.ZodObject<{ [K in keyof T]: z.ZodOptional<T[K] extends z.ZodDefault<infer I> ? I : T[K]> }>
+}

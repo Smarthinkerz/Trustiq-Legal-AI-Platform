@@ -87,6 +87,13 @@ describe('clause bank and playbook review', () => {
     const off = (await c.get('/api/playbook/rules')).data.items.filter((r: any) => !r.active)
     expect(off).toHaveLength(rules.length - 2)
     expect((await c.patch(`/api/playbook/rules/${law.id}`, { fallback_position: '' })).data.rule.fallback_position).toBeNull()
+    // Toggling a rule keeps its category and importance; a partial clause edit keeps its category.
+    expect((await c.get('/api/playbook/rules')).data.items.find((r: any) => r.id === law.id)).toMatchObject({ category: 'governing_law', severity: 'high' })
+    const toggled = (await c.patch(`/api/playbook/rules/${law.id}`, { active: false })).data.rule
+    expect(toggled).toMatchObject({ active: false, category: 'governing_law', severity: 'high' })
+    await c.patch(`/api/playbook/rules/${law.id}`, { active: true })
+    const lawClause = (await c.get('/api/clauses?category=governing_law')).data.items[0]
+    expect((await c.patch(`/api/clauses/${lawClause.id}`, { note: 'Use for Omani counterparties' })).data.clause.category).toBe('governing_law')
 
     // Active rules are sent in severity order: governing law and liability are both high, then by creation.
     ctx.ai.nextReply = JSON.stringify({ overview: 'Two red flags.', items: [

@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { audit, auth, requireRole, type AppEnv, type Ctx } from '../context'
 import { badRequest, forbidden, HttpError, notFound } from '../lib/errors'
-import { jsonBody, likePattern, optText, pageSchema, paged, queryParams, uuidParam } from '../lib/http'
+import { jsonBody, likePattern, optText, pageSchema, paged, queryParams, updateBody, uuidParam } from '../lib/http'
 import { JURISDICTION_CODES } from '../services/reference'
 import { ACCEPTED_TYPES, cleanText, detectKind, extractWithOcr } from '../services/extract'
 import { citationLabel, indexSource, searchLibrary } from '../services/library'
@@ -160,7 +160,7 @@ libraryRoutes.post('/sources', async (c) => {
   return c.json({ source: { id: result.id }, passages: result.passages, ocr }, 201)
 })
 
-libraryRoutes.patch('/sources/:id', jsonBody(metaSchema.omit({ scope: true }).partial()), async (c) => {
+libraryRoutes.patch('/sources/:id', jsonBody(updateBody(metaSchema.omit({ scope: true }).shape)), async (c) => {
   const { org } = auth(c)
   const id = uuidParam(c.req.param('id'), 'Source')
   const { db } = c.get('deps')
