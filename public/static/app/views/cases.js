@@ -23,6 +23,7 @@ import { caseKycBanner } from './kyc.js'
 import { caseEngagementBanner } from './engagement.js'
 import { caseJudgmentsCard } from './judgments.js'
 import { caseClientUpdatesCard } from './client-updates.js'
+import { caseNoticesCard } from './notices.js'
 
 export const CASE_STATUSES = ['active', 'pending', 'under_review', 'on_hold', 'closed']
 export const PRIORITIES = ['low', 'medium', 'high', 'urgent']
@@ -149,7 +150,7 @@ export async function casesListView(root, { query, isCurrent }) {
   const ro = readOnly()
 
   render(root, html`
-    ${pageHeader(t('nav.cases'), t('cases.subtitle'), ro ? '' : html`<div class="flex flex-wrap gap-2">${can('owner', 'admin', 'lawyer') ? html`<a class="btn btn-outline" href="#/onboarding"><i class="fas fa-clipboard-check"></i>${t('onb.title')}</a><a class="btn btn-outline" href="#/judgments"><i class="fas fa-scale-balanced"></i>${t('jdg.register')}</a><a class="btn btn-outline" href="#/client-updates"><i class="fas fa-paper-plane"></i>${t('cu.due_title')}</a><button class="btn btn-outline" data-action="import"><i class="fas fa-file-excel"></i>${t('import_xl.button')}</button>` : ''}<button class="btn btn-primary" data-action="new"><i class="fas fa-plus"></i>${t('cases.new')}</button></div>`)}
+    ${pageHeader(t('nav.cases'), t('cases.subtitle'), ro ? '' : html`<div class="flex flex-wrap gap-2">${can('owner', 'admin', 'lawyer') ? html`<a class="btn btn-outline" href="#/onboarding"><i class="fas fa-clipboard-check"></i>${t('onb.title')}</a><a class="btn btn-outline" href="#/notices"><i class="fas fa-envelope-open-text"></i>${t('ntc.register')}</a><a class="btn btn-outline" href="#/judgments"><i class="fas fa-scale-balanced"></i>${t('jdg.register')}</a><a class="btn btn-outline" href="#/client-updates"><i class="fas fa-paper-plane"></i>${t('cu.due_title')}</a><button class="btn btn-outline" data-action="import"><i class="fas fa-file-excel"></i>${t('import_xl.button')}</button>` : ''}<button class="btn btn-primary" data-action="new"><i class="fas fa-plus"></i>${t('cases.new')}</button></div>`)}
     <div class="card">
       <div class="p-4 border-b border-slate-100 flex flex-wrap gap-3">
         <div class="relative flex-1 min-w-52">
@@ -262,6 +263,7 @@ export async function caseDetailView(root, { params, isCurrent, rerender }) {
           </dl>
           ${k.description ? html`<div class="mt-5 pt-5 border-t border-slate-100"><h3 class="text-xs text-slate-500 mb-1">${t('common.description')}</h3><p class="text-sm text-slate-700 whitespace-pre-wrap" dir="auto">${k.description}</p></div>` : ''}
         </section>
+        <div data-notices></div>
         <div data-judgments></div>
         <div data-client-updates></div>
 
@@ -355,6 +357,7 @@ export async function caseDetailView(root, { params, isCurrent, rerender }) {
   casePoaBanner(root.querySelector('[data-poa-banner]'), k, { onChange: rerender })
   caseKycBanner(root.querySelector('[data-kyc-banner]'), k)
   caseEngagementBanner(root.querySelector('[data-eng-banner]'), k, { onChange: rerender })
+  caseNoticesCard(root.querySelector('[data-notices]'), k, { documents: data.documents })
   caseJudgmentsCard(root.querySelector('[data-judgments]'), k)
   caseClientUpdatesCard(root.querySelector('[data-client-updates]'), k)
   bind(root, {

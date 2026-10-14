@@ -27,6 +27,7 @@ import rollRoutes from './routes/roll'
 import judgmentRoutes from './routes/judgments'
 import timeCaptureRoutes from './routes/time-capture'
 import clientUpdateRoutes from './routes/client-updates'
+import noticeRoutes from './routes/notices'
 import fundsRoutes from './routes/funds'
 import eventsRoutes from './routes/events'
 import deadlinesRoutes from './routes/deadlines'
@@ -189,7 +190,7 @@ export function createApp(deps: Deps) {
     ['/api/documents', documentsRoutes], ['/api/events', eventsRoutes], ['/api/ai', aiRoutes],
     ['/api/library', libraryRoutes], ['/api/billing', billingRoutes], ['/api/reports', reportsRoutes],
     ['/api/tasks', tasksRoutes], ['/api/workspace', workspaceRoutes], ['/api/portal', portalRoutes],
-    ['/api/deadlines', deadlinesRoutes], ['/api/import', importsRoutes], ['/api/website', websiteRoutes], ['/api/signatures', signaturesRoutes], ['/api/document-requests', documentRequestsRoutes], ['/api/hearings', hearingsRoutes], ['/api/whatsapp', whatsappRoutes], ['/api/glossary', glossaryRoutes], ['/api/credentials', credentialsRoutes], ['/api/kyc', kycRoutes], ['/api/compare', compareRoutes], ['/api/funds', fundsRoutes], ['/api/clauses', clauseRoutes], ['/api/playbook', playbookRoutes], ['/api/engagements', engagementRoutes], ['/api/onboarding', onboardingRoutes], ['/api/roll', rollRoutes], ['/api/judgments', judgmentRoutes], ['/api/time-suggestions', timeCaptureRoutes], ['/api/client-updates', clientUpdateRoutes]
+    ['/api/deadlines', deadlinesRoutes], ['/api/import', importsRoutes], ['/api/website', websiteRoutes], ['/api/signatures', signaturesRoutes], ['/api/document-requests', documentRequestsRoutes], ['/api/hearings', hearingsRoutes], ['/api/whatsapp', whatsappRoutes], ['/api/glossary', glossaryRoutes], ['/api/credentials', credentialsRoutes], ['/api/kyc', kycRoutes], ['/api/compare', compareRoutes], ['/api/funds', fundsRoutes], ['/api/clauses', clauseRoutes], ['/api/playbook', playbookRoutes], ['/api/engagements', engagementRoutes], ['/api/onboarding', onboardingRoutes], ['/api/roll', rollRoutes], ['/api/judgments', judgmentRoutes], ['/api/time-suggestions', timeCaptureRoutes], ['/api/client-updates', clientUpdateRoutes], ['/api/notices', noticeRoutes]
   ] as const) {
     app.use(`${path}/*`, requireActiveSubscription)
     app.use(path, requireActiveSubscription)
