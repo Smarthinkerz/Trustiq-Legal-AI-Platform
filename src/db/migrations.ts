@@ -1303,6 +1303,14 @@ CREATE TABLE expert_referrals (
 CREATE INDEX expert_referrals_case_idx ON expert_referrals (case_id, referral_date DESC);
 CREATE INDEX expert_referrals_open_idx ON expert_referrals (org_id) WHERE NOT closed;
 `
+  },
+  {
+    version: 35,
+    name: 'whatsapp_case_updates',
+    sql: `
+ALTER TABLE whatsapp_messages DROP CONSTRAINT whatsapp_messages_kind_check;
+ALTER TABLE whatsapp_messages ADD CONSTRAINT whatsapp_messages_kind_check CHECK (kind IN ('hearing', 'invoice', 'documents', 'case_update', 'test'));
+`
   }
 ]
 

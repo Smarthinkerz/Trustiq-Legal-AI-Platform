@@ -13,7 +13,7 @@ import { paymentSecret, ensurePayToken, payUrl, outstanding, supportsOnline } fr
 // ---------------------------------------------------------------------------
 
 export const GRAPH = 'https://graph.facebook.com/v21.0'
-export const WA_KINDS = ['hearing', 'invoice', 'documents'] as const
+export const WA_KINDS = ['hearing', 'invoice', 'documents', 'case_update'] as const
 export type WaKind = (typeof WA_KINDS)[number]
 type Lang = 'en' | 'ar'
 
@@ -33,13 +33,22 @@ export const TEMPLATES: Record<WaKind, { name: string; params: number; en: strin
     name: 'documents_reminder', params: 5,
     en: 'Hello {{1}}, {{2}} is still waiting for these documents for "{{3}}": {{4}}. You can upload them securely here: {{5}}',
     ar: 'مرحباً {{1}}، ما زال {{2}} بانتظار المستندات التالية لطلب "{{3}}": {{4}}. يمكنكم رفعها بأمان من هنا: {{5}}'
+  },
+  case_update: {
+    name: 'case_update_notice', params: 5,
+    en: 'Hello {{1}}, {{2}} has posted a new update on your matter {{3}}: "{{4}}". You can read it in your client portal: {{5}}',
+    ar: 'مرحباً {{1}}، نشر {{2}} تحديثاً جديداً على قضيتكم {{3}}: "{{4}}". يمكنكم قراءته في بوابة الموكلين: {{5}}'
   }
 }
+
+// Reminders that were there from the start are on unless turned off; newer ones wait until the firm
+// has the template approved and switches them on.
+const ON_BY_DEFAULT: Record<WaKind, boolean> = { hearing: true, invoice: true, documents: true, case_update: false }
 
 export type WaSettings = Record<WaKind, { enabled: boolean; template: string }>
 export const waSettings = (raw: any): WaSettings =>
   Object.fromEntries(WA_KINDS.map((k) => [k, {
-    enabled: raw?.[k]?.enabled !== false,
+    enabled: typeof raw?.[k]?.enabled === 'boolean' ? raw[k].enabled : ON_BY_DEFAULT[k],
     template: typeof raw?.[k]?.template === 'string' && raw[k].template ? raw[k].template : TEMPLATES[k].name
   }])) as WaSettings
 
@@ -123,6 +132,7 @@ export function sampleParams(kind: WaKind, lang: Lang, firm: string, appUrl: str
   const ar = lang === 'ar'
   if (kind === 'hearing') return [ar ? 'أحمد' : 'Ahmed', firm, '2026-0001', ar ? 'الأحد 1 نوفمبر 2026، 09:00' : 'Sunday 1 November 2026, 09:00', ar ? 'المحكمة الابتدائية' : 'Primary Court']
   if (kind === 'invoice') return [ar ? 'أحمد' : 'Ahmed', 'INV-2026-0001', firm, '105.000 OMR', '2026-10-01', `${appUrl}/app`]
+  if (kind === 'case_update') return [ar ? 'أحمد' : 'Ahmed', firm, '2026-0001', ar ? 'تحديد موعد الجلسة الأولى' : 'First hearing date set', `${appUrl}/app#/portal`]
   return [ar ? 'أحمد' : 'Ahmed', firm, ar ? 'مستندات الإقامة' : 'Residency documents', ar ? 'نسخة جواز السفر' : 'Passport copy', `${appUrl}/app#/portal`]
 }
 
@@ -134,13 +144,13 @@ export function sampleParams(kind: WaKind, lang: Lang, firm: string, appUrl: str
 type RunDeps = Pick<Deps, 'db' | 'config' | 'log' | 'waFetch'>
 const MAX_PER_RUN = 200
 
-async function clientLanguage(db: Queryable, c: { id: string; language: string | null }): Promise<Lang> {
+export async function clientLanguage(db: Queryable, c: { id: string; language: string | null }): Promise<Lang> {
   if (c.language === 'ar' || c.language === 'en') return c.language
   const [u] = await db.query(`SELECT locale FROM users WHERE client_id = $1 AND role = 'client' AND deactivated_at IS NULL ORDER BY created_at LIMIT 1`, [c.id])
   return u?.locale === 'en' ? 'en' : 'ar'
 }
 
-async function deliver(deps: RunDeps, acct: WaAccount, v: {
+export async function deliver(deps: RunDeps, acct: WaAccount, v: {
   orgId: string; clientId: string; kind: WaKind; entityId: string; ref: string; phone: string; template: string; lang: Lang; params: unknown[]
 }) {
   const { db, log } = deps
@@ -250,4 +260,42 @@ export async function runWhatsAppReminders(deps: RunDeps, now = new Date()) {
     }
   }
   return sent
+}
+
+// ---------------------------------------------------------------------------
+// A notice that a client update was published, sent at once when the firm has
+// switched it on and the client agreed to WhatsApp messages.
+// ---------------------------------------------------------------------------
+
+export type CaseUpdateWa = 'sent' | 'failed' | 'not_connected' | 'disabled' | 'no_opt_in' | 'no_phone'
+
+// Whether a notice can go to this client, and if not, why.
+export async function caseUpdateWhatsApp(db: Queryable, config: Config, orgId: string, clientId: string) {
+  const [o] = await db.query(
+    `SELECT o.name, o.default_jurisdiction, o.wa_token_sealed, o.wa_phone_number_id, o.wa_display_phone, o.wa_settings, b.firm_name, b.firm_name_ar,
+            cl.id AS client_id, cl.name AS client_name, cl.name_ar AS client_name_ar, cl.phone, cl.language, cl.whatsapp_opt_in_at
+       FROM organizations o LEFT JOIN branding b ON b.org_id = o.id JOIN clients cl ON cl.id = $2 AND cl.org_id = o.id WHERE o.id = $1`, [orgId, clientId])
+  if (!o) return { status: 'no_opt_in' as CaseUpdateWa }
+  const acct = waAccount(config, o)
+  if (!acct) return { status: 'not_connected' as CaseUpdateWa }
+  const s = waSettings(o.wa_settings).case_update
+  if (!s.enabled) return { status: 'disabled' as CaseUpdateWa }
+  if (!o.whatsapp_opt_in_at) return { status: 'no_opt_in' as CaseUpdateWa }
+  const phone = normalizePhone(o.phone, o.default_jurisdiction)
+  if (!phone) return { status: 'no_phone' as CaseUpdateWa }
+  return { status: 'ready' as const, acct, phone, template: s.template, org: o }
+}
+
+export async function sendCaseUpdateWhatsApp(deps: RunDeps, v: { orgId: string; clientId: string; updateId: string; caseId: string; reference: string; title: string }): Promise<CaseUpdateWa> {
+  const ready = await caseUpdateWhatsApp(deps.db, deps.config, v.orgId, v.clientId)
+  if (ready.status !== 'ready') return ready.status
+  const o = ready.org
+  const lang = await clientLanguage(deps.db, { id: v.clientId, language: o.language })
+  const firm = (lang === 'ar' ? o.firm_name_ar || o.firm_name : o.firm_name) || o.name
+  const name = lang === 'ar' ? o.client_name_ar || o.client_name : o.client_name
+  const ok = await deliver(deps, ready.acct, {
+    orgId: v.orgId, clientId: v.clientId, kind: 'case_update', entityId: v.updateId, ref: '', phone: ready.phone, template: ready.template, lang,
+    params: [name, firm, v.reference, v.title.replace(/[\u2066-\u2069]/g, ''), `${deps.config.appUrl}/app#/portal/cases/${v.caseId}`]
+  })
+  return ok ? 'sent' : 'failed'
 }
