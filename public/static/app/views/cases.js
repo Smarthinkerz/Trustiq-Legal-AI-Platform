@@ -25,6 +25,7 @@ import { caseJudgmentsCard } from './judgments.js'
 import { caseClientUpdatesCard } from './client-updates.js'
 import { caseNoticesCard } from './notices.js'
 import { caseExpertsCard } from './experts.js'
+import { originalsCard } from './originals.js'
 
 export const CASE_STATUSES = ['active', 'pending', 'under_review', 'on_hold', 'closed']
 export const PRIORITIES = ['low', 'medium', 'high', 'urgent']
@@ -266,6 +267,7 @@ export async function caseDetailView(root, { params, isCurrent, rerender }) {
         </section>
         <div data-notices></div>
         <div data-experts></div>
+        <div data-originals></div>
         <div data-judgments></div>
         <div data-client-updates></div>
 
@@ -361,6 +363,7 @@ export async function caseDetailView(root, { params, isCurrent, rerender }) {
   caseEngagementBanner(root.querySelector('[data-eng-banner]'), k, { onChange: rerender })
   caseNoticesCard(root.querySelector('[data-notices]'), k, { documents: data.documents })
   caseExpertsCard(root.querySelector('[data-experts]'), k, { documents: data.documents })
+  if (k.client_id) originalsCard(root.querySelector('[data-originals]'), { clientId: k.client_id, caseId: k.id })
   caseJudgmentsCard(root.querySelector('[data-judgments]'), k)
   caseClientUpdatesCard(root.querySelector('[data-client-updates]'), k)
   bind(root, {

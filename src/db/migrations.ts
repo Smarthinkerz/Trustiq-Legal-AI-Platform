@@ -1311,6 +1311,52 @@ CREATE INDEX expert_referrals_open_idx ON expert_referrals (org_id) WHERE NOT cl
 ALTER TABLE whatsapp_messages DROP CONSTRAINT whatsapp_messages_kind_check;
 ALTER TABLE whatsapp_messages ADD CONSTRAINT whatsapp_messages_kind_check CHECK (kind IN ('hearing', 'invoice', 'documents', 'case_update', 'test'));
 `
+  },
+  {
+    version: 36,
+    name: 'client_originals',
+    sql: `
+CREATE TABLE client_originals (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  receipt_no INT NOT NULL,
+  client_id UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  case_id UUID REFERENCES cases(id) ON DELETE SET NULL,
+  kind TEXT NOT NULL DEFAULT 'other' CHECK (kind IN ('cheque', 'contract', 'title_deed', 'poa', 'id_document', 'certificate', 'court_document', 'other')),
+  description TEXT NOT NULL,
+  reference_no TEXT,
+  amount NUMERIC(16, 3),
+  currency TEXT,
+  copies INT NOT NULL DEFAULT 1 CHECK (copies BETWEEN 1 AND 999),
+  received_on DATE NOT NULL,
+  received_from TEXT,
+  location TEXT,
+  status TEXT NOT NULL DEFAULT 'held' CHECK (status IN ('held', 'lodged', 'returned')),
+  lodged_with TEXT,
+  returned_on DATE,
+  returned_to TEXT,
+  notes TEXT,
+  created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (org_id, receipt_no)
+);
+CREATE INDEX client_originals_client_idx ON client_originals (client_id, received_on DESC);
+CREATE INDEX client_originals_case_idx ON client_originals (case_id);
+CREATE TABLE original_movements (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  original_id UUID NOT NULL REFERENCES client_originals(id) ON DELETE CASCADE,
+  action TEXT NOT NULL CHECK (action IN ('received', 'moved', 'lodged', 'retrieved', 'returned')),
+  on_date DATE NOT NULL,
+  location TEXT,
+  party TEXT,
+  note TEXT,
+  user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX original_movements_original_idx ON original_movements (original_id, created_at);
+`
   }
 ]
 
