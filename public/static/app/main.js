@@ -19,6 +19,7 @@ import { noticesRegisterView } from './views/notices.js'
 import { expertsRegisterView } from './views/experts.js'
 import { originalsRegisterView } from './views/originals.js'
 import { retentionView } from './views/closing.js'
+import { settlementRegisterView } from './views/settlement.js'
 import { assistantView } from './views/assistant.js'
 import { calendarView } from './views/calendar.js'
 import { settingsView } from './views/settings.js'
@@ -57,6 +58,7 @@ const routes = [
   { path: '/experts', view: expertsRegisterView, nav: 'cases' },
   { path: '/originals', view: originalsRegisterView, nav: 'clients' },
   { path: '/retention', view: retentionView, nav: 'cases' },
+  { path: '/settlement', view: settlementRegisterView, nav: 'cases' },
   { path: '/assistant', view: assistantView, nav: 'assistant' },
   { path: '/assistant/:id', view: assistantView, nav: 'assistant' },
   { path: '/calendar', view: calendarView, nav: 'calendar' },

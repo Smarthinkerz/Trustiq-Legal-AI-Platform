@@ -90,6 +90,10 @@ export async function dashboardView(root, { isCurrent, rerender }) {
       <i class="fas fa-user-tie text-amber-600 text-xl"></i>
       <div class="flex-1"><div class="font-semibold text-sm">${t('exp.dash_title', { n: counts.expert_deadlines })}</div><div class="text-xs text-slate-500">${t('exp.dash_help')}</div></div>
       <i class="fas fa-chevron-right text-slate-400 rtl:rotate-180"></i></a>` : ''}
+    ${counts.offers_expiring && can('owner', 'admin', 'lawyer') ? html`<a href="#/settlement" class="card card-pad mb-6 flex items-center gap-3 border-amber-200 hover:shadow-md">
+      <i class="fas fa-handshake-angle text-amber-600 text-xl"></i>
+      <div class="flex-1"><div class="font-semibold text-sm">${t('stl.dash_title', { n: counts.offers_expiring })}</div><div class="text-xs text-slate-500">${t('stl.dash_help')}</div></div>
+      <i class="fas fa-chevron-right text-slate-400 rtl:rotate-180"></i></a>` : ''}
     ${counts.notices_due ? html`<a href="#/notices" class="card card-pad mb-6 flex items-center gap-3 border-amber-200 hover:shadow-md">
       <i class="fas fa-envelope-open-text text-amber-600 text-xl"></i>
       <div class="flex-1"><div class="font-semibold text-sm">${t('ntc.dash_title', { n: counts.notices_due })}</div><div class="text-xs text-slate-500">${t('ntc.dash_help')}</div></div>

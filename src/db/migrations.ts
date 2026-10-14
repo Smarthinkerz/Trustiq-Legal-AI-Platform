@@ -1370,6 +1370,46 @@ ALTER TABLE cases ADD COLUMN retain_until DATE;
 UPDATE cases SET retain_until = closed_on + interval '10 years' WHERE status = 'closed' AND closed_on IS NOT NULL;
 CREATE INDEX cases_retention_idx ON cases (org_id, retain_until) WHERE status = 'closed';
 `
+  },
+  {
+    version: 38,
+    name: 'settlement_negotiations',
+    sql: `
+CREATE TABLE settlement_authority (
+  case_id UUID PRIMARY KEY REFERENCES cases(id) ON DELETE CASCADE,
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  position TEXT NOT NULL CHECK (position IN ('receive', 'pay')),
+  amount NUMERIC(16, 3),
+  currency TEXT NOT NULL,
+  given_on DATE,
+  note TEXT,
+  updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE settlement_offers (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  case_id UUID NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+  direction TEXT NOT NULL CHECK (direction IN ('ours', 'theirs')),
+  amount NUMERIC(16, 3) NOT NULL CHECK (amount >= 0),
+  currency TEXT NOT NULL,
+  terms TEXT,
+  made_on DATE NOT NULL,
+  expires_on DATE,
+  without_prejudice BOOLEAN NOT NULL DEFAULT true,
+  status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'accepted', 'rejected', 'countered', 'expired', 'withdrawn')),
+  responded_on DATE,
+  outside_authority BOOLEAN NOT NULL DEFAULT false,
+  document_id UUID REFERENCES documents(id) ON DELETE SET NULL,
+  event_id UUID REFERENCES events(id) ON DELETE SET NULL,
+  notes TEXT,
+  created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX settlement_offers_case_idx ON settlement_offers (case_id, made_on DESC, created_at DESC);
+CREATE INDEX settlement_offers_open_idx ON settlement_offers (org_id, expires_on) WHERE status = 'open';
+`
   }
 ]
 
