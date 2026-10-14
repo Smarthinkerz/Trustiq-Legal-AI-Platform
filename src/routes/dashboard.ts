@@ -48,6 +48,7 @@ dashboardRoutes.get('/', async (c) => {
   counts.client_updates_due = (await updatesDue(db, org.id, { userId: user.id })).length
   counts.expert_deadlines = await expertDeadlinesDue(db, org.id)
   counts.originals_to_return = await originalsToReturn(db, org.id)
+  counts.retention_due = (await db.query(`SELECT count(*)::int AS n FROM cases WHERE org_id = $1 AND status = 'closed' AND retain_until <= ${GULF_TODAY}`, [org.id]))[0].n
   return c.json({
     counts,
     cases_by_status: Object.fromEntries(byStatus.map((r) => [r.status, r.n])),
