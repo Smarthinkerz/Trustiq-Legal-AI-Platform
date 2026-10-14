@@ -13,6 +13,7 @@ import { clausesView } from './views/clauses.js'
 import { kycRegisterView } from './views/kyc.js'
 import { onboardingView } from './views/onboarding.js'
 import { rollView } from './views/roll.js'
+import { judgmentsRegisterView } from './views/judgments.js'
 import { assistantView } from './views/assistant.js'
 import { calendarView } from './views/calendar.js'
 import { settingsView } from './views/settings.js'
@@ -45,6 +46,7 @@ const routes = [
   { path: '/clauses', view: clausesView, nav: 'documents' },
   { path: '/compliance', view: kycRegisterView, nav: 'clients' },
   { path: '/onboarding', view: onboardingView, nav: 'cases' },
+  { path: '/judgments', view: judgmentsRegisterView, nav: 'cases' },
   { path: '/assistant', view: assistantView, nav: 'assistant' },
   { path: '/assistant/:id', view: assistantView, nav: 'assistant' },
   { path: '/calendar', view: calendarView, nav: 'calendar' },

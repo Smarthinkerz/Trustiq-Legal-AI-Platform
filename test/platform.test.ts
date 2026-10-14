@@ -32,6 +32,11 @@ describe('law library and cited research', () => {
     const up = await c.post('/api/library/sources', form)
     expect(up.status).toBe(201)
     expect(up.data.passages).toBeGreaterThanOrEqual(3)
+    // Editing one field leaves the others as they were (no defaults re-applied).
+    await ctx.db.query(`UPDATE library_sources SET kind = 'royal_decree', status = 'amended' WHERE id = $1`, [up.data.source.id])
+    expect((await c.patch(`/api/library/sources/${up.data.source.id}`, { title: 'Oman Labour Law (amended)' })).status).toBe(200)
+    expect(await ctx.db.one('SELECT title, kind, status, language FROM library_sources WHERE id = $1', [up.data.source.id]))
+      .toMatchObject({ title: 'Oman Labour Law (amended)', kind: 'royal_decree', status: 'amended', language: 'en' })
 
     const s = await c.get('/api/library/search?q=gratuity%20termination')
     expect(s.status).toBe(200)

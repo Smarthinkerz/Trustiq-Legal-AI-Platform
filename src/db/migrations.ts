@@ -1148,6 +1148,49 @@ ALTER TABLE organizations ADD COLUMN onboarding_checks TEXT[] NOT NULL DEFAULT A
 ALTER TABLE events ADD COLUMN attendee_id UUID REFERENCES users(id) ON DELETE SET NULL;
 CREATE INDEX events_org_kind_start_idx ON events (org_id, kind, starts_at);
 `
+  },
+  {
+    version: 30,
+    name: 'judgments_enforcement',
+    sql: `
+CREATE TABLE case_judgments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  case_id UUID NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+  judgment_date DATE NOT NULL,
+  court TEXT,
+  degree TEXT NOT NULL DEFAULT 'first_instance' CHECK (degree IN ('first_instance', 'appeal', 'supreme', 'arbitration', 'other')),
+  judgment_no TEXT,
+  result TEXT NOT NULL CHECK (result IN ('won', 'partial', 'lost', 'other')),
+  summary TEXT,
+  currency TEXT NOT NULL,
+  amount_awarded NUMERIC(18,3) NOT NULL DEFAULT 0,
+  costs_awarded NUMERIC(18,3) NOT NULL DEFAULT 0,
+  appeal_deadline DATE,
+  appeal_event_id UUID REFERENCES events(id) ON DELETE SET NULL,
+  appeal_decision TEXT NOT NULL DEFAULT 'pending' CHECK (appeal_decision IN ('pending', 'appeal', 'no_appeal', 'appealed_by_other')),
+  enforcement_status TEXT NOT NULL DEFAULT 'not_started' CHECK (enforcement_status IN ('not_started', 'filed', 'in_progress', 'collected', 'unenforceable', 'closed')),
+  enforcement_file_no TEXT,
+  enforcement_court TEXT,
+  created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX case_judgments_case_idx ON case_judgments (case_id, judgment_date DESC);
+CREATE INDEX case_judgments_org_idx ON case_judgments (org_id, enforcement_status);
+CREATE TABLE judgment_collections (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  judgment_id UUID NOT NULL REFERENCES case_judgments(id) ON DELETE CASCADE,
+  collected_on DATE NOT NULL,
+  amount NUMERIC(18,3) NOT NULL CHECK (amount > 0),
+  source TEXT,
+  note TEXT,
+  created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX judgment_collections_judgment_idx ON judgment_collections (judgment_id, collected_on);
+`
   }
 ]
 

@@ -2,20 +2,21 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { audit, auth, requireRole, type AppEnv } from '../context'
 import { badRequest, HttpError, notFound, tooMany } from '../lib/errors'
-import { jsonBody, likePattern, optText, queryParams, uuidParam } from '../lib/http'
+import { jsonBody, likePattern, optText, queryParams, updateBody, uuidParam } from '../lib/http'
 import { CLAUSE_CATEGORIES, CLAUSE_LIMIT } from '../services/playbook'
 import { cleanTranslation, termsInText, translationMessages, type GlossaryTerm } from '../services/translation'
 import { assertCanUseAi, recordAiUsage } from '../services/usage'
 
 // The firm's clause bank: approved wording in English and Arabic, ready to insert into drafts.
 const body = (max: number) => z.string().trim().max(max).nullish().transform((v) => (v ? v : null))
-const clauseSchema = z.object({
+const clauseFields = {
   title: z.string().trim().min(2).max(200),
   category: z.enum(CLAUSE_CATEGORIES).default('general'),
   body_en: body(20_000),
   body_ar: body(20_000),
   note: optText(2000)
-})
+}
+const clauseSchema = z.object(clauseFields)
 export const CLAUSE_COLS = 'id, title, category, body_en, body_ar, note, usage_count, created_at, updated_at'
 
 const clauseRoutes = new Hono<AppEnv>()
@@ -46,7 +47,7 @@ clauseRoutes.post('/', jsonBody(clauseSchema), async (c) => {
   return c.json({ clause }, 201)
 })
 
-clauseRoutes.patch('/:id', jsonBody(clauseSchema.partial()), async (c) => {
+clauseRoutes.patch('/:id', jsonBody(updateBody(clauseFields)), async (c) => {
   requireRole(c, ...editors)
   const { org } = auth(c)
   const id = uuidParam(c.req.param('id'), 'Clause')
