@@ -10,6 +10,7 @@ import {
   detectLanguage, isStalled, MAX_RUNNING_PER_ORG, MAX_TRANSLATION_CHARS, runningTranslations, runTranslation, translationTitle, type Lang
 } from '../services/translation'
 import { ACCEPTED_TYPES, detectKind, extractWithOcr } from '../services/extract'
+import { bilingualPairs, renderBilingualDocx } from '../services/bilingual'
 import { contentDisposition, renderDocx, safeFileName } from '../services/export'
 import { caseActivity } from './cases'
 
@@ -236,6 +237,41 @@ documentsRoutes.get('/:id/export', queryParams(z.object({ format: z.enum(['docx'
   const buf = await renderDocx({ title: doc.title, content: doc.content, language: doc.language, letterhead: lh })
   return new Response(new Uint8Array(buf), {
     headers: { 'content-type': ACCEPTED_TYPES.docx, 'content-disposition': contentDisposition(safeFileName(doc.title, 'docx')), 'cache-control': 'private, no-store' }
+  })
+})
+
+// The original and its translation side by side (English | العربية), as GCC contracts are signed.
+// format=json returns the aligned rows so the app can show a preview and flag rows to check.
+documentsRoutes.get('/:id/bilingual', queryParams(z.object({
+  partner: z.string().uuid().optional(),
+  prevailing: z.enum(['ar', 'en', 'none']).default('ar'),
+  letterhead: z.enum(['true', 'false']).default('true'),
+  format: z.enum(['docx', 'json']).default('docx')
+})), async (c) => {
+  const { org } = auth(c)
+  const id = uuidParam(c.req.param('id'), 'Document')
+  const q = c.req.valid('query')
+  const { db } = c.get('deps')
+  const doc = await db.one('SELECT id, title, content, language, translated_from, translation_status FROM documents WHERE id = $1 AND org_id = $2', [id, org.id])
+  if (!doc) throw notFound('Document')
+  // The other language: the given partner, the document this was translated from, or its latest finished translation.
+  const partner = q.partner
+    ? await db.one(`SELECT id, title, content, language, translation_status FROM documents WHERE id = $1 AND org_id = $2 AND (translated_from = $3 OR id = $4)`, [q.partner, org.id, id, doc.translated_from])
+    : doc.translated_from
+      ? await db.one('SELECT id, title, content, language, translation_status FROM documents WHERE id = $1 AND org_id = $2', [doc.translated_from, org.id])
+      : await db.one(`SELECT id, title, content, language, translation_status FROM documents WHERE translated_from = $1 AND org_id = $2 AND translation_status = 'done' ORDER BY created_at DESC LIMIT 1`, [id, org.id])
+  if (!partner) throw badRequest('Translate this document first; the bilingual version pairs it with its translation.')
+  if ([doc, partner].some((d) => d.translation_status === 'running' || d.translation_status === 'failed')) throw badRequest('Wait until the translation has finished.')
+  const en = doc.language === 'en' ? doc : partner.language === 'en' ? partner : null
+  const ar = doc.language === 'ar' ? doc : partner.language === 'ar' ? partner : null
+  if (!en || !ar) throw badRequest('A bilingual version needs one English and one Arabic document.')
+  const pairs = bilingualPairs(en.content, ar.content)
+  if (q.format === 'json') return c.json({ english: { id: en.id, title: en.title }, arabic: { id: ar.id, title: ar.title }, pairs, flagged: pairs.filter((p) => p.flagged).length })
+  const lh = q.letterhead === 'true' ? await db.one('SELECT * FROM branding WHERE org_id = $1', [org.id]) : null
+  const buf = await renderBilingualDocx({ titleEn: en.title, titleAr: ar.title, pairs, prevailing: q.prevailing === 'none' ? null : q.prevailing, letterhead: lh as any, firmName: lh?.firm_name || org.name })
+  await audit(c, 'document.bilingual_exported', 'document', id, { partner: partner.id, rows: pairs.length })
+  return new Response(new Uint8Array(buf), {
+    headers: { 'content-type': ACCEPTED_TYPES.docx, 'content-disposition': contentDisposition(safeFileName(`${en.title} - bilingual`, 'docx')), 'cache-control': 'private, no-store' }
   })
 })
 

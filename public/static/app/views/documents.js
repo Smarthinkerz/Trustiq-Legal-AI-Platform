@@ -11,6 +11,7 @@ import { setLeaveGuard } from '../main.js'
 import { openSignatureDialog } from './signatures.js'
 import { openComparePicker } from './compare.js'
 import { openClausePicker, playbookPanel } from './clauses.js'
+import { openBilingual } from './bilingual.js'
 
 const DOC_STATUSES = ['draft', 'review', 'final']
 const OTHER_TYPES = ['contract', 'correspondence', 'evidence', 'court_filing', 'other']
@@ -284,7 +285,8 @@ export async function documentDetailView(root, { params, isCurrent, rerender }) 
 
       <div class="xl:col-span-2 space-y-6">
         ${translations.length ? html`<section class="card">
-          <div class="px-5 py-4 border-b border-slate-100"><h2 class="font-semibold"><i class="fas fa-language text-violet-500"></i> ${t('translate.translations')}</h2></div>
+          <div class="px-5 py-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2"><h2 class="font-semibold"><i class="fas fa-language text-violet-500"></i> ${t('translate.translations')}</h2>
+            ${translations.some((x) => x.translation_status === 'done') ? html`<button class="btn btn-outline btn-sm" data-action="bilingual"><i class="fas fa-file-word"></i>${t('bil.button')}</button>` : ''}</div>
           <ul class="divide-y divide-slate-100">${translations.map((x) => html`<li class="px-5 py-3 flex items-center justify-between gap-3 text-sm">
             <a class="text-brand-700 hover:underline truncate" dir="auto" href="#/documents/${x.id}">${x.title}</a>
             <span class="text-xs whitespace-nowrap ${x.translation_status === 'failed' ? 'text-red-600' : 'text-slate-500'}">${x.translation_status ? t(`translate.status_${x.translation_status}`) : ''}</span></li>`)}</ul>
@@ -386,6 +388,7 @@ export async function documentDetailView(root, { params, isCurrent, rerender }) 
         openTranslateDialog(d)
       },
       compare: () => openCompare(d),
+      bilingual: () => openBilingual(d.id),
       'retry-translation': (btn) => busy(btn, async () => {
         try {
           await api.post(`/api/documents/${d.id}/translation/retry`)
@@ -527,7 +530,8 @@ function translationBanner(d) {
   }
   return html`<div class="rounded-xl border border-amber-200 bg-amber-50 p-4 mb-4 flex flex-wrap items-center justify-between gap-3">
     <div class="text-sm text-amber-900"><i class="fas fa-language"></i> ${t('translate.done_banner')} ${source}. ${t('translate.review_hint')}</div>
-    ${d.translated_from ? html`<button class="btn btn-outline btn-sm" data-action="compare"><i class="fas fa-table-columns"></i>${t('translate.compare')}</button>` : ''}
+    ${d.translated_from ? html`<div class="flex flex-wrap gap-2"><button class="btn btn-outline btn-sm" data-action="compare"><i class="fas fa-table-columns"></i>${t('translate.compare')}</button>
+      <button class="btn btn-outline btn-sm" data-action="bilingual"><i class="fas fa-file-word"></i>${t('bil.button')}</button></div>` : ''}
   </div>`
 }
 
