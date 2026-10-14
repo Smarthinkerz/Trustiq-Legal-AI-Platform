@@ -1264,6 +1264,45 @@ CREATE TABLE legal_notices (
 CREATE INDEX legal_notices_case_idx ON legal_notices (case_id, notice_date DESC);
 CREATE INDEX legal_notices_open_idx ON legal_notices (org_id, response_due) WHERE status IN ('sent', 'delivered');
 `
+  },
+  {
+    version: 34,
+    name: 'expert_referrals',
+    sql: `
+CREATE TABLE expert_referrals (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  case_id UUID NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+  expert_name TEXT,
+  expert_type TEXT NOT NULL DEFAULT 'accounting' CHECK (expert_type IN ('accounting', 'engineering', 'medical', 'real_estate', 'it', 'other')),
+  expert_contact TEXT,
+  court_ref TEXT,
+  referral_date DATE NOT NULL,
+  scope TEXT,
+  fee_amount NUMERIC(16, 3),
+  currency TEXT,
+  fee_payer TEXT NOT NULL DEFAULT 'client' CHECK (fee_payer IN ('client', 'other_party', 'shared', 'court')),
+  fee_due DATE,
+  fee_paid_on DATE,
+  memo_due DATE,
+  report_due DATE,
+  report_filed_on DATE,
+  report_document_id UUID REFERENCES documents(id) ON DELETE SET NULL,
+  report_result TEXT CHECK (report_result IN ('favourable', 'partly', 'unfavourable')),
+  report_summary TEXT,
+  objection_days INT CHECK (objection_days BETWEEN 1 AND 365),
+  objection_due DATE,
+  objections_filed_on DATE,
+  closed BOOLEAN NOT NULL DEFAULT false,
+  event_ids JSONB NOT NULL DEFAULT '{}',
+  notes TEXT,
+  created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX expert_referrals_case_idx ON expert_referrals (case_id, referral_date DESC);
+CREATE INDEX expert_referrals_open_idx ON expert_referrals (org_id) WHERE NOT closed;
+`
   }
 ]
 
