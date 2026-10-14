@@ -9,6 +9,7 @@ import { openUploadForm, openDraftForm } from './documents.js'
 import { openTaskForm, taskHandlers, taskRows } from './tasks.js'
 import { openTimeForm } from './billing.js'
 import { openOutcomeForm } from './hearings.js'
+import { timeSuggestionsNudge } from './time-capture.js'
 
 const kpi = (icon, color, label, value, href, alert) => html`
   <a href="${href}" class="card card-pad flex items-center gap-4 hover:shadow-md transition ${alert ? 'ring-1 ring-red-200' : ''}">
@@ -76,6 +77,7 @@ export async function dashboardView(root, { isCurrent, rerender }) {
         ${ro ? '' : html`<button class="btn btn-primary btn-sm" data-action="record-outcome" data-id="${e.id}"><i class="fas fa-pen"></i>${t('hearing.record')}</button>`}</li>`)}</ul>
     </section>` : ''}
 
+    <div data-time-nudge></div>
     ${counts.onboarding_gaps && can('owner', 'admin', 'lawyer') ? html`<a href="#/onboarding?show=not_ready" class="card card-pad mb-6 flex items-center gap-3 border-amber-200 hover:shadow-md">
       <i class="fas fa-clipboard-check text-amber-600 text-xl"></i>
       <div class="flex-1"><div class="font-semibold text-sm">${t('onb.dash_title', { n: counts.onboarding_gaps })}</div><div class="text-xs text-slate-500">${t('onb.dash_help')}</div></div>
@@ -169,6 +171,7 @@ export async function dashboardView(root, { isCurrent, rerender }) {
     </div>`)
 
   const shared = taskHandlers(() => tasks.items, rerender)
+  timeSuggestionsNudge(root.querySelector('[data-time-nudge]'))
   bind(root, {
     changes: shared.changes,
     actions: {
