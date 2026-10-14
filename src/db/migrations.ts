@@ -1140,6 +1140,14 @@ CREATE INDEX engagement_letters_org_idx ON engagement_letters (org_id, created_a
     sql: `
 ALTER TABLE organizations ADD COLUMN onboarding_checks TEXT[] NOT NULL DEFAULT ARRAY['conflict', 'kyc', 'poa', 'engagement'];
 `
+  },
+  {
+    version: 29,
+    name: 'hearing_attendee',
+    sql: `
+ALTER TABLE events ADD COLUMN attendee_id UUID REFERENCES users(id) ON DELETE SET NULL;
+CREATE INDEX events_org_kind_start_idx ON events (org_id, kind, starts_at);
+`
   }
 ]
 

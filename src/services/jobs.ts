@@ -87,7 +87,7 @@ export async function runDailyDigest(db: Db, mailer: Mailer, config: Config, log
       db.query(
         `SELECT e.title, e.kind, e.starts_at, e.all_day, e.location, k.reference FROM events e LEFT JOIN cases k ON k.id = e.case_id
           WHERE e.org_id = $1 AND e.completed_at IS NULL AND e.starts_at >= $2::date AND e.starts_at < $2::date + 2
-            AND (k.assigned_to = $3 OR e.created_by = $3 OR e.case_id IS NULL)
+            AND (k.assigned_to = $3 OR e.attendee_id = $3 OR e.created_by = $3 OR e.case_id IS NULL)
           ORDER BY e.starts_at LIMIT 30`, [user.org_id, today, user.id]),
       db.query(
         `SELECT t.title, t.due_date, k.reference FROM tasks t LEFT JOIN cases k ON k.id = t.case_id
