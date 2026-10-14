@@ -100,6 +100,9 @@ export async function corporateCard(box, { clientId }) {
       if (document.body.contains(box)) draw()
     } catch (err) { showError(err) }
   }
+  // A signed resolution can change the record (new manager, new address).
+  const onChanged = () => (document.body.contains(box) ? load() : window.removeEventListener('corporate:changed', onChanged))
+  window.addEventListener('corporate:changed', onChanged)
   box.onclick = async (e) => {
     const el = e.target.closest('[data-c]')
     if (!el) return

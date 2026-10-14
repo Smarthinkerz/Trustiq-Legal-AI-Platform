@@ -1,5 +1,6 @@
 import { originalsCard } from './originals.js'
 import { corporateCard } from './corporate.js'
+import { resolutionsCard } from './resolutions.js'
 import { fundsActions, fundsCard } from './funds.js'
 import { kycActions, kycCard, kycStatusBadge, riskBadge } from './kyc.js'
 import { credentialActions, credentialsCard } from './credentials.js'
@@ -188,7 +189,7 @@ export async function clientDetailView(root, { params, isCurrent, rerender }) {
         ${kycCard(kyc, { ro })}
         ${credentialsCard(creds.items, { ro })}
         ${fundsCard(funds, { ro })}
-        ${c.kind === 'company' ? html`<div data-corporate></div>` : ''}
+        ${c.kind === 'company' ? html`<div data-corporate></div><div data-resolutions></div>` : ''}
         <div data-originals></div>
         <section class="card">
           <div class="px-5 py-4 border-b border-slate-100"><h2 class="font-semibold">${t('nav.cases')} <span class="text-slate-400 font-normal">(${cases.length})</span></h2></div>
@@ -230,6 +231,7 @@ export async function clientDetailView(root, { params, isCurrent, rerender }) {
   if (thread) thread.scrollTop = thread.scrollHeight
   originalsCard(root.querySelector('[data-originals]'), { clientId: c.id, cases })
   corporateCard(root.querySelector('[data-corporate]'), { clientId: c.id })
+  resolutionsCard(root.querySelector('[data-resolutions]'), { clientId: c.id })
   bind(root, {
     forms: {
       message: (form) => busy(submitButton(form), async () => {
