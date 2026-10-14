@@ -78,6 +78,10 @@ export async function dashboardView(root, { isCurrent, rerender }) {
     </section>` : ''}
 
     <div data-time-nudge></div>
+    ${counts.originals_to_return ? html`<a href="#/originals?show=to_return" class="card card-pad mb-6 flex items-center gap-3 border-slate-300 hover:shadow-md">
+      <i class="fas fa-vault text-slate-600 text-xl"></i>
+      <div class="flex-1"><div class="font-semibold text-sm">${t('orig.dash_title', { n: counts.originals_to_return })}</div><div class="text-xs text-slate-500">${t('orig.dash_help')}</div></div>
+      <i class="fas fa-chevron-right text-slate-400 rtl:rotate-180"></i></a>` : ''}
     ${counts.expert_deadlines ? html`<a href="#/experts" class="card card-pad mb-6 flex items-center gap-3 border-amber-200 hover:shadow-md">
       <i class="fas fa-user-tie text-amber-600 text-xl"></i>
       <div class="flex-1"><div class="font-semibold text-sm">${t('exp.dash_title', { n: counts.expert_deadlines })}</div><div class="text-xs text-slate-500">${t('exp.dash_help')}</div></div>
