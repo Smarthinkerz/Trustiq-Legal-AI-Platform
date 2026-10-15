@@ -46,8 +46,9 @@ export async function aiPackRequests(db: Queryable, orgId: string): Promise<numb
 }
 
 export async function assertCanUseAi(db: Queryable, org: Org, advanced = false) {
-  // Support staff seats can view, upload and organize, but not use AI.
-  if (org.acting_role === 'staff') throw forbidden('AI features are not included in support staff seats. Ask a lawyer or an admin.')
+  // Support staff seats bought with a firm subscription can view, upload and organize, but not use AI.
+  // Firms that existed before seats (support_seats is NULL) keep AI for their staff users.
+  if (org.acting_role === 'staff' && org.support_seats != null) throw forbidden('AI features are not included in support staff seats. Ask a lawyer or an admin.')
   const plan = await limitsOf(db, org)
   if (advanced && !plan.advancedAnalysis) {
     throw paymentRequired('plan_feature_advanced_analysis', 'Risk, compliance and full reviews are available on the Professional plan and above.')
