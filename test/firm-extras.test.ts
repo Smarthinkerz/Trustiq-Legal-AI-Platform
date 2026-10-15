@@ -95,3 +95,16 @@ describe('data deletion requests', () => {
     expect(cost.data.ai_pack.omr.margin_percent).toBeGreaterThan(0)
   })
 })
+
+describe('existing firms keep AI for staff users', () => {
+  it('only blocks AI for support seats bought with a firm subscription', async () => {
+    const { c } = await registered(ctx.app)
+    const inv = await c.post('/api/org/invites', { email: `staff-${crypto.randomUUID().slice(0, 6)}@older.test`, role: 'staff' })
+    expect(inv.status).toBe(201)
+    const staff = (await import('./helpers')).client(ctx.app)
+    const token = new URL(inv.data.invite_url.replace('#', '')).searchParams.get('token')
+    expect((await staff.post('/api/auth/accept-invite', { token, name: 'Older Staff', password: 'Correct-Horse-Battery-9' })).status).toBe(201)
+    ctx.ai.nextReply = 'Here is a summary.'
+    expect((await staff.post('/api/ai/chat', { message: 'Summarise the case' })).status).toBe(200)
+  })
+})
