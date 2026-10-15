@@ -1,6 +1,7 @@
 import { originalsCard } from './originals.js'
 import { corporateCard } from './corporate.js'
 import { resolutionsCard } from './resolutions.js'
+import { leasesCard } from './leases.js'
 import { fundsActions, fundsCard } from './funds.js'
 import { kycActions, kycCard, kycStatusBadge, riskBadge } from './kyc.js'
 import { credentialActions, credentialsCard } from './credentials.js'
@@ -85,7 +86,7 @@ export async function clientsListView(root, { query, isCurrent }) {
   const state = { page: Number(query.get('page')) || 1, q: query.get('q') || '', archived: query.get('archived') === 'true' }
   const ro = readOnly()
   render(root, html`
-    ${pageHeader(t('nav.clients'), t('clients.subtitle'), ro ? '' : html`<div class="flex flex-wrap gap-2">${can('owner', 'admin', 'lawyer') ? html`<a class="btn btn-outline" href="#/compliance"><i class="fas fa-user-shield"></i>${t('kyc.register')}</a><a class="btn btn-outline" href="#/originals"><i class="fas fa-vault"></i>${t('orig.register')}</a><a class="btn btn-outline" href="#/corporate"><i class="fas fa-building-columns"></i>${t('corp.register')}</a><button class="btn btn-outline" data-action="import"><i class="fas fa-file-excel"></i>${t('import_xl.button')}</button>` : ''}<button class="btn btn-primary" data-action="new"><i class="fas fa-plus"></i>${t('clients.new')}</button></div>`)}
+    ${pageHeader(t('nav.clients'), t('clients.subtitle'), ro ? '' : html`<div class="flex flex-wrap gap-2">${can('owner', 'admin', 'lawyer') ? html`<a class="btn btn-outline" href="#/compliance"><i class="fas fa-user-shield"></i>${t('kyc.register')}</a><a class="btn btn-outline" href="#/originals"><i class="fas fa-vault"></i>${t('orig.register')}</a><a class="btn btn-outline" href="#/corporate"><i class="fas fa-building-columns"></i>${t('corp.register')}</a><a class="btn btn-outline" href="#/leases"><i class="fas fa-building"></i>${t('lease.register')}</a><button class="btn btn-outline" data-action="import"><i class="fas fa-file-excel"></i>${t('import_xl.button')}</button>` : ''}<button class="btn btn-primary" data-action="new"><i class="fas fa-plus"></i>${t('clients.new')}</button></div>`)}
     <div class="card">
       <div class="p-4 border-b border-slate-100 flex flex-wrap gap-3 items-center">
         <div class="relative flex-1 min-w-52">
@@ -191,6 +192,7 @@ export async function clientDetailView(root, { params, isCurrent, rerender }) {
         ${fundsCard(funds, { ro })}
         ${c.kind === 'company' ? html`<div data-corporate></div><div data-resolutions></div>` : ''}
         <div data-originals></div>
+        <div data-leases></div>
         <section class="card">
           <div class="px-5 py-4 border-b border-slate-100"><h2 class="font-semibold">${t('nav.cases')} <span class="text-slate-400 font-normal">(${cases.length})</span></h2></div>
           ${cases.length ? html`<ul class="divide-y divide-slate-100">${cases.map((k) => html`<li><a href="#/cases/${k.id}" class="px-5 py-3 flex flex-wrap items-center gap-3 hover:bg-slate-50">
@@ -232,6 +234,7 @@ export async function clientDetailView(root, { params, isCurrent, rerender }) {
   originalsCard(root.querySelector('[data-originals]'), { clientId: c.id, cases })
   corporateCard(root.querySelector('[data-corporate]'), { clientId: c.id })
   resolutionsCard(root.querySelector('[data-resolutions]'), { clientId: c.id })
+  leasesCard(root.querySelector('[data-leases]'), { clientId: c.id, cases })
   bind(root, {
     forms: {
       message: (form) => busy(submitButton(form), async () => {

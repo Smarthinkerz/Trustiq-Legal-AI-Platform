@@ -1627,6 +1627,54 @@ CREATE INDEX case_cheques_org_idx ON case_cheques (org_id, returned_on);
 ALTER TABLE users ADD COLUMN name_ar TEXT;
 ALTER TABLE users ADD COLUMN bar_number TEXT;
 `
+  },
+  {
+    version: 45,
+    name: 'leases',
+    sql: `
+CREATE TABLE leases (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  client_id UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  case_id UUID REFERENCES cases(id) ON DELETE SET NULL,
+  client_role TEXT NOT NULL DEFAULT 'landlord' CHECK (client_role IN ('landlord', 'tenant')),
+  property TEXT NOT NULL,
+  use TEXT NOT NULL DEFAULT 'residential' CHECK (use IN ('residential', 'commercial', 'industrial', 'land', 'other')),
+  counterparty TEXT NOT NULL,
+  counterparty_id_number TEXT,
+  registration_no TEXT,
+  starts_on DATE NOT NULL,
+  ends_on DATE NOT NULL,
+  annual_rent NUMERIC(16, 3) NOT NULL CHECK (annual_rent > 0),
+  currency TEXT NOT NULL,
+  frequency TEXT NOT NULL DEFAULT 'monthly' CHECK (frequency IN ('monthly', 'quarterly', 'semiannual', 'annual')),
+  deposit NUMERIC(16, 3),
+  notice_days INTEGER NOT NULL DEFAULT 90 CHECK (notice_days BETWEEN 0 AND 730),
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'renewed', 'ended', 'terminated')),
+  end_event_id UUID REFERENCES events(id) ON DELETE SET NULL,
+  notice_event_id UUID REFERENCES events(id) ON DELETE SET NULL,
+  notes TEXT,
+  created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CHECK (ends_on > starts_on)
+);
+CREATE INDEX leases_client_idx ON leases (client_id, ends_on DESC);
+CREATE INDEX leases_org_idx ON leases (org_id, status, ends_on);
+
+CREATE TABLE lease_payments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  lease_id UUID NOT NULL REFERENCES leases(id) ON DELETE CASCADE,
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  due_on DATE NOT NULL,
+  amount NUMERIC(16, 3) NOT NULL CHECK (amount > 0),
+  paid NUMERIC(16, 3) NOT NULL DEFAULT 0 CHECK (paid >= 0),
+  paid_on DATE,
+  method TEXT,
+  reference TEXT
+);
+CREATE INDEX lease_payments_lease_idx ON lease_payments (lease_id, due_on);
+`
   }
 ]
 
