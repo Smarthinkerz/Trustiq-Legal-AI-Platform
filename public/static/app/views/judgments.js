@@ -3,6 +3,7 @@ import { bind, formData, html, render } from '../dom.js'
 import { fmtDate, fmtMoney, t } from '../i18n.js'
 import { can, readOnly, store } from '../store.js'
 import { busy, clearFieldErrors, confirmDialog, emptyState, inputField, modal, pageHeader, selectField, showError, spinner, submitButton, textareaField, toast } from '../ui.js'
+import { readBar, wireReadBar } from './ai-read.js'
 
 // ---------------------------------------------------------------------------
 // Judgments and enforcement (الأحكام والتنفيذ): a card on the matter and a
@@ -27,7 +28,7 @@ function appealLine(j) {
     ${!closed && !late ? html` · ${t('jdg.days_left', { n: j.appeal_days_left })}` : ''} · ${t(`jdg.ap_${j.appeal_decision}`)}</div>`
 }
 
-export async function caseJudgmentsCard(box, kase, { onChange } = {}) {
+export async function caseJudgmentsCard(box, kase, { onChange, documents = [] } = {}) {
   if (!box) return
   const editable = !readOnly() && can('owner', 'admin', 'lawyer')
   let items = []
@@ -71,7 +72,7 @@ export async function caseJudgmentsCard(box, kase, { onChange } = {}) {
     if (!el) return
     const j = items.find((x) => x.id === el.dataset.id)
     const act = el.dataset.j
-    if (act === 'add') openJudgmentForm(kase, null, load)
+    if (act === 'add') openJudgmentForm(kase, null, load, documents)
     if (act === 'edit') openJudgmentForm(kase, j, load)
     if (act === 'collect') openCollectionForm(j, load)
     if (act === 'delete' && (await confirmDialog(t('jdg.confirm_delete')))) {
@@ -85,12 +86,13 @@ export async function caseJudgmentsCard(box, kase, { onChange } = {}) {
   await load()
 }
 
-function openJudgmentForm(kase, j, done) {
+function openJudgmentForm(kase, j, done, documents = []) {
   const currencies = store.ref?.currencies ?? ['OMR']
   const m = modal({
     title: j ? t('jdg.edit') : t('jdg.add'),
     size: 'xl',
     body: html`<form data-form="save" class="space-y-4" novalidate>
+      ${j ? '' : readBar(documents)}
       <div class="grid sm:grid-cols-4 gap-4">
         ${inputField({ name: 'judgment_date', label: t('jdg.date'), type: 'date', value: j?.judgment_date ?? today(), required: true })}
         ${selectField({ name: 'degree', label: t('jdg.degree'), options: opts(DEGREES, 'jdg.d_'), value: j?.degree ?? 'first_instance' })}
@@ -140,6 +142,8 @@ function openJudgmentForm(kase, j, done) {
       })
     }
   })
+  // The appeal period is the lawyer's call: reading a judgment never sets it.
+  if (!j) wireReadBar(m.el.querySelector('form'), `/api/judgments/case/${kase.id}/read`)
 }
 
 function openCollectionForm(j, done) {

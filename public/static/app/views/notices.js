@@ -4,6 +4,7 @@ import { fmtDate, fmtMoney, t } from '../i18n.js'
 import { aiEnabled, can, readOnly, store } from '../store.js'
 import { busy, clearFieldErrors, confirmDialog, emptyState, inputField, modal, pageHeader, selectField, showError, spinner, submitButton, textareaField, toast } from '../ui.js'
 import { openDraftForm } from './documents.js'
+import { readBar, wireReadBar } from './ai-read.js'
 
 // ---------------------------------------------------------------------------
 // Legal notices (الإنذارات والإخطارات): notices sent to or received from the
@@ -95,6 +96,7 @@ function openNoticeForm(kase, n, docs, done, preset = {}) {
     title: n ? t('ntc.edit') : t('ntc.add'),
     size: 'lg',
     body: html`<form data-form="save" class="space-y-4" novalidate>
+      ${n ? '' : readBar(docs)}
       <div class="grid sm:grid-cols-3 gap-4">
         ${selectField({ name: 'direction', label: t('ntc.direction'), options: ['outgoing', 'incoming'].map((d) => ({ value: d, label: t(`ntc.d_${d}`) })), value: v.direction })}
         ${inputField({ name: 'party', label: t('ntc.party'), value: v.party ?? kase.opposing_party ?? '', required: true, cls: 'sm:col-span-2', attrs: 'maxlength="300" dir="auto"', hint: t('ntc.party_hint') })}
@@ -143,6 +145,8 @@ function openNoticeForm(kase, n, docs, done, preset = {}) {
       })
     }
   })
+  // The document read is also attached to the notice.
+  if (!n) wireReadBar(m.el.querySelector('form'), `/api/notices/case/${kase.id}/read`, { onFields: () => { m.el.querySelector('[name=document_id]').value = m.el.querySelector('[data-read-doc]').value } })
 }
 
 function openResponseForm(n, done) {
