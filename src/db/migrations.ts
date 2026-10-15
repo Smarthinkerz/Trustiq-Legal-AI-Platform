@@ -1557,6 +1557,34 @@ CREATE TABLE arbitration_steps (
 CREATE INDEX arbitration_steps_case_idx ON arbitration_steps (case_id, due_on);
 CREATE INDEX arbitration_steps_open_idx ON arbitration_steps (org_id, due_on) WHERE done_on IS NULL;
 `
+  },
+  {
+    version: 42,
+    name: 'corporate_resolutions',
+    sql: `
+CREATE TABLE corporate_resolutions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  client_id UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  number INTEGER NOT NULL,
+  body TEXT NOT NULL CHECK (body IN ('shareholders', 'board', 'sole_owner')),
+  purpose TEXT NOT NULL CHECK (purpose IN ('appoint_manager', 'remove_manager', 'authorise_signatory', 'open_bank_account', 'grant_poa', 'change_address', 'approve_accounts', 'other')),
+  resolved_on DATE NOT NULL,
+  place TEXT,
+  params JSONB NOT NULL DEFAULT '{}',
+  items JSONB NOT NULL DEFAULT '[]',
+  signer_ids JSONB NOT NULL DEFAULT '[]',
+  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'signed')),
+  signed_on DATE,
+  applied_at TIMESTAMPTZ,
+  notes TEXT,
+  created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (client_id, number)
+);
+CREATE INDEX corporate_resolutions_client_idx ON corporate_resolutions (client_id, number DESC);
+`
   }
 ]
 
