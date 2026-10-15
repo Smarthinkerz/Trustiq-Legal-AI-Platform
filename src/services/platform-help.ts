@@ -1,4 +1,5 @@
 import { PLAN_PRICES, PLANS, TRIAL_DAYS } from '../lib/plans'
+import { AI_POOL as POOL, INCLUDED_SEATS as SEATS, MAX_SELF_SERVE, PRICES as FIRM } from '../../public/static/site/firm-pricing.js'
 import type { ChatMessage } from './ai'
 import { DOCUMENT_TEMPLATES, JURISDICTIONS } from './reference'
 
@@ -28,8 +29,10 @@ A bilingual (English/Arabic) legal practice-management platform with AI for law 
 - Bring existing data: Clients and Cases pages have "Import" for Excel (.xlsx) or CSV files, including Arabic column names, with a preview before anything is saved.
 
 ## Plans (prices exclude VAT)
-- Starter: ${price('starter')}. ${limit(S.maxActiveCases, 'open cases')}, ${limit(S.documentsPerMonth, 'new documents per month')}, ${limit(S.aiRequestsPerMonth, 'AI requests per month')}; summaries and drafting (risk, compliance and full contract reviews are not included).
-- Professional: ${price('professional')}. ${limit(P.maxActiveCases, 'open cases')}, ${limit(P.documentsPerMonth, 'new documents per month')}, ${limit(P.aiRequestsPerMonth, 'AI requests per month')}, all AI analyses.
+- Starter: ${price('starter')} (USD ${FIRM.USD.starter}), includes ${SEATS.starter} lawyer seats. ${limit(S.maxActiveCases, 'open cases')}, ${limit(S.documentsPerMonth, 'new documents per month')}, ${limit(S.aiRequestsPerMonth, 'AI requests per month')}; summaries and drafting (risk, compliance and full contract reviews are not included).
+- Professional: ${price('professional')} (USD ${FIRM.USD.professional}), includes ${SEATS.professional} lawyer seats. ${limit(P.maxActiveCases, 'open cases')}, ${limit(P.documentsPerMonth, 'new documents per month')}, ${limit(P.aiRequestsPerMonth, 'AI requests per month')}, all AI analyses.
+- Limits are shared across the whole firm. Firms in Oman pay in OMR; every other country pays in USD at these fixed prices.
+- Firms (more lawyers): on the pricing page, "Have more lawyers on your team?" opens a short form with a live quote. 4 to 10 lawyers: Starter plus OMR ${FIRM.OMR.starterSeat} (USD ${FIRM.USD.starterSeat}) a month per lawyer above ${SEATS.starter}, each adding ${POOL.starterSeat} AI requests, or Professional. 11 to ${MAX_SELF_SERVE} lawyers: Professional plus OMR ${FIRM.OMR.professionalSeat} (USD ${FIRM.USD.professionalSeat}) a month per lawyer above ${SEATS.professional}, each adding ${POOL.professionalSeat} AI requests. More than ${MAX_SELF_SERVE} lawyers: ask for an Enterprise quote. Support staff (paralegals, secretaries) are free with limited access: view, upload and organize, no AI drafting. Annual billing: pay 10 months, get 12.
 - Enterprise: custom price from the sales team (${contact.salesEmail}); unlimited usage, onboarding and agreed service levels.
 - Payment: self-serve monthly payment by card through Tap Payments in Settings → Plan & usage; each payment extends the plan by one month. Enterprise is invoiced.
 

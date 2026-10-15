@@ -243,7 +243,7 @@ describe('Tap subscription payments', () => {
     expect(co.status).toBe(200)
     expect(co.data.checkout_url).toMatch(/^https:\/\/checkout\.tap\.test\//)
     const body = ctx.tap.created.at(-1)!
-    expect(body.amount).toBe(499)
+    expect(body.amount).toBe(649)
     expect(body.currency).toBe('OMR')
     expect(body.metadata.org_id).toBe(me.org.id)
     expect(body.redirect.url).toBe('http://localhost:8080/billing/tap/return')
@@ -262,7 +262,7 @@ describe('Tap subscription payments', () => {
     expect(expires).toBeGreaterThan(Date.now() + 27 * 86400_000)
 
     // Webhook for the same charge is idempotent and does not extend again.
-    const payload = JSON.stringify({ id: charge.id, status: 'CAPTURED', amount: 499, currency: 'OMR' })
+    const payload = JSON.stringify({ id: charge.id, status: 'CAPTURED', amount: 649, currency: 'OMR' })
     const wh = await ctx.app.request('/webhooks/tap', { method: 'POST', body: payload, headers: { hashstring: sign(payload), 'content-type': 'application/json' } })
     expect(wh.status).toBe(200)
     const dup = await ctx.app.request('/webhooks/tap', { method: 'POST', body: payload, headers: { hashstring: sign(payload), 'content-type': 'application/json' } })

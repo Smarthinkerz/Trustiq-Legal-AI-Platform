@@ -27,6 +27,7 @@ const envSchema = z.object({
   MAIL_FROM: z.string().default('TrustiqLegal <no-reply@trustiqlegal.com>'),
 
   SALES_EMAIL: z.string().email().default('sales@trustiqlegal.com'),
+  FIRM_REQUESTS_EMAIL: z.string().email().default('reply@smarthinkerz.com'),
   SUPPORT_EMAIL: z.string().email().default('support@trustiqlegal.com'),
   // Firm website (its address slug) whose published articles appear on the TrustiqLegal blog at /blog.
   // When unset, the blog shows the articles of the platform admins' firm.
@@ -70,6 +71,7 @@ export type Config = {
   smtp?: { host: string; port: number; user?: string; pass?: string; secure: boolean }
   mailFrom: string
   salesEmail: string
+  firmRequestsEmail: string
   supportEmail: string
   platformAdminEmails: string[]
   platformBlogSlug?: string
@@ -115,6 +117,7 @@ export function loadConfig(source: Record<string, string | undefined> = process.
       : undefined,
     mailFrom: e.MAIL_FROM,
     salesEmail: e.SALES_EMAIL,
+    firmRequestsEmail: e.FIRM_REQUESTS_EMAIL,
     supportEmail: e.SUPPORT_EMAIL,
     platformBlogSlug: blogSlug(e.PLATFORM_BLOG_SLUG),
     platformAdminEmails: e.PLATFORM_ADMIN_EMAILS.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),

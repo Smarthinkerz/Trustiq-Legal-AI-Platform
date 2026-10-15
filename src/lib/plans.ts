@@ -1,3 +1,5 @@
+import { PRICES as FIRM_PRICES } from '../../public/static/site/firm-pricing.js'
+
 export type PlanId = 'trial' | 'starter' | 'professional' | 'enterprise'
 
 export type PlanLimits = {
@@ -20,9 +22,10 @@ export const PLANS: Record<PlanId, PlanLimits> = {
 export const TRIAL_DAYS = 14
 
 // Self-serve prices (monthly, excluding VAT). Enterprise is sold by the sales team.
+// The firm prices themselves live in public/static/site/firm-pricing.js, shared with the landing page.
 export const PLAN_PRICES: Partial<Record<PlanId, { amount: number; currency: string }>> = {
-  starter: { amount: 199, currency: 'OMR' },
-  professional: { amount: 499, currency: 'OMR' }
+  starter: { amount: FIRM_PRICES.OMR.starter, currency: 'OMR' },
+  professional: { amount: FIRM_PRICES.OMR.professional, currency: 'OMR' }
 }
 
 export const isPlanId = (v: string): v is PlanId => v in PLANS
