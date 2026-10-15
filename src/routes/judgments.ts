@@ -2,9 +2,12 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { audit, auth, requireRole, type AppEnv } from '../context'
 import type { Db, Queryable } from '../db'
-import { badRequest, notFound } from '../lib/errors'
+import { badRequest, HttpError, notFound } from '../lib/errors'
 import { jsonBody, optText, queryParams, updateBody, uuidParam } from '../lib/http'
+import { judgmentMessages, normalizeJudgment } from '../services/ai-read'
 import { GULF_TODAY } from '../services/credentials'
+import { parseJsonObject } from '../services/legal-prompts'
+import { assertCanUseAi, recordAiUsage } from '../services/usage'
 import { toCsv } from '../services/practice-insights'
 import { CURRENCIES } from '../services/reference'
 import { caseActivity } from './cases'
@@ -239,6 +242,36 @@ judgmentRoutes.get('/register', queryParams(z.object({
   }
   const appealsDue = rows.filter((j: any) => j.appeal_deadline && j.appeal_decision === 'pending' && j.appeal_days_left >= 0 && j.appeal_days_left <= 14).length
   return c.json({ items, totals, appeals_due: appealsDue, total: rows.length })
+})
+
+
+// Text of a document on this matter, for AI reading.
+export async function matterDocumentText(db: Queryable, orgId: string, caseId: string, documentId: string) {
+  const [doc] = await db.query('SELECT content FROM documents WHERE id = $1 AND org_id = $2 AND case_id = $3', [documentId, orgId, caseId])
+  if (!doc) throw badRequest('Choose a document from this matter.')
+  const text = (doc.content ?? '').trim()
+  if (text.length < 40) throw badRequest('This document has no readable text. Upload a clearer copy or type the details.')
+  return text
+}
+
+// Reads a judgment on the matter (its extracted or OCR text) into the form's fields. Nothing is saved.
+judgmentRoutes.post('/case/:id/read', jsonBody(z.object({ document_id: z.string().uuid() })), async (c) => {
+  requireRole(c, 'owner', 'admin', 'lawyer', 'staff')
+  const { user, org } = auth(c)
+  const { db, ai } = c.get('deps')
+  const [k] = await db.query('SELECT k.id, k.opposing_party, cl.name AS client_name FROM cases k LEFT JOIN clients cl ON cl.id = k.client_id WHERE k.id = $1 AND k.org_id = $2',
+    [uuidParam(c.req.param('id'), 'Case'), org.id])
+  if (!k) throw notFound('Case')
+  const text = await matterDocumentText(db, org.id, k.id, c.req.valid('json').document_id)
+  await assertCanUseAi(db, org)
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Muscat' }).format(new Date())
+  const result = await ai.complete({ messages: judgmentMessages(text, { client: k.client_name, opponent: k.opposing_party, today }), json: true, maxTokens: 900, temperature: 0 })
+  await recordAiUsage(db, org.id, user.id, 'judgment_read', result)
+  try {
+    return c.json({ fields: normalizeJudgment(parseJsonObject(result.text)) })
+  } catch {
+    throw new HttpError(502, 'ai_bad_output', 'The AI could not read this document. Please type the details.')
+  }
 })
 
 export default judgmentRoutes

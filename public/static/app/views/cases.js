@@ -377,7 +377,7 @@ export async function caseDetailView(root, { params, isCurrent, rerender }) {
   caseExpertsCard(root.querySelector('[data-experts]'), k, { documents: data.documents })
   if (k.client_id) originalsCard(root.querySelector('[data-originals]'), { clientId: k.client_id, caseId: k.id })
   caseChequesCard(root.querySelector('[data-cheques]'), k)
-  caseJudgmentsCard(root.querySelector('[data-judgments]'), k)
+  caseJudgmentsCard(root.querySelector('[data-judgments]'), k, { documents: data.documents })
   caseClientUpdatesCard(root.querySelector('[data-client-updates]'), k)
   bind(root, {
     actions: {
