@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest'
-import { quoteFirm } from '../public/static/site/firm-pricing.js'
+import { aiPackPrice, limitsFor, quoteFirm } from '../public/static/site/firm-pricing.js'
 import { client, setup } from './helpers'
 
 describe('firm pricing', () => {
@@ -11,19 +11,33 @@ describe('firm pricing', () => {
   })
 
   it('uses Starter for 1 to 3 lawyers, in OMR for Oman and USD elsewhere', () => {
-    expect(quoteFirm({ country: 'OM', lawyers: 1, cycle: 'monthly' })!.options).toEqual([expect.objectContaining({ plan: 'starter', monthly: 199, extra_seats: 0, ai_requests: 300 })])
+    expect(quoteFirm({ country: 'OM', lawyers: 1, cycle: 'monthly' })!.options).toEqual([expect.objectContaining({ plan: 'starter', monthly: 199, extra_seats: 0, ai_requests: 300, documents: 50, cases: 5 })])
     const ae = quoteFirm({ country: 'AE', lawyers: 3, cycle: 'monthly' })!
     expect(ae.currency).toBe('USD')
     expect(ae.options).toEqual([expect.objectContaining({ plan: 'starter', monthly: 519 })])
+    // A small firm that needs a Professional feature sees Professional too.
+    const pro = quoteFirm({ country: 'OM', lawyers: 2, cycle: 'monthly', features: ['advanced_reviews'] })!
+    expect(pro.options.map((o) => o.plan)).toEqual(['starter', 'professional'])
+    expect(pro.recommended).toBe('professional')
   })
 
-  it('shows Starter with extra seats beside Professional for 4 to 10 lawyers', () => {
+  it('shows Starter Plus beside Professional for 4 to 10 lawyers', () => {
+    const prices = [4, 5, 6, 10].map((n) => quoteFirm({ country: 'OM', lawyers: n, cycle: 'monthly' })!.options[0]!.monthly)
+    expect(prices).toEqual([234, 269, 304, 444])
     const q5 = quoteFirm({ country: 'OM', lawyers: 5, cycle: 'monthly' })!
-    expect(q5.options.map((o) => [o.plan, o.monthly, o.ai_requests])).toEqual([['starter', 269, 500], ['professional', 649, 3000]])
-    expect(q5.recommended).toBe('starter')
+    expect(q5.options.map((o) => [o.plan, o.monthly, o.cases, o.documents, o.ai_requests])).toEqual([['starter_plus', 269, 25, 75, 500], ['professional', 649, null, 500, 3000]])
+    expect(q5.recommended).toBe('starter_plus')
     const q10 = quoteFirm({ country: 'SA', lawyers: 10, cycle: 'monthly' })!
-    expect(q10.options.map((o) => [o.plan, o.monthly])).toEqual([['starter', 1149], ['professional', 1690]])
-    expect(q10.recommended).toBe('professional')
+    expect(q10.options.map((o) => [o.plan, o.monthly])).toEqual([['starter_plus', 1149], ['professional', 1690]])
+    expect(q10.recommended).toBe('starter_plus')
+    expect(quoteFirm({ country: 'OM', lawyers: 6, cycle: 'monthly', features: ['playbook_review', 'bogus'] })).toMatchObject({ recommended: 'professional', features: ['playbook_review'] })
+  })
+
+  it('sets Enterprise fair use limits per lawyer with a minimum', () => {
+    expect(limitsFor('enterprise', 30)).toEqual({ cases: null, documents: 2400, ai_requests: 12000 })
+    expect(limitsFor('enterprise', 10)).toEqual({ cases: null, documents: 2000, ai_requests: 10000 })
+    expect(aiPackPrice('OMR')).toEqual({ requests: 500, amount: 25, currency: 'OMR' })
+    expect(aiPackPrice('AED')).toEqual({ requests: 500, amount: 65, currency: 'USD' })
   })
 
   it('charges 10 months for a year on annual billing', () => {
@@ -64,9 +78,9 @@ describe('firm sign-up requests', () => {
     expect(mail.text).toContain('AI requests per month: 4500')
   })
 
-  it('charges annual billing as 10 months and lets the firm pick Starter for 4 to 10 lawyers', async () => {
-    const r = await client(ctx.app).post('/firms/request', { ...form, country: 'AE', lawyers: 5, cycle: 'annual', plan: 'starter' })
-    expect(r.data.plan).toBe('starter')
+  it('charges annual billing as 10 months and lets the firm pick Starter Plus for 4 to 10 lawyers', async () => {
+    const r = await client(ctx.app).post('/firms/request', { ...form, country: 'AE', lawyers: 5, cycle: 'annual', plan: 'starter_plus' })
+    expect(r.data.plan).toBe('starter_plus')
     const row = await ctx.db.one('SELECT currency, total, ai_requests FROM firm_signups WHERE id = $1', [r.data.id])
     expect(row).toMatchObject({ currency: 'USD', ai_requests: 500 })
     expect(Number(row!.total)).toBe(6990)

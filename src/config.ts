@@ -18,6 +18,9 @@ const envSchema = z.object({
   OPENAI_IMAGE_MODEL: z.string().default('gpt-image-1'),
   OPENAI_TRANSCRIBE_MODEL: z.string().default('gpt-4o-transcribe'),
   AI_TIMEOUT_MS: z.coerce.number().int().positive().default(90_000),
+  // Provider prices in USD per million tokens, used only to report our AI cost per request. Check them against the provider's price list.
+  AI_PRICE_INPUT_PER_MTOK_USD: z.coerce.number().nonnegative().default(2),
+  AI_PRICE_OUTPUT_PER_MTOK_USD: z.coerce.number().nonnegative().default(8),
 
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().int().positive().default(587),
@@ -42,6 +45,9 @@ const envSchema = z.object({
   // Tap Payments (https://api.tap.company). Enables self-serve plan checkout when TAP_SECRET_KEY is set.
   TAP_SECRET_KEY: z.string().optional(),
   TAP_WEBHOOK_SECRET: z.string().optional(),
+  // SmarThinkerz Hub Team Checkout for firm subscriptions. The secret signs quotes and verifies Hub webhooks.
+  HUB_PARTNER_SECRET: z.string().optional(),
+  HUB_TEAM_CHECKOUT_URL: z.string().url().optional(),
   TAP_API_URL: z.string().url().default('https://api.tap.company/v2'),
   TAP_WEBHOOK_TOLERANCE_MS: z.coerce.number().int().positive().default(300_000),
   WEBHOOK_AUDIT_RETENTION_DAYS: z.coerce.number().int().positive().default(90),
@@ -67,7 +73,7 @@ export type Config = {
   databaseUrl?: string
   databaseSsl: boolean
   pgliteDataDir?: string
-  ai: { apiKey?: string; baseUrl: string; model: string; imageModel: string; transcribeModel: string; timeoutMs: number }
+  ai: { apiKey?: string; baseUrl: string; model: string; imageModel: string; transcribeModel: string; timeoutMs: number; priceInputPerMTok: number; priceOutputPerMTok: number }
   smtp?: { host: string; port: number; user?: string; pass?: string; secure: boolean }
   mailFrom: string
   salesEmail: string
@@ -79,6 +85,7 @@ export type Config = {
   maxUploadBytes: number
   maxVideoBytes: number
   tap: { secretKey?: string; webhookSecret?: string; apiUrl: string; toleranceMs: number; auditRetentionDays: number }
+  hub: { partnerSecret?: string; teamCheckoutUrl?: string }
   platformVatPercent: number
   libraryImportDomains: string[]
   libraryImportExtraCa: string
@@ -111,7 +118,7 @@ export function loadConfig(source: Record<string, string | undefined> = process.
     databaseUrl: e.DATABASE_URL || undefined,
     databaseSsl: e.DATABASE_SSL === 'true',
     pgliteDataDir: e.PGLITE_DATA_DIR,
-    ai: { apiKey: e.OPENAI_API_KEY || undefined, baseUrl: e.OPENAI_BASE_URL.replace(/\/$/, ''), model: e.OPENAI_MODEL, imageModel: e.OPENAI_IMAGE_MODEL, transcribeModel: e.OPENAI_TRANSCRIBE_MODEL, timeoutMs: e.AI_TIMEOUT_MS },
+    ai: { apiKey: e.OPENAI_API_KEY || undefined, baseUrl: e.OPENAI_BASE_URL.replace(/\/$/, ''), model: e.OPENAI_MODEL, imageModel: e.OPENAI_IMAGE_MODEL, transcribeModel: e.OPENAI_TRANSCRIBE_MODEL, timeoutMs: e.AI_TIMEOUT_MS, priceInputPerMTok: e.AI_PRICE_INPUT_PER_MTOK_USD, priceOutputPerMTok: e.AI_PRICE_OUTPUT_PER_MTOK_USD },
     smtp: e.SMTP_HOST
       ? { host: e.SMTP_HOST, port: e.SMTP_PORT, user: e.SMTP_USER, pass: e.SMTP_PASS, secure: e.SMTP_SECURE === 'true' || e.SMTP_PORT === 465 }
       : undefined,
@@ -131,6 +138,7 @@ export function loadConfig(source: Record<string, string | undefined> = process.
       toleranceMs: e.TAP_WEBHOOK_TOLERANCE_MS,
       auditRetentionDays: e.WEBHOOK_AUDIT_RETENTION_DAYS
     },
+    hub: { partnerSecret: e.HUB_PARTNER_SECRET || undefined, teamCheckoutUrl: e.HUB_TEAM_CHECKOUT_URL || undefined },
     platformVatPercent: e.PLATFORM_VAT_PERCENT,
     libraryImportExtraCa: e.LIBRARY_IMPORT_EXTRA_CA,
     libraryImportDomains: e.LIBRARY_IMPORT_DOMAINS.split(',').map((d) => d.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/^\*\./, '')).filter(Boolean),

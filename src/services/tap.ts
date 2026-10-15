@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
+import { AI_PACK_REQUESTS } from '../../public/static/site/firm-pricing.js'
 import type { Config } from '../config'
 import type { Db } from '../db'
 import { HttpError, unavailable } from '../lib/errors'
@@ -146,6 +147,15 @@ export async function reconcileCharge(deps: { db: Db; mailer: Mailer; config: Co
       deps.log.error('tap charge mismatch', { payment: p.id, charge: charge.id })
       return { status: 'failed' as const, payment: p, becamePaid: false }
     }
+    if (status === 'paid' && p.kind === 'ai_pack') {
+      // An overage pack adds to this month's AI allowance; the plan itself does not change.
+      await q.query(`INSERT INTO ai_packs (org_id, month, requests, payment_id) VALUES ($1, date_trunc('month', now())::date, $2, $3) ON CONFLICT (payment_id) DO NOTHING`,
+        [p.org_id, AI_PACK_REQUESTS, p.id])
+      await q.query(`UPDATE payments SET status = 'paid', provider_status = $2, paid_at = now(), updated_at = now() WHERE id = $1`, [p.id, charge.status])
+      await q.query(`INSERT INTO audit_log (org_id, user_id, action, entity_type, entity_id, meta) VALUES ($1, $2, 'billing.ai_pack_paid', 'payment', $3, $4)`,
+        [p.org_id, p.user_id, p.id, JSON.stringify({ requests: AI_PACK_REQUESTS, amount: p.amount, currency: p.currency, charge: charge.id })])
+      return { status, payment: p, becamePaid: true }
+    }
     if (status === 'paid') {
       const [org] = await q.query(
         `UPDATE organizations SET plan = $2, plan_expires_at = GREATEST(COALESCE(plan_expires_at, now()), now()) + interval '1 month',
@@ -170,17 +180,21 @@ async function sendReceipt(deps: { db: Db; mailer: Mailer; config: Config; log: 
   // Claim the receipt so it is sent once per charge even if reconciliation runs twice.
   const [p] = await db.query(
     `UPDATE payments SET receipt_sent_at = now() WHERE id = $1 AND receipt_sent_at IS NULL
-     RETURNING id, org_id, user_id, plan, amount, currency, period_end, charge_id`, [paymentId])
+     RETURNING id, org_id, user_id, plan, kind, amount, currency, period_end, charge_id`, [paymentId])
   if (!p) return
   const [u] = await db.query('SELECT u.email, u.name, u.locale, o.name AS org_name FROM users u JOIN organizations o ON o.id = u.org_id WHERE u.id = $1', [p.user_id])
   if (!u) return
-  const until = new Date(p.period_end).toISOString().slice(0, 10)
+  const pack = p.kind === 'ai_pack'
+  const until = pack ? '' : new Date(p.period_end).toISOString().slice(0, 10)
   const ar = u.locale === 'ar'
+  const item = pack
+    ? (ar ? `${AI_PACK_REQUESTS} طلب ذكاء اصطناعي إضافي لهذا الشهر` : `${AI_PACK_REQUESTS} extra AI requests for this month`)
+    : (ar ? `الباقة: ${p.plan}\nصالحة حتى: ${until}` : `Plan: ${p.plan}\nActive until: ${until}`)
   await mailer.send({
     to: u.email,
     subject: ar ? 'إيصال الدفع - TrustiqLegal' : 'Payment receipt – TrustiqLegal',
     text: ar
-      ? `مرحباً ${u.name}،\n\nتم استلام دفعتك بنجاح.\n\nالمؤسسة: ${u.org_name}\nالباقة: ${p.plan}\nالمبلغ: ${p.amount} ${p.currency}\nصالحة حتى: ${until}\nمرجع العملية: ${p.charge_id}\n\n${config.appUrl}/app#/settings?tab=plan`
-      : `Hello ${u.name},\n\nThank you – your payment was received.\n\nOrganization: ${u.org_name}\nPlan: ${p.plan}\nAmount: ${p.amount} ${p.currency}\nActive until: ${until}\nTransaction reference: ${p.charge_id}\n\n${config.appUrl}/app#/settings?tab=plan`
+      ? `مرحباً ${u.name}،\n\nتم استلام دفعتك بنجاح.\n\nالمؤسسة: ${u.org_name}\n${item}\nالمبلغ: ${p.amount} ${p.currency}\nمرجع العملية: ${p.charge_id}\n\n${config.appUrl}/app#/settings?tab=plan`
+      : `Hello ${u.name},\n\nThank you – your payment was received.\n\nOrganization: ${u.org_name}\n${item}\nAmount: ${p.amount} ${p.currency}\nTransaction reference: ${p.charge_id}\n\n${config.appUrl}/app#/settings?tab=plan`
   }).catch((err) => log.warn('receipt email failed', { err }))
 }

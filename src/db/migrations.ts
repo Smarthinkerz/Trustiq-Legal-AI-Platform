@@ -1706,6 +1706,57 @@ CREATE TABLE firm_signups (
 CREATE INDEX firm_signups_created_idx ON firm_signups (created_at DESC);
 CREATE INDEX firm_signups_email_idx ON firm_signups (lower(email));
 `
+  },
+  {
+    version: 47,
+    name: 'firm_entitlements',
+    sql: `
+-- What a firm bought: seats, firm-wide monthly limits and its billing terms.
+ALTER TABLE organizations ADD COLUMN country TEXT;
+ALTER TABLE organizations ADD COLUMN billing_currency TEXT;
+ALTER TABLE organizations ADD COLUMN billing_cycle TEXT CHECK (billing_cycle IN ('monthly', 'annual'));
+ALTER TABLE organizations ADD COLUMN period_start TIMESTAMPTZ;
+ALTER TABLE organizations ADD COLUMN lawyer_seats INT CHECK (lawyer_seats >= 1);
+ALTER TABLE organizations ADD COLUMN support_seats INT CHECK (support_seats >= 0);
+-- When limits_custom is true these replace the plan's default limits (NULL = unlimited).
+ALTER TABLE organizations ADD COLUMN limits_custom BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE organizations ADD COLUMN cases_limit INT;
+ALTER TABLE organizations ADD COLUMN documents_limit INT;
+ALTER TABLE organizations ADD COLUMN ai_requests_limit INT;
+ALTER TABLE organizations ADD COLUMN quote_id UUID UNIQUE REFERENCES firm_signups(id) ON DELETE SET NULL;
+ALTER TABLE organizations ADD COLUMN renewal_failed_at TIMESTAMPTZ;
+ALTER TABLE organizations ADD COLUMN fair_use_alerts JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE firm_signups ADD COLUMN features JSONB NOT NULL DEFAULT '[]';
+ALTER TABLE firm_signups ADD COLUMN checkout_reference TEXT;
+ALTER TABLE firm_signups ADD COLUMN paid_at TIMESTAMPTZ;
+
+-- Overage packs: extra AI requests added to one calendar month's allowance.
+ALTER TABLE payments ADD COLUMN kind TEXT NOT NULL DEFAULT 'subscription' CHECK (kind IN ('subscription', 'ai_pack'));
+CREATE TABLE ai_packs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  month DATE NOT NULL,
+  requests INT NOT NULL CHECK (requests > 0),
+  payment_id UUID UNIQUE REFERENCES payments(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX ai_packs_org_idx ON ai_packs (org_id, month);
+
+-- Requests to delete the firm's data or one client's data, decided by the platform team.
+CREATE TABLE deletion_requests (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  requested_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  scope TEXT NOT NULL CHECK (scope IN ('workspace', 'client')),
+  client_id UUID REFERENCES clients(id) ON DELETE SET NULL,
+  reason TEXT,
+  status TEXT NOT NULL DEFAULT 'requested' CHECK (status IN ('requested', 'completed', 'rejected', 'cancelled')),
+  decision_note TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  decided_at TIMESTAMPTZ
+);
+CREATE INDEX deletion_requests_org_idx ON deletion_requests (org_id, created_at DESC);
+`
   }
 ]
 

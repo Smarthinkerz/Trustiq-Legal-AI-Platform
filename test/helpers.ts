@@ -113,7 +113,7 @@ export function fakeWhatsApp() {
   return wa
 }
 
-export async function setup(env: Record<string, string> = {}, opts: { googleFetch?: typeof fetch } = {}) {
+export async function setup(env: Record<string, string> = {}, opts: { googleFetch?: typeof fetch; hubFetch?: typeof fetch } = {}) {
   const config = loadConfig({
     NODE_ENV: 'test', APP_URL: 'http://localhost:8080', PLATFORM_ADMIN_EMAILS: 'ops@trustiq.test',
     ...(process.env.TEST_DATABASE_URL ? { DATABASE_URL: process.env.TEST_DATABASE_URL } : {}),
@@ -132,7 +132,7 @@ export async function setup(env: Record<string, string> = {}, opts: { googleFetc
   const runDeferred = async () => { while (deferred.length) await deferred.shift()!() }
   const log = createLogger('error', true)
   const app = createApp({
-    config, db, ai, mailer, tap, firmTap: firmTap.forKey, defer: (task) => { deferred.push(task) }, waFetch: wa.fetch as typeof fetch, webFetch: web.fetch, googleFetch: opts.googleFetch,
+    config, db, ai, mailer, tap, firmTap: firmTap.forKey, defer: (task) => { deferred.push(task) }, waFetch: wa.fetch as typeof fetch, webFetch: web.fetch, googleFetch: opts.googleFetch, hubFetch: opts.hubFetch,
     log,
     limiters: { auth: new RateLimiter(1000, 60_000), api: new RateLimiter(10_000, 60_000), ai: new RateLimiter(1000, 60_000), webhook: new RateLimiter(1000, 60_000), apiKey: new RateLimiter(1000, 60_000) }
   })

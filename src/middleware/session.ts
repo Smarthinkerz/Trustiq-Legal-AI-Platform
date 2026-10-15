@@ -10,7 +10,8 @@ export const SESSION_DAYS = 14
 const TOUCH_INTERVAL_MS = 10 * 60 * 1000
 
 const USER_COLUMNS = `u.id, u.org_id, u.email, u.name, u.role, u.locale, u.hijri_dates, u.client_id, (u.totp_enabled_at IS NOT NULL) AS two_factor,
-  o.name AS org_name, o.plan, o.trial_ends_at, o.plan_expires_at, o.default_jurisdiction, o.default_currency`
+  o.name AS org_name, o.plan, o.trial_ends_at, o.plan_expires_at, o.default_jurisdiction, o.default_currency,
+  o.limits_custom, o.cases_limit, o.documents_limit, o.ai_requests_limit, o.lawyer_seats, o.support_seats`
 
 function setUserContext(c: Ctx, row: any) {
   c.set('user', {
@@ -19,7 +20,10 @@ function setUserContext(c: Ctx, row: any) {
   })
   c.set('org', {
     id: row.org_id, name: row.org_name, plan: row.plan, trial_ends_at: row.trial_ends_at, plan_expires_at: row.plan_expires_at ?? null,
-    default_jurisdiction: row.default_jurisdiction, default_currency: row.default_currency
+    default_jurisdiction: row.default_jurisdiction, default_currency: row.default_currency,
+    limits_custom: !!row.limits_custom, cases_limit: row.cases_limit ?? null, documents_limit: row.documents_limit ?? null,
+    ai_requests_limit: row.ai_requests_limit ?? null, lawyer_seats: row.lawyer_seats ?? null, support_seats: row.support_seats ?? null,
+    acting_role: row.role
   })
 }
 

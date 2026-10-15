@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { assertSeatAvailable, seatKind, seatUsage } from '../services/seats'
 import { z } from 'zod'
 import { audit, auth, requireRole, type AppEnv } from '../context'
 import { hashToken, newToken } from '../lib/crypto'
@@ -44,7 +45,7 @@ orgRoutes.get('/members', async (c) => {
   const items = await c.get('deps').db.query(
     `SELECT id, email, name, role, locale, last_login_at, created_at, deactivated_at FROM users
       WHERE org_id = $1 ORDER BY deactivated_at NULLS FIRST, name`, [org.id])
-  return c.json({ items })
+  return c.json({ items, seats: await seatUsage(c.get('deps').db, org.id) })
 })
 
 orgRoutes.patch('/members/:id', jsonBody(z.object({ role: z.enum(['owner', 'admin', 'lawyer', 'staff']) })), async (c) => {
@@ -57,6 +58,8 @@ orgRoutes.patch('/members/:id', jsonBody(z.object({ role: z.enum(['owner', 'admi
   if (!target) throw notFound('Member')
   // Only owners can grant or remove the owner role.
   if ((role === 'owner' || target.role === 'owner') && user.role !== 'owner') throw forbidden('Only an owner can change owner access.')
+  // Moving between a lawyer seat and a support seat needs a free seat of the new kind.
+  if (seatKind(role) !== seatKind(target.role)) await assertSeatAvailable(db, org.id, role)
   if (target.role === 'owner' && role !== 'owner') {
     const [{ n }] = await db.query(`SELECT count(*)::int AS n FROM users WHERE org_id = $1 AND role = 'owner' AND deactivated_at IS NULL`, [org.id])
     if (n <= 1) throw badRequest('The organization must keep at least one owner.')
@@ -104,6 +107,7 @@ orgRoutes.post('/invites', jsonBody(z.object({
   const { db, mailer, config, log } = c.get('deps')
   if (await db.one('SELECT 1 FROM users WHERE lower(email) = $1', [email])) throw conflict('A user with this email already exists.')
   await db.query(`DELETE FROM auth_tokens WHERE org_id = $1 AND kind = 'invite' AND lower(email) = $2 AND used_at IS NULL`, [org.id, email])
+  await assertSeatAvailable(db, org.id, role)
   const token = newToken()
   await db.query(
     `INSERT INTO auth_tokens (id, kind, org_id, email, role, created_by, expires_at) VALUES ($1, 'invite', $2, $3, $4, $5, $6)`,
@@ -306,3 +310,57 @@ orgRoutes.delete('/api-keys/:id', async (c) => {
 })
 
 export default orgRoutes
+
+// ---- Data deletion requests ----
+// Owners ask for the whole workspace or one client's data to be deleted. The platform
+// team confirms the request with the firm (and any retention duties) before acting.
+
+orgRoutes.get('/deletion-requests', async (c) => {
+  requireRole(c, 'owner')
+  const { org } = auth(c)
+  const items = await c.get('deps').db.query(
+    `SELECT r.id, r.scope, r.client_id, cl.name AS client_name, r.reason, r.status, r.decision_note, r.created_at, r.decided_at
+       FROM deletion_requests r LEFT JOIN clients cl ON cl.id = r.client_id WHERE r.org_id = $1 ORDER BY r.created_at DESC`, [org.id])
+  return c.json({ items })
+})
+
+orgRoutes.post('/deletion-requests', jsonBody(z.object({
+  scope: z.enum(['workspace', 'client']),
+  client_id: z.string().uuid().nullish(),
+  reason: z.string().trim().max(2000).nullish()
+})), async (c) => {
+  requireRole(c, 'owner')
+  const { user, org } = auth(c)
+  const b = c.req.valid('json')
+  const { db, mailer, config, log } = c.get('deps')
+  let clientName: string | null = null
+  if (b.scope === 'client') {
+    const cl = b.client_id ? await db.one('SELECT name FROM clients WHERE id = $1 AND org_id = $2', [b.client_id, org.id]) : null
+    if (!cl) throw badRequest('Choose the client whose data should be deleted.')
+    clientName = cl.name
+  }
+  if (await db.one(`SELECT 1 FROM deletion_requests WHERE org_id = $1 AND status = 'requested' AND scope = $2 AND client_id IS NOT DISTINCT FROM $3`, [org.id, b.scope, b.scope === 'client' ? b.client_id : null])) {
+    throw conflict('The same deletion request is already open.')
+  }
+  const [r] = await db.query(
+    `INSERT INTO deletion_requests (org_id, requested_by, scope, client_id, reason) VALUES ($1, $2, $3, $4, $5) RETURNING id, created_at`,
+    [org.id, user.id, b.scope, b.scope === 'client' ? b.client_id : null, b.reason ?? null])
+  await audit(c, 'org.deletion_requested', 'deletion_request', r.id, { scope: b.scope, client_id: b.client_id ?? null })
+  await mailer.send({
+    to: config.firmRequestsEmail,
+    replyTo: user.email,
+    subject: `Deletion request: ${org.name} (${b.scope === 'workspace' ? 'whole workspace' : `client ${clientName}`})`,
+    text: `${user.name} <${user.email}> asked for ${b.scope === 'workspace' ? 'the whole workspace' : `the data of client "${clientName}"`} of ${org.name} to be deleted.\n\nReason: ${b.reason || 'not given'}\n\nConfirm with the firm and check retention duties before deleting. Record the decision in the platform admin console.\nRequest id: ${r.id}`
+  }).catch((err) => log.warn('deletion request email failed', { err }))
+  return c.json({ id: r.id, status: 'requested' }, 201)
+})
+
+orgRoutes.delete('/deletion-requests/:id', async (c) => {
+  requireRole(c, 'owner')
+  const { org } = auth(c)
+  const id = uuidParam(c.req.param('id'), 'Request')
+  const rows = await c.get('deps').db.query(`UPDATE deletion_requests SET status = 'cancelled', decided_at = now() WHERE id = $1 AND org_id = $2 AND status = 'requested' RETURNING id`, [id, org.id])
+  if (!rows.length) throw notFound('Request')
+  await audit(c, 'org.deletion_cancelled', 'deletion_request', id)
+  return c.json({ ok: true })
+})

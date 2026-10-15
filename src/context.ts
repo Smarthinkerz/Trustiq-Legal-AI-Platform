@@ -35,6 +35,15 @@ export type Org = {
   plan_expires_at: Date | null
   default_jurisdiction: string
   default_currency: string
+  // Set for firm subscriptions: the firm's own limits and seats.
+  limits_custom?: boolean
+  cases_limit?: number | null
+  documents_limit?: number | null
+  ai_requests_limit?: number | null
+  lawyer_seats?: number | null
+  support_seats?: number | null
+  // Role of the signed-in member making this request (unset for public or background work).
+  acting_role?: Role
 }
 
 export type Deps = {
@@ -50,6 +59,8 @@ export type Deps = {
   defer?: (task: () => Promise<unknown>) => void
   // Overridable in tests; used for the WhatsApp Cloud API (graph.facebook.com).
   waFetch?: typeof fetch
+  // Calls to the SmarThinkerz Hub Team Checkout (replaced in tests).
+  hubFetch?: typeof fetch
   // Overridable in tests; defaults to a fetcher that refuses private network addresses.
   webFetch?: WebFetcher
   // Overridable in tests; used for Google OAuth and Calendar API calls.
