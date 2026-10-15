@@ -29,6 +29,7 @@ import { originalsCard } from './originals.js'
 import { closedBanner, openClosingDialog } from './closing.js'
 import { caseSettlementCard } from './settlement.js'
 import { caseArbitrationCard } from './arbitration.js'
+import { caseChequesCard } from './cheques.js'
 
 export const CASE_STATUSES = ['active', 'pending', 'under_review', 'on_hold', 'closed']
 export const PRIORITIES = ['low', 'medium', 'high', 'urgent']
@@ -155,7 +156,7 @@ export async function casesListView(root, { query, isCurrent }) {
   const ro = readOnly()
 
   render(root, html`
-    ${pageHeader(t('nav.cases'), t('cases.subtitle'), ro ? '' : html`<div class="flex flex-wrap gap-2">${can('owner', 'admin', 'lawyer') ? html`<a class="btn btn-outline" href="#/onboarding"><i class="fas fa-clipboard-check"></i>${t('onb.title')}</a><a class="btn btn-outline" href="#/notices"><i class="fas fa-envelope-open-text"></i>${t('ntc.register')}</a><a class="btn btn-outline" href="#/settlement"><i class="fas fa-handshake-angle"></i>${t('stl.register')}</a><a class="btn btn-outline" href="#/experts"><i class="fas fa-user-tie"></i>${t('exp.register')}</a><a class="btn btn-outline" href="#/arbitration"><i class="fas fa-scale-unbalanced-flip"></i>${t('arb.register')}</a><a class="btn btn-outline" href="#/retention"><i class="fas fa-box-archive"></i>${t('close.register')}</a><a class="btn btn-outline" href="#/judgments"><i class="fas fa-scale-balanced"></i>${t('jdg.register')}</a><a class="btn btn-outline" href="#/client-updates"><i class="fas fa-paper-plane"></i>${t('cu.due_title')}</a><button class="btn btn-outline" data-action="import"><i class="fas fa-file-excel"></i>${t('import_xl.button')}</button>` : ''}<button class="btn btn-primary" data-action="new"><i class="fas fa-plus"></i>${t('cases.new')}</button></div>`)}
+    ${pageHeader(t('nav.cases'), t('cases.subtitle'), ro ? '' : html`<div class="flex flex-wrap gap-2">${can('owner', 'admin', 'lawyer') ? html`<a class="btn btn-outline" href="#/onboarding"><i class="fas fa-clipboard-check"></i>${t('onb.title')}</a><a class="btn btn-outline" href="#/notices"><i class="fas fa-envelope-open-text"></i>${t('ntc.register')}</a><a class="btn btn-outline" href="#/settlement"><i class="fas fa-handshake-angle"></i>${t('stl.register')}</a><a class="btn btn-outline" href="#/experts"><i class="fas fa-user-tie"></i>${t('exp.register')}</a><a class="btn btn-outline" href="#/arbitration"><i class="fas fa-scale-unbalanced-flip"></i>${t('arb.register')}</a><a class="btn btn-outline" href="#/cheques"><i class="fas fa-money-check"></i>${t('chq.register')}</a><a class="btn btn-outline" href="#/retention"><i class="fas fa-box-archive"></i>${t('close.register')}</a><a class="btn btn-outline" href="#/judgments"><i class="fas fa-scale-balanced"></i>${t('jdg.register')}</a><a class="btn btn-outline" href="#/client-updates"><i class="fas fa-paper-plane"></i>${t('cu.due_title')}</a><button class="btn btn-outline" data-action="import"><i class="fas fa-file-excel"></i>${t('import_xl.button')}</button>` : ''}<button class="btn btn-primary" data-action="new"><i class="fas fa-plus"></i>${t('cases.new')}</button></div>`)}
     <div class="card">
       <div class="p-4 border-b border-slate-100 flex flex-wrap gap-3">
         <div class="relative flex-1 min-w-52">
@@ -275,6 +276,7 @@ export async function caseDetailView(root, { params, isCurrent, rerender }) {
         <div data-notices></div>
         <div data-experts></div>
         <div data-originals></div>
+        <div data-cheques></div>
         <div data-judgments></div>
         <div data-client-updates></div>
 
@@ -374,6 +376,7 @@ export async function caseDetailView(root, { params, isCurrent, rerender }) {
   caseNoticesCard(root.querySelector('[data-notices]'), k, { documents: data.documents })
   caseExpertsCard(root.querySelector('[data-experts]'), k, { documents: data.documents })
   if (k.client_id) originalsCard(root.querySelector('[data-originals]'), { clientId: k.client_id, caseId: k.id })
+  caseChequesCard(root.querySelector('[data-cheques]'), k)
   caseJudgmentsCard(root.querySelector('[data-judgments]'), k)
   caseClientUpdatesCard(root.querySelector('[data-client-updates]'), k)
   bind(root, {

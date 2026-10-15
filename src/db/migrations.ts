@@ -1585,6 +1585,40 @@ CREATE TABLE corporate_resolutions (
 );
 CREATE INDEX corporate_resolutions_client_idx ON corporate_resolutions (client_id, number DESC);
 `
+  },
+  {
+    version: 43,
+    name: 'case_cheques',
+    sql: `
+CREATE TABLE case_cheques (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  case_id UUID NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+  drawer TEXT NOT NULL,
+  drawer_id_number TEXT,
+  bank TEXT NOT NULL,
+  cheque_no TEXT NOT NULL,
+  account_no TEXT,
+  amount NUMERIC(16, 3) NOT NULL CHECK (amount > 0),
+  currency TEXT NOT NULL,
+  cheque_date DATE NOT NULL,
+  presented_on DATE,
+  returned_on DATE,
+  return_reason TEXT CHECK (return_reason IN ('insufficient_funds', 'account_closed', 'signature', 'stopped', 'irregular', 'other')),
+  complaint_on DATE,
+  complaint_ref TEXT,
+  recovered NUMERIC(16, 3) NOT NULL DEFAULT 0 CHECK (recovered >= 0),
+  last_recovered_on DATE,
+  written_off BOOLEAN NOT NULL DEFAULT false,
+  original_id UUID REFERENCES client_originals(id) ON DELETE SET NULL,
+  notes TEXT,
+  created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX case_cheques_case_idx ON case_cheques (case_id, cheque_date);
+CREATE INDEX case_cheques_org_idx ON case_cheques (org_id, returned_on);
+`
   }
 ]
 
