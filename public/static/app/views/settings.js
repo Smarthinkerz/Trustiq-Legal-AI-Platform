@@ -495,6 +495,8 @@ async function plan(root, { isCurrent, query }) {
     failed: ['bg-red-50 text-red-700', 'fa-circle-xmark', 'subscription.failed']
   }[result]
   const priceLabel = (id) => (me.prices?.[id] ? `${me.prices[id].currency} ${fmtNumber(me.prices[id].amount)} ${t('subscription.per_month')}` : t(`plan.price_${id}`))
+  // A grandfathered price shows until when it is kept.
+  const lockNote = (id) => (me.prices?.[id]?.locked_until ? html`<p class="text-xs text-emerald-700 -mt-1 mb-2">${t('subscription.locked_until', { date: fmtDate(me.prices[id].locked_until) })}</p>` : '')
   const action = (id) => {
     if (id === 'enterprise') return html`<a class="btn btn-outline btn-sm" href="${mail(plans[id].name)}">${t('settings.contact_upgrade')}</a>`
     if (online) return html`<button class="btn ${org.plan === id ? 'btn-outline' : 'btn-primary'} btn-sm" data-action="checkout" data-plan="${id}"><i class="fas fa-credit-card"></i>${org.plan === id ? t('subscription.renew_month') : t('subscription.pay_now')}</button>`
@@ -542,6 +544,7 @@ async function plan(root, { isCurrent, query }) {
         ${['starter', 'professional', 'enterprise'].map((id) => html`<div class="card card-pad flex flex-col ${org.plan === id ? 'ring-2 ring-brand-500' : ''}">
           <h3 class="font-bold text-lg">${t(`plan.${id}`)}</h3>
           <p class="text-2xl font-extrabold my-2">${priceLabel(id)}</p>
+          ${lockNote(id)}
           <ul class="text-sm text-slate-600 space-y-1 mb-4 flex-1">
             <li>${t('usage.open_cases')}: ${limit(plans[id].maxActiveCases)}</li>
             <li>${t('usage.documents_month')}: ${limit(plans[id].documentsPerMonth)}</li>

@@ -7,6 +7,7 @@ import { jsonBody } from '../lib/http'
 import { RateLimiter } from '../lib/rate-limit'
 import { aiPackPrice } from '../../public/static/site/firm-pricing.js'
 import { PLAN_PRICES, type PlanId } from '../lib/plans'
+import { orgPrices } from '../services/price-lock'
 import { seatUsage } from '../services/seats'
 import { aiPackRequests } from '../services/usage'
 import { roundMoney } from '../services/billing'
@@ -29,7 +30,7 @@ subscriptionRoutes.get('/', async (c) => {
   ])
   return c.json({
     plan: org.plan, plan_expires_at: org.plan_expires_at, payments,
-    online_payments: tap.configured, prices: PLAN_PRICES, vat_percent: config.platformVatPercent,
+    online_payments: tap.configured, prices: await orgPrices(db, org.id), vat_percent: config.platformVatPercent,
     // Firms bought through the Hub renew there; their plan cards are replaced by their own terms.
     firm: firm?.quote_id ? { billing_currency: firm.billing_currency, billing_cycle: firm.billing_cycle, period_start: firm.period_start, renewal_failed_at: firm.renewal_failed_at } : null,
     seats,
@@ -47,7 +48,8 @@ subscriptionRoutes.post('/checkout', jsonBody(z.object({
   const b = c.req.valid('json')
   const { db, config, tap } = c.get('deps')
   if (org.limits_custom) throw badRequest('Your firm subscription renews through your firm checkout. Contact us to change it.')
-  const price = PLAN_PRICES[b.plan]!
+  // A grandfathered price applies automatically while it lasts.
+  const price = (await orgPrices(db, org.id))[b.plan]!
   const amount = roundMoney(price.amount * (1 + config.platformVatPercent / 100), price.currency)
   const ts = Date.now()
   const orderRef = `ord_${ts}_${randomBytes(4).toString('hex')}`

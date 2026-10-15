@@ -1757,6 +1757,21 @@ CREATE TABLE deletion_requests (
 );
 CREATE INDEX deletion_requests_org_idx ON deletion_requests (org_id, created_at DESC);
 `
+  },
+  {
+    version: 48,
+    name: 'grandfathered_prices',
+    sql: `
+-- A plan price kept for an existing customer until a date (grandfathering).
+ALTER TABLE organizations ADD COLUMN locked_plan TEXT;
+ALTER TABLE organizations ADD COLUMN locked_amount NUMERIC(14,3);
+ALTER TABLE organizations ADD COLUMN locked_currency TEXT;
+ALTER TABLE organizations ADD COLUMN locked_until TIMESTAMPTZ;
+ALTER TABLE organizations ADD COLUMN price_notice_sent_at TIMESTAMPTZ;
+-- Firms on Professional when the price rose to OMR 649 keep OMR 499 for 12 months (until October 16, 2027, Muscat).
+UPDATE organizations SET locked_plan = 'professional', locked_amount = 499, locked_currency = 'OMR', locked_until = '2027-10-16T00:00:00+04:00'
+ WHERE plan = 'professional' AND quote_id IS NULL;
+`
   }
 ]
 

@@ -1873,6 +1873,7 @@ export default {
   "ai_pack.buy": "شراء حزمة",
   "ai_pack.month_note": "يمكن استخدام الطلبات الإضافية حتى نهاية هذا الشهر الميلادي.",
   "ai_pack.history": "طلبات ذكاء اصطناعي إضافية",
+  "subscription.locked_until": "سعرك الحالي ساري حتى {date} بصفتك عميلاً حالياً.",
   'docs.history': 'سجل الإصدارات',
   'docs.view': 'عرض',
   'docs.version': 'الإصدار',

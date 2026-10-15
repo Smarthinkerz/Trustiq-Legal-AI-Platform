@@ -1873,6 +1873,7 @@ export default {
   "ai_pack.buy": "Buy a pack",
   "ai_pack.month_note": "The extra requests can be used until the end of this calendar month.",
   "ai_pack.history": "Extra AI requests",
+  "subscription.locked_until": "Your price until {date}, as an existing customer.",
   'docs.history': 'Version history',
   'docs.view': 'View',
   'docs.version': 'Version',
