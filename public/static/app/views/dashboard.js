@@ -82,6 +82,10 @@ export async function dashboardView(root, { isCurrent, rerender }) {
       <i class="fas fa-box-archive text-slate-600 text-xl"></i>
       <div class="flex-1"><div class="font-semibold text-sm">${t('close.dash_title', { n: counts.retention_due })}</div><div class="text-xs text-slate-500">${t('close.dash_help')}</div></div>
       <i class="fas fa-chevron-right text-slate-400 rtl:rotate-180"></i></a>` : ''}
+    ${counts.cheques_unactioned ? html`<a href="#/cheques?show=unactioned" class="card card-pad mb-6 flex items-center gap-3 border-red-200 hover:shadow-md">
+      <i class="fas fa-money-check text-red-600 text-xl"></i>
+      <div class="flex-1"><div class="font-semibold text-sm">${t('chq.dash_title', { n: counts.cheques_unactioned })}</div><div class="text-xs text-slate-500">${t('chq.dash_help')}</div></div>
+      <i class="fas fa-chevron-right text-slate-400 rtl:rotate-180"></i></a>` : ''}
     ${counts.arbitration_due ? html`<a href="#/arbitration" class="card card-pad mb-6 flex items-center gap-3 border-amber-200 hover:shadow-md">
       <i class="fas fa-scale-unbalanced-flip text-amber-600 text-xl"></i>
       <div class="flex-1"><div class="font-semibold text-sm">${t('arb.dash_title', { n: counts.arbitration_due })}</div><div class="text-xs text-slate-500">${t('arb.dash_help')}</div></div>
