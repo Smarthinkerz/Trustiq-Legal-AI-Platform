@@ -1,11 +1,12 @@
 import { Hono } from 'hono'
+import { orgPrices } from '../services/price-lock'
 import { z } from 'zod'
 import QRCode from 'qrcode'
 import { audit, auth, clientIp, type AppEnv, type Ctx } from '../context'
 import { DUMMY_HASH, hashPassword, hashToken, newToken, verifyPassword } from '../lib/crypto'
 import { badRequest, conflict, HttpError, tooMany, unauthorized } from '../lib/errors'
 import { jsonBody } from '../lib/http'
-import { PLAN_PRICES, planOf, subscriptionExpired, TRIAL_DAYS, trialExpired } from '../lib/plans'
+import { planOf, subscriptionExpired, TRIAL_DAYS, trialExpired } from '../lib/plans'
 import { newRecoveryCodes, newTotpSecret, otpauthUri, verifyTotp } from '../lib/totp'
 import { createSession, destroySession, loadUserContext } from '../middleware/session'
 import { usageThisMonth } from '../services/usage'
@@ -33,10 +34,11 @@ function rateLimit(c: Ctx, bucket: string) {
 export async function mePayload(c: Ctx) {
   const { user, org } = auth(c)
   const { config, ai, db, mailer } = c.get('deps')
-  const [usage, branding, client] = await Promise.all([
+  const [usage, branding, client, prices] = await Promise.all([
     usageThisMonth(db, org.id),
     db.one('SELECT firm_name, firm_name_ar, primary_color, accent_color, (logo IS NOT NULL) AS has_logo FROM branding WHERE org_id = $1', [org.id]),
-    user.client_id ? db.one('SELECT id, name, name_ar FROM clients WHERE id = $1', [user.client_id]) : Promise.resolve(null)
+    user.client_id ? db.one('SELECT id, name, name_ar FROM clients WHERE id = $1', [user.client_id]) : Promise.resolve(null),
+    orgPrices(db, org.id)
   ])
   return {
     user: { ...user, show_hijri: user.hijri_dates === 'on' || (user.hijri_dates === 'auto' && org.default_jurisdiction === 'ksa') },
@@ -47,7 +49,7 @@ export async function mePayload(c: Ctx) {
     client: client ?? null,
     features: { ai: ai.configured, email: mailer.configured, payments: c.get('deps').tap.configured },
     limits: { max_upload_mb: Math.round(c.get('deps').config.maxUploadBytes / 1048576), max_video_mb: Math.round(c.get('deps').config.maxVideoBytes / 1048576) },
-    prices: PLAN_PRICES,
+    prices,
     is_platform_admin: user.role !== 'client' && config.platformAdminEmails.includes(user.email.toLowerCase()),
     support_email: config.supportEmail,
     sales_email: config.salesEmail

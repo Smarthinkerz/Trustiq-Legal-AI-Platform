@@ -31,6 +31,8 @@ const envSchema = z.object({
 
   SALES_EMAIL: z.string().email().default('sales@trustiqlegal.com'),
   FIRM_REQUESTS_EMAIL: z.string().email().default('reply@smarthinkerz.com'),
+  // Price-change notices to customers whose grandfathered price is ending. Off until the owner approves the email.
+  PRICE_NOTICE_EMAILS: z.enum(['on', 'off']).default('off'),
   SUPPORT_EMAIL: z.string().email().default('support@trustiqlegal.com'),
   // Firm website (its address slug) whose published articles appear on the TrustiqLegal blog at /blog.
   // When unset, the blog shows the articles of the platform admins' firm.
@@ -78,6 +80,7 @@ export type Config = {
   mailFrom: string
   salesEmail: string
   firmRequestsEmail: string
+  priceNoticeEmails: boolean
   supportEmail: string
   platformAdminEmails: string[]
   platformBlogSlug?: string
@@ -125,6 +128,7 @@ export function loadConfig(source: Record<string, string | undefined> = process.
     mailFrom: e.MAIL_FROM,
     salesEmail: e.SALES_EMAIL,
     firmRequestsEmail: e.FIRM_REQUESTS_EMAIL,
+    priceNoticeEmails: e.PRICE_NOTICE_EMAILS === 'on',
     supportEmail: e.SUPPORT_EMAIL,
     platformBlogSlug: blogSlug(e.PLATFORM_BLOG_SLUG),
     platformAdminEmails: e.PLATFORM_ADMIN_EMAILS.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
