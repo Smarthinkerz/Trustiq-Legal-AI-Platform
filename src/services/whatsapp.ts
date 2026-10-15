@@ -36,8 +36,9 @@ export const TEMPLATES: Record<WaKind, { name: string; params: number; en: strin
   },
   case_update: {
     name: 'case_update_notice', params: 5,
-    en: 'Hello {{1}}, {{2}} has posted a new update on your matter {{3}}: "{{4}}". You can read it in your client portal: {{5}}',
-    ar: 'مرحباً {{1}}، نشر {{2}} تحديثاً جديداً على قضيتكم {{3}}: "{{4}}". يمكنكم قراءته في بوابة الموكلين: {{5}}'
+    // Meta does not accept a template that ends with a parameter, so the text closes with a fixed phrase.
+    en: 'Hello {{1}}, {{2}} has posted a new update on your matter {{3}}: "{{4}}". You can read it in your client portal: {{5}} Thank you.',
+    ar: 'مرحباً {{1}}، نشر {{2}} تحديثاً جديداً على قضيتكم {{3}}: "{{4}}". يمكنكم قراءته في بوابة الموكلين: {{5}} شكراً لكم.'
   }
 }
 

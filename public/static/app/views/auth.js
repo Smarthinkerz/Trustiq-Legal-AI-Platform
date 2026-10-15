@@ -142,7 +142,9 @@ export async function forgotView(root) {
 
 export async function resetView(root, { query }) {
   const token = query.get('token') || ''
-  render(root, shell(t('auth.reset_title'), t('auth.reset_subtitle'), html`
+  // The same link sets the first password of a firm admin created at checkout.
+  const setup = query.get('setup') === '1'
+  render(root, shell(t(setup ? 'auth.setup_title' : 'auth.reset_title'), t(setup ? 'auth.setup_subtitle' : 'auth.reset_subtitle'), html`
     <form data-form="reset" class="space-y-4" novalidate>
       ${inputField({ name: 'password', label: t('auth.new_password'), type: 'password', required: true, hint: passwordHint(), attrs: 'autocomplete="new-password" dir="ltr"' })}
       <button type="submit" class="btn btn-primary w-full py-2.5">${t('auth.set_password')}</button>
@@ -153,7 +155,7 @@ export async function resetView(root, { query }) {
       reset: (form) => busy(submitButton(form), async () => {
         try {
           await api.post('/api/auth/reset-password', { token, password: formData(form).password })
-          toast(t('auth.reset_done'))
+          toast(t(setup ? 'auth.setup_done' : 'auth.reset_done'))
           navigate('/login', { replace: true })
         } catch (err) {
           showError(err, form)

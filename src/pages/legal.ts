@@ -20,6 +20,9 @@ const terms = (support: string) => `
 <p>The Customer must not use the Service unlawfully, upload content it has no right to process, attempt to breach security or access other customers' data, or resell the Service without our written agreement.</p>
 <h2>6. Trials, plans and fees</h2>
 <p>New workspaces receive a free trial. After the trial, continued write access requires a paid plan. Fees, plan limits and billing terms are set out in the applicable order form or pricing page. Fees are exclusive of applicable taxes, including VAT.</p>
+<p>Plan limits are shared across all users of a workspace. Each plan includes the number of lawyer seats paid for; support staff seats give limited access (viewing, uploading and organizing, without AI features). With annual billing the Customer pays for ten months and receives twelve.</p>
+<p>If a renewal payment fails, the Customer keeps full access for seven days. After that the workspace becomes read only, with all data kept, until the subscription is renewed.</p>
+<p>Fair use: where a plan is described as unlimited (Enterprise), use is subject to a fair use level of 400 AI requests and 80 new documents per lawyer per month, and at least 10,000 AI requests and 2,000 new documents per month for the workspace. We will contact the Customer if use regularly exceeds this level to agree a suitable arrangement; we will not suspend or restrict the Service automatically because of it.</p>
 <h2>7. Availability and support</h2>
 <p>We aim to keep the Service available and will make reasonable efforts to schedule maintenance outside business hours in the Gulf region. Service levels, where agreed, are set out in the Customer's order form.</p>
 <h2>8. Confidentiality and security</h2>

@@ -52,7 +52,7 @@ import { invoiceWebhookRoutes, payRoutes } from './routes/pay'
 import whatsappRoutes from './routes/whatsapp'
 import { markCalendarsDirty } from './services/google-calendar'
 import { firmSiteRoutes } from './routes/firm-site'
-import { firmRoutes } from './routes/firms'
+import { firmRoutes, hubWebhookRoutes } from './routes/firms'
 import { helpRoutes } from './routes/help'
 import aiRoutes from './routes/ai'
 import dashboardRoutes from './routes/dashboard'
@@ -302,6 +302,7 @@ export function createApp(deps: Deps) {
   // Homepage assistant about the platform itself.
   app.route('/help', helpRoutes(deps))
   app.route('/firms', firmRoutes(deps))
+  app.route('/', hubWebhookRoutes(deps))
   // Public e-signature pages (the link token is the signer's credential).
   app.route('/sign', signRoutes(deps, assetVersion))
   // Public invoice payment pages (the link token only allows paying that invoice).

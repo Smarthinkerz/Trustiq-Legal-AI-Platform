@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { audit, auth, type AppEnv } from '../context'
 import { forbidden, notFound } from '../lib/errors'
 import { jsonBody, likePattern, pageSchema, paged, queryParams, uuidParam } from '../lib/http'
+import { AI_PACK_REQUESTS, PRICES } from '../../public/static/site/firm-pricing.js'
 import { PLANS } from '../lib/plans'
 
 // Platform operator console: manage customer organizations and their plans.
@@ -13,6 +14,59 @@ adminRoutes.use(async (c, next) => {
   const { user } = auth(c)
   if (!c.get('deps').config.platformAdminEmails.includes(user.email.toLowerCase())) throw forbidden()
   await next()
+})
+
+// Our real AI cost per request from recorded token usage, and the margin of the overage pack.
+const OMR_PER_USD = 0.3845 // The Omani rial's fixed peg.
+adminRoutes.get('/ai-cost', queryParams(z.object({ days: z.coerce.number().int().min(1).max(365).default(30) })), async (c) => {
+  const { days } = c.req.valid('query')
+  const { db, config } = c.get('deps')
+  const rows = await db.query(
+    `SELECT model, count(*)::int AS requests, COALESCE(sum(prompt_tokens), 0)::bigint AS prompt_tokens, COALESCE(sum(completion_tokens), 0)::bigint AS completion_tokens
+       FROM ai_usage WHERE created_at >= now() - make_interval(days => $1) GROUP BY model ORDER BY requests DESC`, [days])
+  const inUsd = (p: number, k: number) => (p * config.ai.priceInputPerMTok + k * config.ai.priceOutputPerMTok) / 1e6
+  const models = rows.map((r: any) => ({ ...r, prompt_tokens: Number(r.prompt_tokens), completion_tokens: Number(r.completion_tokens), cost_usd: inUsd(Number(r.prompt_tokens), Number(r.completion_tokens)) }))
+  const requests = models.reduce((a, m) => a + m.requests, 0)
+  const cost = models.reduce((a, m) => a + m.cost_usd, 0)
+  const perRequest = requests ? cost / requests : null
+  const pack = (price: number, usd: number) => {
+    if (perRequest === null) return null
+    const packCostUsd = perRequest * AI_PACK_REQUESTS
+    return { price, cost_usd: Math.round(packCostUsd * 100) / 100, margin_percent: Math.round((1 - packCostUsd / usd) * 1000) / 10 }
+  }
+  return c.json({
+    days, requests, cost_usd: Math.round(cost * 100) / 100,
+    cost_per_request_usd: perRequest === null ? null : Math.round(perRequest * 100000) / 100000,
+    prices_per_million_tokens_usd: { input: config.ai.priceInputPerMTok, output: config.ai.priceOutputPerMTok },
+    models,
+    ai_pack: {
+      requests: AI_PACK_REQUESTS,
+      omr: pack(PRICES.OMR.aiPack, PRICES.OMR.aiPack / OMR_PER_USD),
+      usd: pack(PRICES.USD.aiPack, PRICES.USD.aiPack)
+    },
+    note: 'Image and transcription requests are priced at the text rates; check the rates against the provider price list.'
+  })
+})
+
+// Data deletion requests from firms, decided by the platform team.
+adminRoutes.get('/deletion-requests', async (c) => {
+  const items = await c.get('deps').db.query(
+    `SELECT r.*, o.name AS org_name, u.email AS requested_by_email, cl.name AS client_name
+       FROM deletion_requests r JOIN organizations o ON o.id = r.org_id
+       LEFT JOIN users u ON u.id = r.requested_by LEFT JOIN clients cl ON cl.id = r.client_id
+      ORDER BY (r.status = 'requested') DESC, r.created_at DESC LIMIT 200`)
+  return c.json({ items })
+})
+
+adminRoutes.patch('/deletion-requests/:id', jsonBody(z.object({ status: z.enum(['completed', 'rejected']), decision_note: z.string().trim().max(2000).nullish() })), async (c) => {
+  const id = uuidParam(c.req.param('id'), 'Request')
+  const b = c.req.valid('json')
+  const [r] = await c.get('deps').db.query(
+    `UPDATE deletion_requests SET status = $2, decision_note = $3, decided_at = now() WHERE id = $1 AND status = 'requested' RETURNING id, org_id`,
+    [id, b.status, b.decision_note ?? null])
+  if (!r) throw notFound('Request')
+  await audit(c, `admin.deletion_${b.status}`, 'deletion_request', id, { org: r.org_id })
+  return c.json({ ok: true })
 })
 
 adminRoutes.get('/organizations', queryParams(z.object(pageSchema)), async (c) => {

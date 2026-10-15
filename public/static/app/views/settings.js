@@ -260,10 +260,58 @@ async function firm(root) {
         <h2 class="font-semibold mb-1">${t('settings.export_title')}</h2>
         <p class="text-sm text-slate-500 mb-3">${t('settings.export_text')}</p>
         <button class="btn btn-outline" data-action="export"><i class="fas fa-file-export"></i>${t('settings.export_button')}</button>
+      </div>
+      <div class="pt-6 border-t border-slate-100">
+        <h2 class="font-semibold mb-1">${t('deletion.title')}</h2>
+        <p class="text-sm text-slate-500 mb-3">${t('deletion.text')}</p>
+        <div data-deletions class="mb-3"></div>
+        <button class="btn btn-outline" data-action="request-deletion"><i class="fas fa-trash-can"></i>${t('deletion.request')}</button>
       </div>` : ''}
     </section>`)
+  const loadDeletions = async () => {
+    const box = root.querySelector('[data-deletions]')
+    if (!box) return
+    const { items } = await api.get('/api/org/deletion-requests')
+    render(box, items.length ? html`<ul class="text-sm divide-y divide-slate-100 border border-slate-100 rounded-lg">${items.map((r) => html`<li class="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+      <span>${r.scope === 'workspace' ? t('deletion.scope_workspace') : t('deletion.scope_client_named', { name: r.client_name ?? '' })} · <span class="text-slate-500">${fmtDate(r.created_at)}</span></span>
+      <span class="flex items-center gap-2"><span class="badge bg-slate-100 text-slate-700">${t(`deletion.status_${r.status}`)}</span>
+      ${r.status === 'requested' ? html`<button class="btn btn-ghost btn-sm" data-action="cancel-deletion" data-id="${r.id}">${t('common.cancel')}</button>` : ''}</span>
+      ${r.decision_note ? html`<span class="w-full text-xs text-slate-500">${r.decision_note}</span>` : ''}</li>`)}</ul>` : '')
+  }
+  loadDeletions().catch(() => {})
   bind(root, {
-    actions: { export: () => download('/api/org/export') },
+    actions: {
+      export: () => download('/api/org/export'),
+      'cancel-deletion': async (el) => {
+        try { await api.del(`/api/org/deletion-requests/${el.dataset.id}`); toast(t('common.saved')); loadDeletions() } catch (err) { showError(err) }
+      },
+      'request-deletion': async () => {
+        let clients = []
+        try { clients = (await api.get('/api/clients?pageSize=100')).items } catch { /* the workspace option still works */ }
+        const m = modal({
+          title: t('deletion.request'),
+          body: html`<form data-form="deletion" class="space-y-4" novalidate>
+            <p class="text-sm text-slate-600">${t('deletion.warning')}</p>
+            ${selectField({ name: 'scope', label: t('deletion.scope'), options: [{ value: 'client', label: t('deletion.scope_client') }, { value: 'workspace', label: t('deletion.scope_workspace') }] })}
+            ${selectField({ name: 'client_id', label: t('deletion.client'), options: clients.map((x) => ({ value: x.id, label: x.name })) })}
+            ${textareaField({ name: 'reason', label: t('deletion.reason'), rows: 3 })}
+            ${formActions(t('deletion.send'))}
+          </form>`,
+          forms: {
+            deletion: (form) => busy(submitButton(form), async () => {
+              const d = formData(form)
+              try {
+                await api.post('/api/org/deletion-requests', { scope: d.scope, client_id: d.scope === 'client' ? d.client_id : null, reason: d.reason })
+                m.close(); toast(t('deletion.sent')); loadDeletions()
+              } catch (err) { showError(err, form) }
+            })
+          }
+        })
+        const f = m.el.querySelector('form')
+        const sync = () => { f.elements.client_id.closest('label, div').hidden = f.elements.scope.value !== 'client' }
+        f.elements.scope.addEventListener('change', sync); sync()
+      }
+    },
     forms: {
       firm: (form) => busy(submitButton(form), async () => {
         clearFieldErrors(form)
@@ -281,7 +329,7 @@ async function firm(root) {
 // ---------------- Team ----------------
 async function team(root, { isCurrent, rerender }) {
   const manage = canManageTeam()
-  const [{ items: members }, invites] = await Promise.all([
+  const [{ items: members, seats }, invites] = await Promise.all([
     api.get('/api/org/members'),
     manage ? api.get('/api/org/invites') : Promise.resolve({ items: [] })
   ])
@@ -292,7 +340,8 @@ async function team(root, { isCurrent, rerender }) {
     <div class="space-y-6 max-w-5xl">
       <section class="card">
         <div class="flex flex-wrap items-center justify-between gap-3 px-5 py-4 border-b border-slate-100">
-          <div><h2 class="font-semibold">${t('settings.team')}</h2><p class="text-xs text-slate-500">${t('settings.roles_help')}</p></div>
+          <div><h2 class="font-semibold">${t('settings.team')}</h2><p class="text-xs text-slate-500">${t('settings.roles_help')}</p>
+            ${seats?.lawyer_seats != null ? html`<p class="text-xs text-slate-600 mt-1">${t('firm_sub.seats_line', { lawyers: fmtNumber(seats.lawyers_used), lawyer_seats: fmtNumber(seats.lawyer_seats), support: fmtNumber(seats.support_used), support_seats: fmtNumber(seats.support_seats ?? 0) })}</p>` : ''}</div>
           ${manage ? html`<button class="btn btn-primary" data-action="invite"><i class="fas fa-user-plus"></i>${t('settings.invite')}</button>` : ''}
         </div>
         <div class="overflow-x-auto"><table class="table">
@@ -467,11 +516,29 @@ async function plan(root, { isCurrent, query }) {
         <table class="table mt-6"><thead><tr><th>${t('settings.usage_item')}</th><th>${t('settings.used')}</th><th>${t('settings.limit')}</th></tr></thead><tbody>
           ${row(t('usage.open_cases'), usage.active_cases, p.maxActiveCases)}
           ${row(t('usage.documents_month'), usage.documents_this_month, p.documentsPerMonth)}
-          ${row(t('usage.ai_month'), usage.ai_requests_this_month, p.aiRequestsPerMonth)}
+          ${row(t('usage.ai_month'), usage.ai_requests_this_month, p.aiRequestsPerMonth == null ? null : p.aiRequestsPerMonth + (sub.ai_pack?.bought_this_month ?? 0))}
           <tr><td>${t('analysis.advanced')}</td><td colspan="2">${p.advancedAnalysis ? html`<i class="fas fa-check text-emerald-600"></i>` : html`<i class="fas fa-xmark text-slate-400"></i>`}</td></tr>
         </tbody></table>
       </section>
-      <section class="grid md:grid-cols-3 gap-4">
+      ${sub.firm ? html`<section class="card card-pad space-y-3">
+        <h2 class="font-semibold">${t('firm_sub.title')}</h2>
+        ${sub.firm.renewal_failed_at ? html`<p class="rounded-lg bg-amber-50 text-amber-800 text-sm px-3 py-2"><i class="fas fa-triangle-exclamation"></i> ${t('firm_sub.renewal_failed', { date: fmtDate(org.plan_expires_at) })}</p>` : ''}
+        <dl class="grid sm:grid-cols-2 gap-x-6 gap-y-2 text-sm">
+          <div class="flex justify-between gap-2"><dt class="text-slate-500">${t('firm_sub.billing')}</dt><dd>${t(`firm_sub.cycle_${sub.firm.billing_cycle}`)} · ${sub.firm.billing_currency}</dd></div>
+          <div class="flex justify-between gap-2"><dt class="text-slate-500">${t('firm_sub.period')}</dt><dd>${sub.firm.period_start ? fmtDate(sub.firm.period_start) : '—'} – ${fmtDate(org.plan_expires_at)}</dd></div>
+          <div class="flex justify-between gap-2"><dt class="text-slate-500">${t('firm_sub.lawyer_seats')}</dt><dd>${t('firm_sub.used_of', { used: fmtNumber(sub.seats.lawyers_used), total: fmtNumber(sub.seats.lawyer_seats) })}</dd></div>
+          <div class="flex justify-between gap-2"><dt class="text-slate-500">${t('firm_sub.support_seats')}</dt><dd>${t('firm_sub.used_of', { used: fmtNumber(sub.seats.support_used), total: fmtNumber(sub.seats.support_seats ?? 0) })}</dd></div>
+        </dl>
+        <p class="text-xs text-slate-500">${t('firm_sub.change', { email: me.sales_email })}</p>
+      </section>` : ''}
+      ${sub.ai_pack?.available && online ? html`<section class="card card-pad flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h2 class="font-semibold">${t('ai_pack.title', { n: fmtNumber(sub.ai_pack.requests) })}</h2>
+          <p class="text-sm text-slate-500">${t('ai_pack.text', { price: `${sub.ai_pack.currency} ${fmtNumber(sub.ai_pack.amount)}` })}${sub.ai_pack.bought_this_month ? ` ${t('ai_pack.bought', { n: fmtNumber(sub.ai_pack.bought_this_month) })}` : ''}</p>
+        </div>
+        <button class="btn btn-primary btn-sm" data-action="ai-pack"><i class="fas fa-bolt"></i>${t('ai_pack.buy')}</button>
+      </section>` : ''}
+      ${sub.firm ? '' : html`<section class="grid md:grid-cols-3 gap-4">
         ${['starter', 'professional', 'enterprise'].map((id) => html`<div class="card card-pad flex flex-col ${org.plan === id ? 'ring-2 ring-brand-500' : ''}">
           <h3 class="font-bold text-lg">${t(`plan.${id}`)}</h3>
           <p class="text-2xl font-extrabold my-2">${priceLabel(id)}</p>
@@ -484,13 +551,14 @@ async function plan(root, { isCurrent, query }) {
           <div class="flex flex-wrap items-center gap-2">${org.plan === id ? html`<span class="badge bg-brand-50 text-brand-700">${t('settings.current_plan')}</span>` : ''}${action(id)}</div>
         </div>`)}
       </section>
-      <p class="text-xs text-slate-500">${online ? t('subscription.note', { vat: sub.vat_percent }) : t('settings.billing_note')}</p>
+      <p class="text-sm"><a class="link" href="/#firms-quote">${t('firm_sub.more_lawyers')}</a></p>`}
+      ${sub.firm ? '' : html`<p class="text-xs text-slate-500">${online ? t('subscription.note', { vat: sub.vat_percent }) : t('settings.billing_note')}</p>`}
       ${sub.payments.length ? html`<section class="card">
         <div class="px-5 py-4 border-b border-slate-100"><h2 class="font-semibold">${t('subscription.history')}</h2></div>
         <div class="overflow-x-auto"><table class="table text-sm">
           <thead><tr><th>${t('settings.when')}</th><th>${t('subscription.plan')}</th><th class="text-end">${t('billing.amount')}</th><th>${t('common.status')}</th><th>${t('subscription.period_end')}</th></tr></thead>
           <tbody>${sub.payments.map((x) => html`<tr>
-            <td class="whitespace-nowrap">${fmtDateTime(x.created_at)}</td><td>${t(`plan.${x.plan}`)}</td>
+            <td class="whitespace-nowrap">${fmtDateTime(x.created_at)}</td><td>${x.kind === 'ai_pack' ? t('ai_pack.history') : t(`plan.${x.plan}`)}</td>
             <td class="text-end whitespace-nowrap">${x.currency} ${Number(x.amount).toFixed(3)}</td>
             <td><span class="badge ${{ paid: 'bg-emerald-100 text-emerald-800', initiated: 'bg-amber-100 text-amber-800' }[x.status] || 'bg-slate-100 text-slate-600'}">${t(`payment_status.${x.status}`)}</span></td>
             <td>${x.period_end ? fmtDate(x.period_end) : '—'}</td></tr>`)}</tbody>
@@ -499,6 +567,36 @@ async function plan(root, { isCurrent, query }) {
     </div>`)
   bind(root, {
     actions: {
+      'ai-pack': () => {
+        const pack = sub.ai_pack
+        const total = Math.round(pack.amount * (1 + (sub.vat_percent || 0) / 100) * 1000) / 1000
+        const m = modal({
+          title: t('ai_pack.title', { n: fmtNumber(pack.requests) }),
+          size: 'sm',
+          body: html`<form data-form="pack" class="space-y-4" novalidate>
+            <dl class="text-sm space-y-1">
+              <div class="flex justify-between"><dt>${t('ai_pack.title', { n: fmtNumber(pack.requests) })}</dt><dd>${pack.currency} ${pack.amount.toFixed(3)}</dd></div>
+              ${sub.vat_percent ? html`<div class="flex justify-between"><dt>${t('billing.vat')} (${sub.vat_percent}%)</dt><dd>${pack.currency} ${(total - pack.amount).toFixed(3)}</dd></div>` : ''}
+              <div class="flex justify-between font-bold border-t border-slate-100 pt-1"><dt>${t('billing.total')}</dt><dd>${pack.currency} ${total.toFixed(3)}</dd></div>
+            </dl>
+            <p class="hint">${t('ai_pack.month_note')}</p>
+            <div class="grid grid-cols-3 gap-2">
+              ${inputField({ name: 'phone_country_code', label: t('subscription.country_code'), value: '968', attrs: 'dir="ltr" inputmode="numeric" maxlength="4"' })}
+              ${inputField({ name: 'phone', label: t('subscription.phone'), cls: 'col-span-2', attrs: 'dir="ltr" inputmode="numeric" autocomplete="tel-national"' })}
+            </div>
+            ${formActions(t('subscription.continue_to_payment'))}
+          </form>`,
+          forms: {
+            pack: (form) => busy(submitButton(form), async () => {
+              const d = formData(form)
+              try {
+                const res = await api.post('/api/subscription/ai-pack', { phone: d.phone ? d.phone.replace(/\D/g, '') : null, phone_country_code: d.phone ? d.phone_country_code : null })
+                location.href = res.checkout_url
+              } catch (err) { showError(err, form) }
+            })
+          }
+        })
+      },
       checkout: (el) => {
         const id = el.dataset.plan
         const price = me.prices[id]

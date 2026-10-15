@@ -6,6 +6,7 @@ import { createLogger } from './lib/logger'
 import { createMailer } from './lib/mailer'
 import { RateLimiter } from './lib/rate-limit'
 import { createAiService } from './services/ai'
+import { runFairUseAlerts } from './services/fair-use'
 import { runDailyDigest, runRenewalReminders } from './services/jobs'
 import { createTapClient } from './services/tap'
 import { runWhatsAppReminders } from './services/whatsapp'
@@ -57,6 +58,7 @@ async function main() {
     runDailyDigest(db, mailer, config, log).catch((err) => log.error('daily digest failed', { err }))
     runRenewalReminders(db, mailer, config, log).catch((err) => log.error('renewal reminders failed', { err }))
     runWhatsAppReminders({ db, config, log }).catch((err) => log.error('whatsapp reminders failed', { err }))
+    runFairUseAlerts(db, mailer, config, log).catch((err) => log.error('fair use alerts failed', { err }))
   }, 15 * 60_000)
   jobs.unref()
 

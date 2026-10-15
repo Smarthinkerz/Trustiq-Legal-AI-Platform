@@ -1,7 +1,7 @@
 // Firm quote form on the pricing page: one screen, the price recalculates on every change.
 // The server recalculates the same quote from the inputs before anything is charged.
 const root = document.getElementById('firm-quote')
-const { COUNTRIES, quoteFirm } = await import(`./firm-pricing.js${new URL(import.meta.url).search}`)
+const { COUNTRIES, PRO_FEATURES, quoteFirm } = await import(`./firm-pricing.js${new URL(import.meta.url).search}`)
 
 const T = JSON.parse(root.dataset.t)
 const lang = root.dataset.lang === 'ar' ? 'ar' : 'en'
@@ -34,6 +34,8 @@ root.innerHTML = `
             <label class="flex items-center gap-2"><input type="radio" name="cycle" value="monthly" checked /> ${T.monthly}</label>
             <label class="flex items-center gap-2"><input type="radio" name="cycle" value="annual" /> ${T.annual}</label>
           </div></fieldset>
+        <fieldset data-features><legend class="block text-sm font-medium text-slate-700 mb-1">${T.needTitle}</legend>
+          <div class="space-y-1 text-sm">${PRO_FEATURES.map((f) => `<label class="flex items-start gap-2"><input type="checkbox" name="features" value="${f}" class="mt-1" /> <span>${T.features[f]}</span></label>`).join('')}</div></fieldset>
         ${field('contact_name', T.contact_name, text('contact_name', 'text', 'maxlength="200" autocomplete="name"'))}
         ${field('email', T.email, text('email', 'email', 'maxlength="254" autocomplete="email" dir="ltr"'))}
         ${field('phone', T.phone, text('phone', 'tel', 'maxlength="20" autocomplete="tel" dir="ltr"'))}
@@ -60,7 +62,8 @@ const read = () => ({
   country: form.elements.country.value,
   lawyers: Number(form.elements.lawyers.value),
   support: form.elements.support.value === '' ? 0 : Number(form.elements.support.value),
-  cycle: form.elements.cycle.value
+  cycle: form.elements.cycle.value,
+  features: [...form.querySelectorAll('[name=features]:checked')].map((x) => x.value)
 })
 
 function optionCard(o, q) {
@@ -74,9 +77,11 @@ function optionCard(o, q) {
     <ul class="text-sm text-slate-600 space-y-1">
       <li class="flex justify-between gap-2"><span>${fill(T.base, { n: num(o.included_seats) })}</span><span>${money(o.base_price, q.currency)}</span></li>
       ${o.extra_seats ? `<li class="flex justify-between gap-2"><span>${fill(T.extra, { n: num(o.extra_seats), price: money(o.seat_price, q.currency) })}</span><span>${money(o.extra_seats * o.seat_price, q.currency)}</span></li>` : ''}
+      <li>${o.cases === null ? T.limCasesUnlimited : fill(T.limCases, { n: num(o.cases) })}</li>
+      <li>${fill(T.limDocs, { n: num(o.documents) })}</li>
       <li>${fill(T.ai, { n: num(o.ai_requests) })}</li>
       ${q.support_seats ? `<li>${fill(T.supportSeats, { n: num(q.support_seats) })}</li>` : ''}
-      <li class="text-xs">${o.plan === 'professional' ? T.pro : T.starterNote}</li>
+      <li class="text-xs">${T.shared}${o.plan === 'professional' ? ` ${T.proAlso}` : ''}</li>
     </ul>
     <div class="mt-3 pt-3 border-t border-slate-200">
       <p class="text-2xl font-extrabold">${fill(T.perMonth, { price: money(o.monthly, q.currency) })}</p>
@@ -96,6 +101,7 @@ function update() {
     return
   }
   submit.disabled = false
+  root.querySelector('[data-features]').hidden = q.enterprise || q.lawyers > 10
   if (q.enterprise) {
     quoteBox.innerHTML = `<div class="rounded-xl border-2 border-slate-200 p-4"><p class="font-semibold mb-1">${T.enterpriseTitle}</p><p class="text-sm text-slate-600">${T.enterpriseText}</p></div>`
     submit.textContent = T.submitEnterprise
@@ -108,6 +114,7 @@ function update() {
 
 form.addEventListener('input', (e) => {
   if (e.target.name === 'plan') chosen = e.target.value
+  if (e.target.name === 'features') chosen = null
   update()
 })
 form.addEventListener('change', (e) => {
@@ -131,6 +138,7 @@ form.addEventListener('submit', async (e) => {
     const res = await fetch('/firms/request', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
     if (!res.ok) throw new Error(String(res.status))
     const data = await res.json()
+    if (data.checkout_url) { location.href = data.checkout_url; return }
     const done = root.querySelector('[data-done]')
     done.innerHTML = `<i class="fas fa-circle-check text-emerald-600 text-4xl mb-4"></i><p class="text-lg">${fill(data.kind === 'enterprise' ? T.doneEnterprise : T.done, { email: `<bdi dir="ltr">${escHtml(body.email)}</bdi>` })}</p>
       <button type="button" class="btn btn-secondary mt-6" data-close>${T.close}</button>`

@@ -53,23 +53,26 @@ const copy = {
     perMonth: '/month', custom: 'Custom', unlimited: 'Unlimited', popular: 'Most popular',
     plans: {
       starter: { name: 'Starter', desc: 'For solo practitioners and boutique firms', price: 'OMR 199' },
+      starterPlus: { name: 'Starter Plus', desc: 'For firms with 4 to 10 lawyers', price: 'from OMR 234', note: '4 lawyers, OMR 35 per additional lawyer', usd: 'or from USD 609 outside Oman (USD 90 per additional lawyer)' },
       professional: { name: 'Professional', desc: 'For growing law firms', price: 'OMR 649' },
       enterprise: { name: 'Enterprise', desc: 'For large firms and in-house legal teams' }
     },
     usd: (n: number) => `or USD ${n.toLocaleString('en-US')} outside Oman`,
     firm: {
       name: 'Firms', title: 'Have more lawyers on your team?', desc: 'Get an instant price for your whole firm.', price: 'Live quote', cta: 'Get a firm quote',
-      lines: ['Up to 25 lawyers, priced instantly', 'Starter or Professional plus extra lawyer seats', 'Support staff seats included free', 'Annual billing: pay 10 months, get 12'],
+      lines: ['Up to 25 lawyers, priced instantly', 'Starter Plus or Professional, priced for your team', 'Support staff seats included free', 'Annual billing: pay 10 months, get 12'],
       form: {
         title: 'Price for your firm', intro: 'The price updates as you type. Prices exclude VAT.',
         firm_name: 'Firm name', country: 'Country', contact_name: 'Contact name', email: 'Work email', phone: 'Phone',
         lawyers: 'Number of lawyers', support: 'Support staff (paralegals, secretaries)', cycle: 'Billing', monthly: 'Monthly', annual: 'Annual (pay 10 months, get 12)',
         countries: { OM: 'Oman', AE: 'United Arab Emirates', SA: 'Saudi Arabia', QA: 'Qatar', KW: 'Kuwait', BH: 'Bahrain', EG: 'Egypt', JO: 'Jordan', LB: 'Lebanon', IQ: 'Iraq', MA: 'Morocco', TN: 'Tunisia', GB: 'United Kingdom', US: 'United States', OTHER: 'Other country' },
-        plan: { starter: 'Starter', professional: 'Professional' }, recommended: 'Recommended',
+        plan: { starter: 'Starter', starter_plus: 'Starter Plus', professional: 'Professional' }, recommended: 'Recommended',
+        needTitle: 'Do you need any of these? They come with Professional.', features: { advanced_reviews: 'AI risk, compliance and full contract reviews', playbook_review: 'Review against the firm\'s playbook', unlimited_cases: 'Unlimited open cases' },
+        limCases: '{n} open cases', limCasesUnlimited: 'Unlimited open cases', limDocs: '{n} new documents a month', proAlso: 'Also includes AI risk, compliance and full reviews, and playbook review.',
         base: 'Plan, {n} lawyers included', extra: '{n} extra lawyers × {price}', ai: '{n} AI requests a month for the firm', supportSeats: '{n} support staff seats, free',
         perMonth: '{price} a month', annualTotal: '{price} a year (12 months for the price of 10)', monthlyTotal: '{price} due monthly',
         vat: 'Prices exclude VAT.', supportNote: 'Support staff can view, upload and organize. They cannot use AI drafting.',
-        pro: 'Unlimited open cases, 500 new documents a month and all AI analyses.', starterNote: '5 open cases and 50 new documents a month, shared across the firm.',
+        shared: 'Limits are shared across the firm.',
         enterpriseTitle: 'More than 25 lawyers', enterpriseText: 'We will prepare an Enterprise quote for your firm. Send your details and our team will reply by email.',
         submit: 'Continue', submitEnterprise: 'Request an Enterprise quote', sending: 'Sending…',
         done: 'Thank you. We have your details and will email {email} with your payment link and next steps.', doneEnterprise: 'Thank you. Our team will email {email} with your Enterprise quote.',
@@ -77,7 +80,8 @@ const copy = {
       }
     },
     lines: {
-      seats: (n: string) => `${n} lawyer seats included`, cases: (n: string) => `${n} open cases`, docs: (n: string) => `${n} new documents / month`, ai: (n: string) => `${n} AI requests / month`,
+      seats: (n: string) => `${n} lawyer seats included`, cases: (n: string) => `${n} open cases`,
+      perLawyer: { cases: '5 open cases per lawyer', docs: '15 new documents per lawyer / month', ai: '100 AI requests per lawyer / month' }, docs: (n: string) => `${n} new documents / month`, ai: (n: string) => `${n} AI requests / month`,
       drafting: 'AI drafting, research and summaries', advanced: 'AI risk, compliance and full reviews', support: 'Email support', priority: 'Priority support',
       onboarding: 'Dedicated onboarding and data migration', sla: 'Custom limits and service levels'
     },
@@ -128,23 +132,26 @@ const copy = {
     perMonth: '/شهرياً', custom: 'حسب الطلب', unlimited: 'غير محدود', popular: 'الأكثر طلباً',
     plans: {
       starter: { name: 'الأساسية', desc: 'للمحامين المستقلين والمكاتب الصغيرة', price: '١٩٩ ر.ع.' },
+      starterPlus: { name: 'الأساسية بلس', desc: 'للمكاتب التي تضم من ٤ إلى ١٠ محامين', price: 'من ٢٣٤ ر.ع.', note: '٤ محامين، و٣٥ ر.ع. لكل محامٍ إضافي', usd: 'أو من ٦٠٩ دولارات أمريكية خارج عُمان (٩٠ دولاراً لكل محامٍ إضافي)' },
       professional: { name: 'الاحترافية', desc: 'لمكاتب المحاماة المتنامية', price: '٦٤٩ ر.ع.' },
       enterprise: { name: 'المؤسسات', desc: 'للمكاتب الكبيرة والإدارات القانونية' }
     },
     usd: (n: number) => `أو ${n.toLocaleString('en-US')} دولار أمريكي خارج عُمان`,
     firm: {
       name: 'المكاتب', title: 'هل في فريقك محامون أكثر؟', desc: 'احصل على سعر فوري لمكتبك بالكامل.', price: 'عرض سعر فوري', cta: 'احسب سعر مكتبك',
-      lines: ['حتى ٢٥ محامياً بسعر فوري', 'الباقة الأساسية أو الاحترافية مع مقاعد محامين إضافية', 'مقاعد الموظفين المساندين مجانية', 'الاشتراك السنوي: ادفع ١٠ أشهر واحصل على ١٢'],
+      lines: ['حتى ٢٥ محامياً بسعر فوري', 'الأساسية بلس أو الاحترافية بسعر يناسب فريقك', 'مقاعد الموظفين المساندين مجانية', 'الاشتراك السنوي: ادفع ١٠ أشهر واحصل على ١٢'],
       form: {
         title: 'سعر مكتبك', intro: 'يتحدث السعر مع كل تغيير. الأسعار لا تشمل ضريبة القيمة المضافة.',
         firm_name: 'اسم المكتب', country: 'الدولة', contact_name: 'اسم جهة الاتصال', email: 'البريد الإلكتروني للعمل', phone: 'الهاتف',
         lawyers: 'عدد المحامين', support: 'الموظفون المساندون (مساعدون قانونيون وسكرتارية)', cycle: 'الفوترة', monthly: 'شهرياً', annual: 'سنوياً (ادفع ١٠ أشهر واحصل على ١٢)',
         countries: { OM: 'عُمان', AE: 'الإمارات العربية المتحدة', SA: 'السعودية', QA: 'قطر', KW: 'الكويت', BH: 'البحرين', EG: 'مصر', JO: 'الأردن', LB: 'لبنان', IQ: 'العراق', MA: 'المغرب', TN: 'تونس', GB: 'المملكة المتحدة', US: 'الولايات المتحدة', OTHER: 'دولة أخرى' },
-        plan: { starter: 'الأساسية', professional: 'الاحترافية' }, recommended: 'الموصى بها',
+        plan: { starter: 'الأساسية', starter_plus: 'الأساسية بلس', professional: 'الاحترافية' }, recommended: 'الموصى بها',
+        needTitle: 'هل تحتاج إلى أي من هذه؟ متوفرة في الباقة الاحترافية.', features: { advanced_reviews: 'مراجعات المخاطر والامتثال والمراجعة الشاملة للعقود بالذكاء الاصطناعي', playbook_review: 'المراجعة وفق دليل التفاوض الخاص بالمكتب', unlimited_cases: 'قضايا مفتوحة غير محدودة' },
+        limCases: '{n} قضية مفتوحة', limCasesUnlimited: 'قضايا مفتوحة غير محدودة', limDocs: '{n} مستند جديد شهرياً', proAlso: 'تشمل أيضاً مراجعات المخاطر والامتثال والمراجعة الشاملة، والمراجعة وفق دليل التفاوض.',
         base: 'الباقة، تشمل {n} محامين', extra: '{n} محامين إضافيين × {price}', ai: '{n} طلب ذكاء اصطناعي شهرياً للمكتب', supportSeats: '{n} مقاعد للموظفين المساندين، مجاناً',
         perMonth: '{price} شهرياً', annualTotal: '{price} سنوياً (١٢ شهراً بسعر ١٠)', monthlyTotal: '{price} تُدفع شهرياً',
         vat: 'الأسعار لا تشمل ضريبة القيمة المضافة.', supportNote: 'يستطيع الموظفون المساندون العرض والرفع والتنظيم، دون صياغة بالذكاء الاصطناعي.',
-        pro: 'قضايا مفتوحة غير محدودة و٥٠٠ مستند جديد شهرياً وجميع تحليلات الذكاء الاصطناعي.', starterNote: '٥ قضايا مفتوحة و٥٠ مستنداً جديداً شهرياً مشتركة للمكتب.',
+        shared: 'الحدود مشتركة لجميع أعضاء المكتب.',
         enterpriseTitle: 'أكثر من ٢٥ محامياً', enterpriseText: 'سنعدّ لمكتبك عرض سعر لباقة المؤسسات. أرسل بياناتك وسيرد فريقنا بالبريد الإلكتروني.',
         submit: 'متابعة', submitEnterprise: 'اطلب عرض سعر المؤسسات', sending: 'جارٍ الإرسال…',
         done: 'شكراً لك. وصلتنا بياناتك وسنرسل إلى {email} رابط الدفع والخطوات التالية.', doneEnterprise: 'شكراً لك. سيرسل فريقنا عرض سعر المؤسسات إلى {email}.',
@@ -152,7 +159,8 @@ const copy = {
       }
     },
     lines: {
-      seats: (n: string) => `${n} مقاعد محامين مشمولة`, cases: (n: string) => `${n} قضايا مفتوحة`, docs: (n: string) => `${n} مستند جديد شهرياً`, ai: (n: string) => `${n} طلب ذكاء اصطناعي شهرياً`,
+      seats: (n: string) => `${n} مقاعد محامين مشمولة`, cases: (n: string) => `${n} قضايا مفتوحة`,
+      perLawyer: { cases: '٥ قضايا مفتوحة لكل محامٍ', docs: '١٥ مستنداً جديداً لكل محامٍ شهرياً', ai: '١٠٠ طلب ذكاء اصطناعي لكل محامٍ شهرياً' }, docs: (n: string) => `${n} مستند جديد شهرياً`, ai: (n: string) => `${n} طلب ذكاء اصطناعي شهرياً`,
       drafting: 'صياغة وبحث وملخصات بالذكاء الاصطناعي', advanced: 'مراجعات المخاطر والامتثال والمراجعة الشاملة', support: 'دعم عبر البريد الإلكتروني', priority: 'دعم ذو أولوية',
       onboarding: 'إعداد مخصص ونقل البيانات', sla: 'حدود ومستويات خدمة مخصصة'
     },
@@ -284,12 +292,12 @@ export function landingPage(opts: { assetVersion: string; salesEmail: string; su
   </section>
 
   <section id="pricing" class="py-20 md:py-28 bg-slate-50">
-    <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div class="max-w-7xl 2xl:max-w-[96rem] mx-auto px-4 sm:px-6 lg:px-8">
       <div class="text-center mb-14 max-w-2xl mx-auto">
         <h2 class="text-3xl md:text-4xl font-bold mb-4">${t.pricingTitle}</h2>
         <p class="text-lg text-slate-600">${t.pricingSub}</p>
       </div>
-      <div class="grid md:grid-cols-2 xl:grid-cols-4 gap-6 items-stretch">
+      <div class="grid sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5 gap-6 items-stretch">
         <div class="pricing-card">
           <h3 class="text-2xl font-bold mb-1">${t.plans.starter.name}</h3>
           <p class="text-slate-600 mb-6">${t.plans.starter.desc}</p>
@@ -300,6 +308,18 @@ export function landingPage(opts: { assetVersion: string; salesEmail: string; su
             ${check(L.drafting)}${check(L.support)}${check(L.advanced, false)}
           </ul>
           <a href="${register}" class="btn btn-secondary w-full">${t.choose}</a>
+        </div>
+        <div class="pricing-card">
+          <h3 class="text-2xl font-bold mb-1">${t.plans.starterPlus.name}</h3>
+          <p class="text-slate-600 mb-6">${t.plans.starterPlus.desc}</p>
+          <p class="mb-1"><span class="text-4xl font-extrabold whitespace-nowrap">${t.plans.starterPlus.price}</span><span class="text-slate-500">${t.perMonth}</span></p>
+          <p class="text-sm text-slate-600">${t.plans.starterPlus.note}</p>
+          <p class="text-sm text-slate-500 mb-8">${t.plans.starterPlus.usd}</p>
+          <ul class="space-y-3 mb-8 flex-1">
+            ${check(L.perLawyer.cases)}${check(L.perLawyer.docs)}${check(L.perLawyer.ai)}
+            ${check(L.drafting)}${check(L.support)}${check(L.advanced, false)}
+          </ul>
+          <button type="button" class="btn btn-secondary w-full" data-firm-quote>${t.firm.cta}</button>
         </div>
         <div class="pricing-card featured">
           <div class="absolute -top-3 inset-x-0 flex justify-center"><span class="bg-brand-700 text-white text-xs font-bold uppercase tracking-wider px-3 py-1 rounded-full">${t.popular}</span></div>
