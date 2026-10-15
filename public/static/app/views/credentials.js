@@ -4,6 +4,7 @@ import { fmtDate, t } from '../i18n.js'
 import { aiEnabled, can, readOnly } from '../store.js'
 import { busy, clearFieldErrors, confirmDialog, inputField, modal, showError, submitButton, textareaField, toast } from '../ui.js'
 import { openRequestForm } from './doc-requests.js'
+import { openPoaDraft } from './poa.js'
 
 // ---------------------------------------------------------------------------
 // Powers of attorney (وكالة) and client IDs with expiry tracking.
@@ -47,7 +48,8 @@ export function credentialsCard(items, { ro } = {}) {
     <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between gap-2">
       <div><h2 class="font-semibold"><i class="fas fa-file-signature text-brand-500"></i> ${t('cred.title')}</h2>
         <p class="text-xs text-slate-500 mt-0.5">${t('cred.subtitle')}</p></div>
-      ${ro ? '' : html`<button class="btn btn-outline btn-sm" data-action="cred-add"><i class="fas fa-plus"></i>${t('cred.add')}</button>`}
+      ${ro ? '' : html`<div class="flex flex-wrap gap-2">${can('owner', 'admin', 'lawyer', 'staff') ? html`<button class="btn btn-ghost btn-sm" data-action="poa-draft"><i class="fas fa-file-pen"></i>${t('poa.draft')}</button>` : ''}
+        <button class="btn btn-outline btn-sm" data-action="cred-add"><i class="fas fa-plus"></i>${t('cred.add')}</button></div>`}
     </div>
     ${items.length ? html`<ul class="divide-y divide-slate-100">${current.map(row)}${past.length ? html`<li class="px-5 pt-3 pb-1 text-xs font-semibold uppercase text-slate-400">${t('cred.history')}</li>${past.map(row)}` : ''}</ul>`
       : html`<p class="px-5 py-6 text-sm text-slate-500">${t('cred.empty')}</p>`}
@@ -59,6 +61,7 @@ export function credentialActions({ client, cases, documents, items, onChange })
   const find = (el) => items.find((x) => x.id === el.dataset.id)
   return {
     'cred-add': () => openCredentialForm({ client, cases, documents, onSaved: onChange }),
+    'poa-draft': () => openPoaDraft({ clientId: client.id }),
     'cred-edit': (el) => openCredentialForm({ client, cases, documents, credential: find(el), onSaved: onChange }),
     'cred-renew': (el) => openCredentialForm({ client, cases, documents, renew: find(el), onSaved: onChange }),
     'cred-revoke': async (el) => {
@@ -179,8 +182,10 @@ export async function casePoaBanner(box, kase, { onChange }) {
   const msg = poa.status === 'missing' ? t('cred.case_missing') : poa.status === 'expired' ? t('cred.case_expired', { date: fmtDate(x.expires_on) }) : t('cred.case_expiring', { n: x.days_left, date: fmtDate(x.expires_on) })
   render(box, html`<div class="rounded-xl border ${tone} p-4 mb-4 flex flex-wrap items-center justify-between gap-3">
     <div class="text-sm"><i class="fas fa-triangle-exclamation"></i> ${msg}</div>
-    ${readOnly() ? '' : html`<button class="btn btn-outline btn-sm" data-poa-act>${poa.status === 'missing' ? html`<i class="fas fa-plus"></i>${t('cred.add_poa')}` : html`<i class="fas fa-rotate"></i>${t('cred.renew')}`}</button>`}
+    ${readOnly() ? '' : html`<div class="flex flex-wrap gap-2"><button class="btn btn-ghost btn-sm" data-poa-draft><i class="fas fa-file-pen"></i>${t('poa.draft')}</button>
+      <button class="btn btn-outline btn-sm" data-poa-act>${poa.status === 'missing' ? html`<i class="fas fa-plus"></i>${t('cred.add_poa')}` : html`<i class="fas fa-rotate"></i>${t('cred.renew')}`}</button></div>`}
   </div>`)
+  box.querySelector('[data-poa-draft]')?.addEventListener('click', () => openPoaDraft({ clientId: kase.client_id, caseId: kase.id }))
   box.querySelector('[data-poa-act]')?.addEventListener('click', async () => {
     try {
       const [{ client, cases, documents }] = await Promise.all([api.get(`/api/clients/${kase.client_id}`)])

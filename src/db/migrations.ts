@@ -1619,6 +1619,14 @@ CREATE TABLE case_cheques (
 CREATE INDEX case_cheques_case_idx ON case_cheques (case_id, cheque_date);
 CREATE INDEX case_cheques_org_idx ON case_cheques (org_id, returned_on);
 `
+  },
+  {
+    version: 44,
+    name: 'lawyer_bar_details',
+    sql: `
+ALTER TABLE users ADD COLUMN name_ar TEXT;
+ALTER TABLE users ADD COLUMN bar_number TEXT;
+`
   }
 ]
 
