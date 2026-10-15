@@ -45,7 +45,7 @@ describe('homepage assistant', () => {
 
   it('describes plans from the live plan limits', () => {
     const k = platformKnowledge({ salesEmail: 's@x.test', supportEmail: 'h@x.test', appUrl: 'https://app.test' })
-    expect(k).toContain('Professional: 499 OMR per month')
+    expect(k).toContain('Professional: 649 OMR per month, excluding VAT (USD 1690), includes 10 lawyer seats')
     expect(k).toContain('Statement of Claim')
     expect(k).toContain('Sultanate of Oman')
   })

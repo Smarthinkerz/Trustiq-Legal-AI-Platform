@@ -42,6 +42,7 @@ Bilingual (English/Arabic), AI-assisted practice-management platform for law fir
 - **Reports**: hours by lawyer and matter, billable value, invoicing, receivables aging, case intake, AI usage
 - **Security**: TOTP two-step verification with recovery codes, roles (owner/admin/lawyer/staff/client), audit log
 - **Subscriptions**: free trial, Starter, Professional and Enterprise limits; self-serve monthly payment via **Tap Payments**, renewal reminders, platform admin console
+- **Firm pricing**: Starter (OMR 199 / USD 519, 3 lawyer seats) and Professional (OMR 649 / USD 1,690, 10 lawyer seats); a "Firms" card on the pricing page opens a one-screen form with a live quote (extra lawyer seats, firm-wide AI request pool, free support staff seats, annual billing at 10 months for 12, OMR for Oman and USD elsewhere at fixed prices). The same pricing file runs in the browser and on the server, which recalculates every request; more than 25 lawyers becomes an Enterprise quote request, and every request is emailed to the team (FIRM_REQUESTS_EMAIL)
 - **Public REST API** (`/api/v1`): owners and admins create read-only or read-write API keys in Settings → API keys for clients, cases, documents, time, expenses, invoices, tasks and calendar events; docs at `/developers`
 - **Installable** as an app (PWA) on phones and desktops
 

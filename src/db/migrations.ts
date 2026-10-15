@@ -1675,6 +1675,37 @@ CREATE TABLE lease_payments (
 );
 CREATE INDEX lease_payments_lease_idx ON lease_payments (lease_id, due_on);
 `
+  },
+  {
+    version: 46,
+    name: 'firm_signups',
+    sql: `
+-- Firm sign-up requests from the pricing page. The quote is always recalculated on the server.
+CREATE TABLE firm_signups (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  kind TEXT NOT NULL CHECK (kind IN ('self_serve', 'enterprise')),
+  status TEXT NOT NULL DEFAULT 'requested' CHECK (status IN ('requested', 'checkout', 'paid', 'cancelled')),
+  firm_name TEXT NOT NULL,
+  country TEXT NOT NULL,
+  contact_name TEXT NOT NULL,
+  email TEXT NOT NULL,
+  phone TEXT NOT NULL,
+  lawyers INTEGER NOT NULL CHECK (lawyers >= 1),
+  support_seats INTEGER NOT NULL DEFAULT 0 CHECK (support_seats >= 0),
+  cycle TEXT NOT NULL CHECK (cycle IN ('monthly', 'annual')),
+  currency TEXT NOT NULL,
+  plan TEXT,
+  total NUMERIC(16, 3),
+  ai_requests INTEGER,
+  quote JSONB NOT NULL,
+  lang TEXT NOT NULL DEFAULT 'en',
+  ip TEXT,
+  org_id UUID REFERENCES organizations(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX firm_signups_created_idx ON firm_signups (created_at DESC);
+CREATE INDEX firm_signups_email_idx ON firm_signups (lower(email));
+`
   }
 ]
 
