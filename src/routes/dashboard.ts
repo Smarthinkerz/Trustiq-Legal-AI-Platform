@@ -10,6 +10,7 @@ import { teamWorkload } from '../services/workload'
 import { corporateFilingsDue } from './corporate'
 import { arbitrationStepsDue } from './arbitration'
 import { chequesUnactioned } from './cheques'
+import { leasesNeedingNotice } from './leases'
 
 const dashboardRoutes = new Hono<AppEnv>()
 
@@ -57,6 +58,7 @@ dashboardRoutes.get('/', async (c) => {
   counts.court_clashes = user.role === 'staff' ? 0 : (await teamWorkload(db, org.id)).clashes
   counts.corporate_due = await corporateFilingsDue(db, org.id)
   counts.arbitration_due = await arbitrationStepsDue(db, org.id)
+  counts.leases_notice = await leasesNeedingNotice(db, org.id)
   counts.cheques_unactioned = user.role === 'client' ? 0 : await chequesUnactioned(db, org.id)
   counts.retention_due = (await db.query(`SELECT count(*)::int AS n FROM cases WHERE org_id = $1 AND status = 'closed' AND retain_until <= ${GULF_TODAY}`, [org.id]))[0].n
   return c.json({

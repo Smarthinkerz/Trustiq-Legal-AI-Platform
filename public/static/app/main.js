@@ -25,6 +25,7 @@ import { workloadView } from './views/workload.js'
 import { corporateRegisterView } from './views/corporate.js'
 import { arbitrationRegisterView } from './views/arbitration.js'
 import { chequesRegisterView } from './views/cheques.js'
+import { leasesRegisterView } from './views/leases.js'
 import { assistantView } from './views/assistant.js'
 import { calendarView } from './views/calendar.js'
 import { settingsView } from './views/settings.js'
@@ -63,6 +64,7 @@ const routes = [
   { path: '/experts', view: expertsRegisterView, nav: 'cases' },
   { path: '/originals', view: originalsRegisterView, nav: 'clients' },
   { path: '/corporate', view: corporateRegisterView, nav: 'clients' },
+  { path: '/leases', view: leasesRegisterView, nav: 'clients' },
   { path: '/retention', view: retentionView, nav: 'cases' },
   { path: '/settlement', view: settlementRegisterView, nav: 'cases' },
   { path: '/arbitration', view: arbitrationRegisterView, nav: 'cases' },
