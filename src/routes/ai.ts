@@ -516,3 +516,33 @@ aiRoutes.get('/log/export', async (c) => {
     headers: { 'content-type': 'text/plain; charset=utf-8', 'content-disposition': contentDisposition(`${base}.txt`), 'cache-control': 'private, no-store' }
   })
 })
+
+// ---------------- Report a problem with AI output ----------------
+
+export const FEEDBACK_REASONS = ['wrong_fact', 'wrong_citation', 'not_in_source', 'wrong_date', 'unsafe', 'other'] as const
+
+aiRoutes.post('/feedback', jsonBody(z.object({
+  feature: z.string().trim().min(2).max(60),
+  log_id: z.string().uuid().nullish(),
+  reason: z.enum(FEEDBACK_REASONS),
+  note: z.string().trim().max(2000).nullish(),
+  // The part of the output the user is reporting (kept short; no need to copy whole documents).
+  excerpt: z.string().trim().max(1000).nullish()
+})), async (c) => {
+  const { user, org } = auth(c)
+  const b = c.req.valid('json')
+  const { db, mailer, config, log } = c.get('deps')
+  if (b.log_id && !(await db.query('SELECT 1 FROM ai_use_log WHERE id = $1 AND org_id = $2', [b.log_id, org.id])).length) throw notFound('Log entry')
+  const [row] = await db.query<{ id: string }>(
+    `INSERT INTO ai_feedback (org_id, user_id, log_id, feature, reason, note, excerpt) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+    [org.id, user.id, b.log_id ?? null, b.feature, b.reason, b.note ?? null, b.excerpt ?? null])
+  await audit(c, 'ai.problem_reported', 'ai_feedback', row!.id, { feature: b.feature, reason: b.reason })
+  if (mailer.configured && config.platformAdminEmails.length) {
+    mailer.send({
+      to: config.platformAdminEmails[0]!,
+      subject: `AI problem reported: ${b.feature} (${b.reason})`,
+      text: [`Firm: ${org.name}`, `Feature: ${b.feature}`, `Reason: ${b.reason}`, b.note ? `Note: ${b.note}` : '', b.log_id ? `AI log entry: ${b.log_id}` : '', `Review: ${config.appUrl}/app#/admin`].filter(Boolean).join('\n')
+    }).catch((err) => log.warn('ai feedback email failed', { err }))
+  }
+  return c.json({ id: row!.id }, 201)
+})

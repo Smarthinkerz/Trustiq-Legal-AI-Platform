@@ -38,7 +38,7 @@ export async function hearingPrepView(root, { params, isCurrent }) {
         <div class="lg:col-span-2 space-y-6">
           <section class="card card-pad space-y-4">
             ${n ? html`
-              <p class="text-xs rounded-lg bg-violet-50 text-violet-800 p-2"><i class="fas fa-wand-magic-sparkles"></i> ${t('prep.ai_note', { date: fmtDateTime(d.prep.updated_at) })}</p>
+              <p class="text-xs rounded-lg bg-violet-50 text-violet-800 p-2"><i class="fas fa-wand-magic-sparkles"></i> ${t('prep.ai_note', { date: fmtDateTime(d.prep.updated_at) })} <button type="button" class="underline" data-ai-report="hearing_prep">${t('ai.report_problem')}</button></p>
               ${n.summary ? html`<p class="text-sm text-slate-800" dir="auto">${n.summary}</p>` : ''}
               ${list(t('prep.objectives'), n.objectives, 'fa-bullseye')}${list(t('prep.arguments'), n.arguments, 'fa-scale-balanced')}
               ${list(t('prep.requests'), n.requests, 'fa-hand')}${list(t('prep.bring'), n.bring, 'fa-briefcase')}

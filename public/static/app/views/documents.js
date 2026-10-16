@@ -83,7 +83,7 @@ export function openDraftForm({ caseId, caseLabel, clientId, jurisdiction, templ
         ${textareaField({ name: 'instructions', label: t('docs.instructions'), rows: 6, required: true, placeholder: t('docs.instructions_placeholder') })}
         ${searchPicker({ name: 'case_id', label: t('docs.case'), value: caseId, valueLabel: caseLabel })}
         ${clientId ? html`<input type="hidden" name="client_id" value="${clientId}" />` : ''}
-        ${aiDisclaimer()}
+        ${aiDisclaimer('draft')}
         <div class="flex justify-end gap-2 pt-4 border-t border-slate-100">
           <button type="button" class="btn btn-outline" data-action="close-modal">${t('common.cancel')}</button>
           <button type="submit" class="btn btn-primary"><i class="fas fa-wand-magic-sparkles"></i>${t('docs.generate')}</button>
@@ -304,7 +304,7 @@ export async function documentDetailView(root, { params, isCurrent, rerender }) 
               <button type="submit" class="btn btn-primary col-span-2"><i class="fas fa-wand-magic-sparkles"></i>${t('analysis.run')}</button>
               ${!advanced ? html`<p class="hint col-span-2">${t('analysis.upgrade_hint')}</p>` : ''}
             </form>
-            <div class="mt-3">${aiDisclaimer()}</div>`}
+            <div class="mt-3">${aiDisclaimer('analysis')}</div>`}
         </section>
         <div class="space-y-3" data-analyses>
           ${analyses.map((a, i) => analysisCard(a, i === 0))}
@@ -495,7 +495,7 @@ function openTranslateDialog(d) {
       <p class="text-sm text-slate-600"><i class="fas fa-book text-slate-400"></i> ${t('translate.glossary_hint')}
         <a class="text-brand-700 hover:underline" href="#/glossary">${t('glossary.title')}</a></p>
       ${d.content.length > 60000 ? html`<p class="hint">${t('translate.long_hint')}</p>` : ''}
-      ${aiDisclaimer()}
+      ${aiDisclaimer('translation')}
       <div class="flex justify-end gap-2 pt-4 border-t border-slate-100">
         <button type="button" class="btn btn-outline" data-action="close-modal">${t('common.cancel')}</button>
         <button type="submit" class="btn btn-primary"><i class="fas fa-language"></i>${t('translate.start')}</button>

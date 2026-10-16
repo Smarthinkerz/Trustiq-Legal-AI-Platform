@@ -76,7 +76,7 @@ export async function assistantView(root, { params, query, isCurrent }) {
             <textarea name="message" rows="2" class="input flex-1 resize-none" dir="auto" placeholder="${t('ai.placeholder')}" maxlength="8000" required aria-label="${t('ai.placeholder')}"></textarea>
             <button type="submit" class="btn btn-primary h-11" aria-label="${t('ai.send')}"><i class="fas fa-paper-plane rtl:-scale-x-100"></i><span class="hidden sm:inline">${t('ai.send')}</span></button>
           </div>
-          ${aiDisclaimer()}
+          ${aiDisclaimer('chat')}
         </form>`}
       </section>
     </div>`)

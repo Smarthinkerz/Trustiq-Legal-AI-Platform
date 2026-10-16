@@ -348,7 +348,7 @@ export function playbookPanel(box, doc, { onInsert, canEdit }) {
         ${latest ? reviewHtml(latest, doc) : ''}
         ${state.reviews.length > 1 ? html`<details class="text-xs text-slate-500"><summary class="cursor-pointer">${t('playbook.earlier', { n: state.reviews.length - 1 })}</summary>
           <ul class="mt-2 space-y-1">${state.reviews.slice(1).map((r) => html`<li class="flex items-center gap-2"><span class="badge ${scoreColor(r.result.score)}">${r.result.score}</span>${fmtDateTime(r.created_at)} · v${r.document_version} · ${r.created_by_name || ''}</li>`)}</ul></details>` : ''}
-        ${aiEnabled() && state.rules !== 0 ? aiDisclaimer() : ''}
+        ${aiEnabled() && state.rules !== 0 ? aiDisclaimer('playbook_review') : ''}
       </div>
     </section>`)
   }
