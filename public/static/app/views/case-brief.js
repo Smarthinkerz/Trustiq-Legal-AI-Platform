@@ -54,7 +54,7 @@ export function openCaseBrief(kase) {
       ${b ? html`<p class="text-xs text-slate-500">${t('brief.generated', { when: fmtDateTime(b.created_at), who: b.created_by_name || '' })}
         ${state.stale ? html` · <span class="text-amber-700 font-semibold"><i class="fas fa-clock-rotate-left"></i> ${t('brief.stale')}</span>` : ''}</p>
         <div class="rounded-xl border border-slate-200 p-5 max-h-[60vh] overflow-y-auto">${briefBody(b)}</div>
-        <p class="text-xs text-slate-500"><i class="fas fa-circle-info"></i> ${t('brief.disclaimer')}</p>`
+        <p class="text-xs text-slate-500"><i class="fas fa-circle-info"></i> ${t('brief.disclaimer')} <button type="button" class="underline" data-ai-report="brief">${t('ai.report_problem')}</button></p>`
       : html`<div class="text-center py-10 text-slate-500"><i class="fas fa-file-lines text-3xl text-slate-300"></i><p class="mt-3 text-sm">${t('brief.empty')}</p></div>`}
     </div>`)
   }

@@ -100,6 +100,7 @@ function openEditor(kase, u, d, done) {
         ${selectField({ name: 'language', label: t('cu.language'), options: LANGS(), value: u?.language ?? d.client_language ?? 'ar' })}
       </div>
       ${textareaField({ name: 'body', label: t('cu.body'), value: u?.body ?? '', rows: 12, required: true })}
+      ${u?.ai_drafted ? html`<label class="flex items-start gap-2 text-sm text-amber-800 bg-amber-50 rounded-md p-2"><input type="checkbox" name="reviewed" class="mt-1" /> <span>${t('cu.confirm_reviewed')}</span></label>` : ''}
       <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="email" checked /> ${t('cu.also_email')}</label>
       ${d.whatsapp === 'ready' ? html`<label class="flex items-center gap-2 text-sm"><input type="checkbox" name="whatsapp" checked /> <i class="fab fa-whatsapp text-emerald-600"></i> ${t('cu.also_whatsapp')}</label>`
         : d.whatsapp === 'no_opt_in' || d.whatsapp === 'no_phone' ? html`<p class="hint"><i class="fab fa-whatsapp"></i> ${t(`cu.wa_${d.whatsapp}`)}</p>` : ''}
@@ -115,10 +116,11 @@ function openEditor(kase, u, d, done) {
     },
     forms: {
       save: (form) => busy(submitButton(form), async () => {
+        if (form.elements.reviewed && !form.elements.reviewed.checked) return toast(t('cu.confirm_reviewed_needed'), 'error')
         const saved = await save(form)
         if (!saved) return
         try {
-          const r = await api.post(`/api/client-updates/${saved.id}/publish`, { email: !!form.elements.email.checked, whatsapp: !!form.elements.whatsapp?.checked })
+          const r = await api.post(`/api/client-updates/${saved.id}/publish`, { email: !!form.elements.email.checked, whatsapp: !!form.elements.whatsapp?.checked, reviewed: !!form.elements.reviewed?.checked })
           m.close()
           toast(r.emailed ? t('cu.sent_emailed', { n: r.emailed }) : t('cu.sent_portal'))
           if (r.whatsapp === 'sent') toast(t('cu.wa_sent'))

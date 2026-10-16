@@ -83,7 +83,7 @@ export function openDraftForm({ caseId, caseLabel, clientId, jurisdiction, templ
         ${textareaField({ name: 'instructions', label: t('docs.instructions'), rows: 6, required: true, placeholder: t('docs.instructions_placeholder') })}
         ${searchPicker({ name: 'case_id', label: t('docs.case'), value: caseId, valueLabel: caseLabel })}
         ${clientId ? html`<input type="hidden" name="client_id" value="${clientId}" />` : ''}
-        ${aiDisclaimer()}
+        ${aiDisclaimer('draft')}
         <div class="flex justify-end gap-2 pt-4 border-t border-slate-100">
           <button type="button" class="btn btn-outline" data-action="close-modal">${t('common.cancel')}</button>
           <button type="submit" class="btn btn-primary"><i class="fas fa-wand-magic-sparkles"></i>${t('docs.generate')}</button>
@@ -216,6 +216,7 @@ function analysisCard(a, expanded) {
       ${severityBadge(r.risk_level)}
     </summary>
     <div class="px-5 pb-5 space-y-5 border-t border-slate-100 pt-4" dir="${dir}">
+      ${r.checks ? html`<p class="text-xs text-slate-500"><i class="fas fa-shield-halved"></i> ${t('analysis.checks', { kept: r.checks.issues_kept, removed: r.checks.issues_removed, basis: r.checks.legal_basis_removed })}${r.checks.truncated ? ` ${t('analysis.truncated')}` : ''}</p>` : ''}
       ${r.summary ? html`<div><h4 class="text-xs font-semibold uppercase text-slate-500 mb-1">${t('analysis.summary')}</h4><p class="text-sm leading-relaxed whitespace-pre-wrap">${r.summary}</p></div>` : ''}
       ${r.parties?.length ? html`<div><h4 class="text-xs font-semibold uppercase text-slate-500 mb-1">${t('analysis.parties')}</h4><p class="text-sm">${r.parties.join(' · ')}</p></div>` : ''}
       ${r.key_terms?.length ? html`<div><h4 class="text-xs font-semibold uppercase text-slate-500 mb-2">${t('analysis.key_terms')}</h4>
@@ -223,7 +224,9 @@ function analysisCard(a, expanded) {
       ${r.issues?.length ? html`<div><h4 class="text-xs font-semibold uppercase text-slate-500 mb-2">${t('analysis.issues')} (${r.issues.length})</h4>
         <ul class="space-y-3">${[...r.issues].sort((x, y) => sevRank(y.severity) - sevRank(x.severity)).map((i) => html`<li class="rounded-lg border border-slate-200 p-3">
           <div class="flex flex-wrap items-center gap-2 mb-1">${severityBadge(i.severity)}${i.clause ? html`<span class="text-xs font-medium text-slate-500">${i.clause}</span>` : ''}</div>
-          <p class="text-sm text-slate-800">${i.issue}</p>
+          ${i.quote ? html`<blockquote class="border-s-2 border-slate-300 ps-3 text-slate-600 italic text-sm mb-1" dir="auto">${i.quote}</blockquote>` : ''}
+          <p class="text-sm text-slate-800 whitespace-pre-wrap">${i.issue}</p>
+          ${i.legal_basis ? html`<p class="text-xs text-brand-800 mt-1"><i class="fas fa-book-open"></i> ${i.legal_basis}</p>` : ''}
           ${i.recommendation ? html`<p class="text-sm text-emerald-800 mt-1"><i class="fas fa-lightbulb"></i> ${i.recommendation}</p>` : ''}
         </li>`)}</ul></div>` : ''}
       ${r.missing_clauses?.length ? html`<div><h4 class="text-xs font-semibold uppercase text-slate-500 mb-1">${t('analysis.missing')}</h4><ul class="list-disc ps-5 text-sm space-y-0.5">${r.missing_clauses.map((x) => html`<li>${x}</li>`)}</ul></div>` : ''}
@@ -301,7 +304,7 @@ export async function documentDetailView(root, { params, isCurrent, rerender }) 
               <button type="submit" class="btn btn-primary col-span-2"><i class="fas fa-wand-magic-sparkles"></i>${t('analysis.run')}</button>
               ${!advanced ? html`<p class="hint col-span-2">${t('analysis.upgrade_hint')}</p>` : ''}
             </form>
-            <div class="mt-3">${aiDisclaimer()}</div>`}
+            <div class="mt-3">${aiDisclaimer('analysis')}</div>`}
         </section>
         <div class="space-y-3" data-analyses>
           ${analyses.map((a, i) => analysisCard(a, i === 0))}
@@ -492,7 +495,7 @@ function openTranslateDialog(d) {
       <p class="text-sm text-slate-600"><i class="fas fa-book text-slate-400"></i> ${t('translate.glossary_hint')}
         <a class="text-brand-700 hover:underline" href="#/glossary">${t('glossary.title')}</a></p>
       ${d.content.length > 60000 ? html`<p class="hint">${t('translate.long_hint')}</p>` : ''}
-      ${aiDisclaimer()}
+      ${aiDisclaimer('translation')}
       <div class="flex justify-end gap-2 pt-4 border-t border-slate-100">
         <button type="button" class="btn btn-outline" data-action="close-modal">${t('common.cancel')}</button>
         <button type="submit" class="btn btn-primary"><i class="fas fa-language"></i>${t('translate.start')}</button>

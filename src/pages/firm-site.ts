@@ -35,6 +35,7 @@ export type PublicSite = {
 }
 
 export type PublicPost = {
+  ai_assisted?: boolean
   cover_media_id?: string | null
   cover_alt?: string | null
   slug: string
@@ -58,7 +59,7 @@ const copy = {
     error: 'Please enter your name and an email address or phone number.', limited: 'Too many requests. Please try again later or call us.',
     privacy: 'We use your details only to respond to your request.',
     hours: 'Office hours', address: 'Office', blogTitle: 'Insights', blogIntro: 'Articles and legal updates from our team.', noPosts: 'No articles have been published yet.',
-    back: 'All articles', published: 'Published', disclaimer: 'The information on this website is general and is not legal advice. Contact the firm for advice on your situation.',
+    back: 'All articles', published: 'Published', aiAssisted: 'Prepared with AI assistance and reviewed by the firm.', disclaimer: 'The information on this website is general and is not legal advice. Contact the firm for advice on your situation.',
     poweredBy: 'Website by TrustiqLegal', notFound: 'Page not found', notFoundText: 'The page you are looking for does not exist or is no longer available.',
     chat: { title: 'Ask us', open: 'Chat with us', placeholder: 'Type your question…', send: 'Send', close: 'Close chat', greeting: 'Hello! How can we help you today?',
       note: 'Automated assistant. General information only, not legal advice.', error: 'Sorry, something went wrong. Please try again or use the consultation form.', typing: 'Typing…', book: 'Request a consultation' }
@@ -73,7 +74,7 @@ const copy = {
     error: 'يُرجى إدخال اسمك وبريدك الإلكتروني أو رقم هاتفك.', limited: 'طلبات كثيرة. يُرجى المحاولة لاحقًا أو الاتصال بنا.',
     privacy: 'نستخدم بياناتك فقط للرد على طلبك.',
     hours: 'ساعات العمل', address: 'المكتب', blogTitle: 'مقالات', blogIntro: 'مقالات ومستجدات قانونية من فريقنا.', noPosts: 'لم تُنشر أي مقالات بعد.',
-    back: 'جميع المقالات', published: 'نُشر في', disclaimer: 'المعلومات الواردة في هذا الموقع عامة ولا تُعد استشارة قانونية. تواصل مع المكتب للحصول على المشورة بشأن حالتك.',
+    back: 'جميع المقالات', published: 'نُشر في', aiAssisted: 'أُعد بمساعدة الذكاء الاصطناعي وراجعه المكتب.', disclaimer: 'المعلومات الواردة في هذا الموقع عامة ولا تُعد استشارة قانونية. تواصل مع المكتب للحصول على المشورة بشأن حالتك.',
     poweredBy: 'الموقع من TrustiqLegal', notFound: 'الصفحة غير موجودة', notFoundText: 'الصفحة التي تبحث عنها غير موجودة أو لم تعد متاحة.',
     chat: { title: 'اسألنا', open: 'تحدث معنا', placeholder: 'اكتب سؤالك…', send: 'إرسال', close: 'إغلاق المحادثة', greeting: 'مرحبًا! كيف يمكننا مساعدتك اليوم؟',
       note: 'مساعد آلي. معلومات عامة فقط وليست استشارة قانونية.', error: 'عذرًا، حدث خطأ. يُرجى المحاولة مرة أخرى أو استخدام نموذج طلب الاستشارة.', typing: 'يكتب…', book: 'طلب استشارة' }
@@ -290,6 +291,7 @@ export function firmPostPage(o: Common & { post: PublicPost; media?: (id: string
     <a class="firm-text text-sm font-semibold" href="${withLang(`${base}/blog`, lang)}"><i class="fas fa-arrow-left rtl:rotate-180 me-1"></i>${t.back}</a>
     <h1 class="text-3xl sm:text-4xl font-bold mt-4 leading-tight" dir="auto">${esc(title)}</h1>
     <p class="text-sm text-slate-500 mt-3">${t.published} <time datetime="${new Date(post.published_at).toISOString()}">${fmtDate(post.published_at, lang)}</time></p>
+    ${post.ai_assisted ? `<p class="text-xs text-slate-400 mt-1">${t.aiAssisted}</p>` : ''}
     ${post.cover_media_id ? `<img src="${base}/media/${esc(post.cover_media_id)}" alt="${esc(post.cover_alt || title)}" class="mt-6 w-full aspect-[16/9] object-cover rounded-xl bg-slate-100" />` : ''}
     <div class="article mt-6 text-slate-800 text-[1.05rem]" dir="auto">${renderArticle(content, o.media)}</div>
     <div class="mt-10 rounded-xl border border-slate-200 bg-slate-50 p-6 flex flex-wrap items-center justify-between gap-4">

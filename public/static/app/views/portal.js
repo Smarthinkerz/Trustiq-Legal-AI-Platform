@@ -200,6 +200,7 @@ export async function portalCaseView(root, { params, isCurrent, rerender }) {
             <div class="flex flex-wrap items-center gap-2"><h3 class="font-semibold text-sm flex-1 min-w-0" dir="auto">${u.title}</h3>
               ${u.read_at ? '' : html`<span class="badge bg-brand-100 text-brand-800">${t('portal.new')}</span>`}
               <span class="text-xs text-slate-500">${fmtDate(u.published_at)}${u.author_name ? ` · ${u.author_name}` : ''}</span></div>
+            ${u.ai_drafted ? html`<p class="text-xs text-slate-400 mt-1"><i class="fas fa-wand-magic-sparkles"></i> ${t('portal.ai_assisted', { name: u.author_name || '' })}</p>` : ''}
             ${n === 0 ? html`<p class="whitespace-pre-wrap text-sm text-slate-700 mt-2" dir="${u.language === 'ar' ? 'rtl' : 'ltr'}">${u.body}</p>`
               : html`<details class="text-sm mt-1"><summary class="cursor-pointer text-slate-500 text-xs">${t('portal.read_update')}</summary><p class="whitespace-pre-wrap mt-2 text-slate-700" dir="${u.language === 'ar' ? 'rtl' : 'ltr'}">${u.body}</p></details>`}
           </li>`)}</ol></section>` : ''}

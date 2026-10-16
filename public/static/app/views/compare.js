@@ -100,7 +100,7 @@ export async function openCompareView(left, right) {
       <p class="text-sm">${i.change}</p>${i.recommendation ? html`<p class="text-sm text-emerald-800 mt-1"><i class="fas fa-lightbulb"></i> ${i.recommendation}</p>` : ''}</li>`)}</ul>` : ''}
     ${s.summary.questions.length ? html`<div><h4 class="text-xs font-semibold uppercase text-slate-500 mb-1">${t('cmp.questions')}</h4><ul class="list-disc ps-5 text-sm space-y-0.5">${s.summary.questions.map((q) => html`<li>${q}</li>`)}</ul></div>` : ''}
     ${s.truncated ? html`<p class="text-xs text-amber-700">${t('cmp.truncated')}</p>` : ''}
-    ${aiDisclaimer()}
+    ${aiDisclaimer('compare')}
   </section>`
   box.addEventListener('click', async (e) => {
     const v = e.target.closest('[data-view]')

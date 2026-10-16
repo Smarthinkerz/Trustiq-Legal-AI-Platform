@@ -1,3 +1,4 @@
+import { publicReplyProblem } from '../services/ai-guard'
 import { Hono } from 'hono'
 import { runLeadIntake } from '../services/lead-intake'
 import { mediaResolver, serveMedia } from '../services/blog-media'
@@ -85,7 +86,7 @@ export function firmSiteRoutes(deps: Deps, assetVersion: string) {
     if (!site) return notFoundHtml(c)
     const lang = langOf(c, site)
     const post = await db.one<any>(
-      `SELECT slug, title, title_ar, excerpt, excerpt_ar, body, body_ar, published_at, cover_media_id, cover_alt FROM blog_posts WHERE org_id = $1 AND slug = $2 AND status = 'published'`,
+      `SELECT slug, title, title_ar, excerpt, excerpt_ar, body, body_ar, published_at, cover_media_id, cover_alt, ai_assisted FROM blog_posts WHERE org_id = $1 AND slug = $2 AND status = 'published'`,
       [site.org_id, c.req.param('post')])
     if (!post) return c.html(firmNotFoundPage({ site, lang, assetVersion, appUrl: config.appUrl }), 404)
     c.header('cache-control', 'no-cache')
@@ -136,6 +137,7 @@ export function firmSiteRoutes(deps: Deps, assetVersion: string) {
     message: z.string().trim().max(5000).optional().transform((v) => v || null),
     practice_area: z.enum(PRACTICE_AREA_IDS).optional().or(z.literal('')).transform((v) => v || null),
     transcript: z.array(z.object({ role: z.enum(['user', 'assistant']), content: z.string().max(2000) })).max(30).optional(),
+    chat_id: z.string().uuid().optional(),
     website: z.string().optional()
   }).refine((v) => v.email || v.phone, { message: 'Enter an email address or phone number.' })
 
@@ -165,14 +167,17 @@ export function firmSiteRoutes(deps: Deps, assetVersion: string) {
     // Bots fill the hidden field; pretend success so they move on.
     if (b.website) return isJson ? c.json({ ok: true }) : back('sent=1')
 
-    const transcript = b.transcript?.length
-      ? `\n\n— Website chat —\n${b.transcript.map((m) => `${m.role === 'user' ? 'Visitor' : 'Assistant'}: ${m.content}`).join('\n')}`
+    // The chat transcript comes from the server's copy; a transcript sent by the browser keeps only the visitor's own words.
+    const chat = b.chat_id ? await db.one<{ messages: { role: string; content: string }[] }>('SELECT messages FROM site_chats WHERE id = $1 AND org_id = $2', [b.chat_id, site.org_id]) : null
+    const turns = chat?.messages ?? (b.transcript ?? []).filter((m) => m.role === 'user')
+    const transcript = turns.length
+      ? `\n\n— Website chat —\n${turns.map((m) => `${m.role === 'user' ? 'Visitor' : 'Assistant'}: ${m.content}`).join('\n')}`
       : ''
     const lead = await db.one<{ id: string }>(
       `INSERT INTO leads (org_id, name, email, phone, message, practice_area, source, language) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
-      [site.org_id, b.name, b.email, b.phone, ((b.message ?? '') + transcript).trim() || null, b.practice_area, b.transcript?.length ? 'chat' : 'form', lang])
+      [site.org_id, b.name, b.email, b.phone, ((b.message ?? '') + transcript).trim() || null, b.practice_area, turns.length ? 'chat' : 'form', lang])
     await db.query(`INSERT INTO audit_log (org_id, action, entity_type, entity_id, meta, ip) VALUES ($1, 'lead.received', 'lead', $2, $3, $4)`,
-      [site.org_id, lead!.id, JSON.stringify({ source: b.transcript?.length ? 'chat' : 'form' }), ip]).catch((err) => log.warn('lead audit failed', { err }))
+      [site.org_id, lead!.id, JSON.stringify({ source: turns.length ? 'chat' : 'form' }), ip]).catch((err) => log.warn('lead audit failed', { err }))
     // Sorted and conflict-checked in the background so the visitor is not kept waiting.
     runLater(deps, 'lead intake', () => runLeadIntake(deps, site.org_id, lead!.id, null))
 
@@ -194,10 +199,15 @@ export function firmSiteRoutes(deps: Deps, assetVersion: string) {
 
   // ---------- Website chatbot ----------
 
+  // The conversation is kept on the server: the visitor sends only their new message (and the chat id).
+  // Older widgets send the whole history; then only the last visitor message is used, never their "assistant" turns.
   const chatSchema = z.object({
     lang: z.enum(['en', 'ar']).default('en'),
-    messages: z.array(z.object({ role: z.enum(['user', 'assistant']), content: z.string().trim().min(1).max(1500) })).min(1).max(12)
-  }).refine((v) => v.messages.at(-1)?.role === 'user', { message: 'The last message must be from the visitor.' })
+    chat_id: z.string().uuid().optional(),
+    message: z.string().trim().min(1).max(1500).optional(),
+    messages: z.array(z.object({ role: z.enum(['user', 'assistant']), content: z.string().trim().min(1).max(1500) })).min(1).max(12).optional()
+  }).transform((v) => ({ lang: v.lang, chat_id: v.chat_id, message: v.message ?? [...(v.messages ?? [])].reverse().find((m) => m.role === 'user')?.content }))
+    .refine((v) => !!v.message, { message: 'Write a message.' })
 
   app.post('/:slug/chat', bodyLimit({ maxSize: 32 * 1024 }), async (c) => {
     const site = await loadSite(c.req.param('slug'))
@@ -210,8 +220,13 @@ export function firmSiteRoutes(deps: Deps, assetVersion: string) {
     }
     const parsed = chatSchema.safeParse(await c.req.json().catch(() => null))
     if (!parsed.success) return c.json({ error: { code: 'bad_request', message: 'Invalid message.' } }, 400)
-    const { lang, messages } = parsed.data
+    const { lang, message } = parsed.data
     const fallback = () => c.json({ reply: chatFallback(site, lang), fallback: true })
+    const stored = parsed.data.chat_id
+      ? await db.one<{ id: string; messages: { role: 'user' | 'assistant'; content: string }[] }>('SELECT id, messages FROM site_chats WHERE id = $1 AND org_id = $2', [parsed.data.chat_id, site.org_id])
+      : null
+    const history = (stored?.messages ?? []).slice(-11)
+    const messages = [...history, { role: 'user' as const, content: message! }]
 
     const org = { id: site.org_id, name: site.org_name, plan: site.plan, trial_ends_at: site.trial_ends_at, plan_expires_at: site.plan_expires_at, default_jurisdiction: site.default_jurisdiction, default_currency: '' }
     if (!deps.ai.configured || trialExpired(org) || subscriptionExpired(org) || !limits.chatSite.take(`ch:${site.org_id}`).ok) return fallback()
@@ -226,10 +241,23 @@ export function firmSiteRoutes(deps: Deps, assetVersion: string) {
     try {
       const result = await deps.ai.complete({
         messages: siteChatMessages({ ...site, jurisdiction: site.default_jurisdiction }, posts, messages, lang),
-        maxTokens: 400, temperature: 0.3
+        maxTokens: 400, temperature: 0.2
       })
       await recordAiUsage(db, site.org_id, null, 'site_chat', result)
-      return c.json({ reply: result.text.trim().slice(0, 2000) })
+      let reply = result.text.trim().slice(0, 2000)
+      // Code filter: a public visitor never gets law references, article numbers or advice from the bot.
+      const problem = publicReplyProblem(reply)
+      if (problem) {
+        reply = lang === 'ar'
+          ? `لا يمكنني تقديم استشارة قانونية أو الإشارة إلى نصوص قانونية هنا. يسعد أحد محامي ${site.firm_name} بمساعدتك: اترك بياناتك في نموذج «طلب استشارة» وسنتواصل معك.`
+          : `I can't give legal advice or point to specific laws here. A lawyer at ${site.firm_name} would be glad to help: leave your details in the "Request a consultation" form and we will get back to you.`
+      }
+      // Every reply is stored with the conversation for review (pruned after 90 days).
+      const saved = [...messages, { role: 'assistant' as const, content: reply }].slice(-24)
+      const chatId = stored
+        ? (await db.query('UPDATE site_chats SET messages = $2, filtered = filtered + $3, updated_at = now() WHERE id = $1 RETURNING id', [stored.id, JSON.stringify(saved), problem ? 1 : 0]))[0]!.id
+        : (await db.one<{ id: string }>('INSERT INTO site_chats (org_id, lang, messages, filtered) VALUES ($1, $2, $3, $4) RETURNING id', [site.org_id, lang, JSON.stringify(saved), problem ? 1 : 0]))!.id
+      return c.json({ reply, chat_id: chatId })
     } catch (err) {
       log.warn('site chat failed', { err, org: site.org_id })
       return fallback()

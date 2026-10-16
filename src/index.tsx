@@ -57,6 +57,7 @@ async function main() {
     const days = config.tap.auditRetentionDays
     db.query(`DELETE FROM webhook_events WHERE created_at < now() - make_interval(days => $1)`, [days]).catch((err) => log.error('webhook audit sweep failed', { err }))
     db.query(`DELETE FROM processed_webhook_events WHERE created_at < now() - make_interval(days => $1)`, [days]).catch((err) => log.error('webhook key sweep failed', { err }))
+    db.query(`DELETE FROM site_chats WHERE updated_at < now() - interval '90 days'`).catch((err) => log.error('site chat sweep failed', { err }))
   }, 60 * 60_000)
   sweeper.unref()
 

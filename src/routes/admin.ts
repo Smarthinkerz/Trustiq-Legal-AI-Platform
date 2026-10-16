@@ -107,6 +107,27 @@ adminRoutes.patch('/organizations/:id', jsonBody(z.object({
   return c.json({ organization: row })
 })
 
+// ---------------- Reported AI problems ----------------
+
+adminRoutes.get('/ai-feedback', queryParams(z.object({ status: z.enum(['open', 'reviewed', 'fixed', 'dismissed', 'all']).default('open') })), async (c) => {
+  const { status } = c.req.valid('query')
+  const items = await c.get('deps').db.query(
+    `SELECT f.id, f.feature, f.reason, f.note, f.excerpt, f.status, f.resolution, f.created_at, f.reviewed_at, f.log_id,
+            o.name AS org_name, u.name AS user_name, l.output AS log_output, l.sources AS log_sources, l.verification AS log_verification
+       FROM ai_feedback f LEFT JOIN organizations o ON o.id = f.org_id LEFT JOIN users u ON u.id = f.user_id LEFT JOIN ai_use_log l ON l.id = f.log_id
+      ${status === 'all' ? '' : 'WHERE f.status = $1'} ORDER BY f.created_at DESC LIMIT 200`, status === 'all' ? [] : [status])
+  return c.json({ items })
+})
+
+adminRoutes.patch('/ai-feedback/:id', jsonBody(z.object({ status: z.enum(['reviewed', 'fixed', 'dismissed']), resolution: z.string().trim().max(2000).nullish() })), async (c) => {
+  const id = uuidParam(c.req.param('id'), 'Report')
+  const b = c.req.valid('json')
+  const rows = await c.get('deps').db.query('UPDATE ai_feedback SET status = $2, resolution = $3, reviewed_at = now() WHERE id = $1 RETURNING id', [id, b.status, b.resolution ?? null])
+  if (!rows.length) throw notFound('Report')
+  await audit(c, 'admin.ai_feedback_reviewed', 'ai_feedback', id, { status: b.status })
+  return c.json({ ok: true })
+})
+
 // ---------------- Standing GCC legal evaluation set ----------------
 
 adminRoutes.get('/legal-eval/cases', (c) => c.json({ items: GCC_EVAL_CASES }))

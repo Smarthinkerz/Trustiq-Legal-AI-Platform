@@ -2,14 +2,17 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { audit, auth, requireRole, type AppEnv, type Ctx } from '../context'
 import type { Queryable } from '../db'
-import { badRequest, HttpError, notFound, tooMany } from '../lib/errors'
+import { badRequest, HttpError, notFound, tooMany, unavailable } from '../lib/errors'
 import { jsonBody, optUuid, uuidParam } from '../lib/http'
 import { JURISDICTION_CODES, jurisdictionName, templateName, DOCUMENT_TEMPLATES } from '../services/reference'
 import { analysisMessages, chatSystemPrompt, draftMessages, normalizeAnalysis, parseJsonObject, type AnalysisType } from '../services/legal-prompts'
 import { assertCanCreateDocument, assertCanUseAi, recordAiUsage } from '../services/usage'
-import { citedRefs } from '../services/library'
+import { citedRefs, lawReferences } from '../services/library'
+import { ABSTAIN, appearsIn } from '../services/ai-guard'
+import { mentionedArticles } from '../services/legal-corpus'
 import { allowedJurisdictions, citedSummary, groundQuestion, gulfToday } from '../services/grounding'
-import { verifyAnswer } from '../services/verify'
+import { verifyAnswer, type Verification } from '../services/verify'
+import type { ChatMessage, Completion } from '../services/ai'
 import { LOG_COLUMNS, LOG_FROM, logAiUse, logCsv, logDisclosure } from '../services/ai-log'
 import { contentDisposition } from '../services/export'
 import { insertDocument } from './documents'
@@ -88,12 +91,15 @@ aiRoutes.post('/chat', jsonBody(z.object({
   jurisdiction: z.enum(JURISDICTION_CODES).nullish().transform((v) => v ?? undefined),
   language: z.enum(['en', 'ar']).default('en'),
   library_only: z.boolean().default(false),
+  // Opt-in: allow an answer from general knowledge when the library has nothing, clearly labelled as unverified.
+  allow_general: z.boolean().default(false),
   // The date the law should be applied as of (e.g. when the facts happened). Defaults to today.
   as_of: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish().transform((v) => v ?? undefined)
 })), async (c) => {
   const { user, org } = auth(c)
   const b = c.req.valid('json')
   const { db, ai } = c.get('deps')
+  if (!ai.configured) throw unavailable('ai_not_configured', 'The AI assistant is not configured for this deployment.')
   throttle(c)
   await assertCanUseAi(db, org)
 
@@ -119,27 +125,62 @@ aiRoutes.post('/chat', jsonBody(z.object({
   // A law named by number (e.g. "Royal Decree 48/2009") is looked up directly, in any jurisdiction, and its own text comes first.
   const lastUser = [...history].reverse().find((m) => m.role === 'user')?.content ?? ''
   const { sources, namedSourceIds, retrieval } = await groundQuestion(c.get('deps'), org.id, { question: b.message, context: lastUser, jurisdiction, asOf, max: 14 })
-  const system = chatSystemPrompt({ lang: b.language, jurisdiction, asOf, caseContext: await caseContext(db, org.id, conv.case_id), sources, libraryOnly: b.library_only })
-
-  const result = await ai.complete({ messages: [{ role: 'system', content: system }, ...history, { role: 'user', content: b.message }], maxTokens: 3000 })
-  // Deterministic check of quotes, article numbers, validity on the date and jurisdiction.
-  const verification = await verifyAnswer(db, { orgId: org.id, answer: result.text, sources, asOf, allowedJurisdictions: allowedJurisdictions(jurisdiction), namedSourceIds })
-  // Keep only sources the answer actually cites.
-  const refs = citedRefs(result.text)
+  // Answers come only from library passages unless the lawyer opts in to general knowledge.
+  const libraryOnly = b.library_only || !b.allow_general
+  const verify = (text: string) => verifyAnswer(db, { orgId: org.id, answer: text, sources, asOf, allowedJurisdictions: allowedJurisdictions(jurisdiction), namedSourceIds })
+  const completions: Completion[] = []
+  let reply: string
+  let verification: Verification
+  let abstained: 'no_sources' | 'failed_check' | null = null
+  let withheld: string | null = null
+  if (!sources.length && libraryOnly) {
+    // Abstain path in code: no passage, no model call.
+    abstained = 'no_sources'
+    reply = b.language === 'ar'
+      ? `${ABSTAIN.ar} لم تُعد مكتبة القوانين أي نص يتعلق بهذا السؤال. أضف القانون المعني إلى المكتبة، أو أعد صياغة السؤال، أو فعّل خيار المعرفة العامة غير المتحقق منها.`
+      : `${ABSTAIN.en} The law library returned no passage on this question. Add the relevant law to the library, rephrase the question, or turn on unverified general knowledge.`
+    verification = { status: 'unverified', as_of: asOf, checked_at: new Date().toISOString(), citations: 0, errors: 0, warnings: 0, checks: [] }
+  } else {
+    const system = chatSystemPrompt({ lang: b.language, jurisdiction, asOf, caseContext: await caseContext(db, org.id, conv.case_id), sources, libraryOnly })
+    const base: ChatMessage[] = [{ role: 'system', content: system }, ...history, { role: 'user', content: b.message }]
+    let r = await ai.complete({ messages: base, maxTokens: 3000, temperature: 0 })
+    completions.push(r)
+    // Deterministic check of quotes, article numbers, validity on the date and jurisdiction.
+    verification = await verify(r.text)
+    if (verification.errors) {
+      // One regeneration with the failures named, then withhold.
+      const problems = verification.checks.filter((x) => x.severity === 'error').map((x) => `- ${x.detail}`).join('\n')
+      r = await ai.complete({ messages: [...base, { role: 'assistant', content: r.text }, { role: 'user', content: `Your answer failed the automatic citation check:\n${problems}\nRewrite it using only what the passages say, quoting only exact words, citing only articles that exist in the cited passage. If the passages do not answer the question, say so.` }], maxTokens: 3000, temperature: 0 })
+      completions.push(r)
+      verification = await verify(r.text)
+    }
+    reply = r.text
+    if (verification.errors) {
+      abstained = 'failed_check'
+      withheld = r.text
+      reply = b.language === 'ar'
+        ? `${ABSTAIN.ar} لم تجتز الإجابة المقترحة الفحص الآلي للاستشهادات بعد محاولتين، فحُجبت. راجع النتائج أدناه أو ابحث في المكتبة مباشرة.`
+        : `${ABSTAIN.en} The proposed answer failed the automatic citation check twice, so it was withheld. See the findings below, or search the library directly.`
+    }
+  }
+  // Keep only sources the shown answer actually cites.
+  const refs = citedRefs(abstained ? '' : reply)
   const cited = sources.filter((s) => refs.has(s.ref)).map(citedSummary)
+  const result = completions.at(-1)
 
   const logId = await db.tx(async (q) => {
     await q.query(`INSERT INTO ai_messages (org_id, conversation_id, role, content) VALUES ($1, $2, 'user', $3)`, [org.id, conv.id, b.message])
     const msg = await q.one<{ id: string }>(`INSERT INTO ai_messages (org_id, conversation_id, role, content, sources, verification, created_at) VALUES ($1, $2, 'assistant', $3, $4, $5, now() + interval '1 millisecond') RETURNING id`,
-      [org.id, conv.id, result.text, cited.length ? JSON.stringify(cited) : null, JSON.stringify(verification)])
+      [org.id, conv.id, reply, cited.length ? JSON.stringify(cited) : null, JSON.stringify({ ...verification, abstained, general: !libraryOnly && !sources.length })])
     await q.query('UPDATE ai_conversations SET updated_at = now() WHERE id = $1', [conv.id])
-    await recordAiUsage(q, org.id, user.id, 'chat', result)
+    for (const r of completions) await recordAiUsage(q, org.id, user.id, 'chat', r)
     return logAiUse(q, {
-      orgId: org.id, userId: user.id, feature: 'chat', model: result.model, caseId: conv.case_id, conversationId: conv.id, messageId: msg!.id,
-      jurisdiction, asOf, prompt: b.message, output: result.text, sources: cited, verification
+      orgId: org.id, userId: user.id, feature: 'chat', model: result?.model ?? null, caseId: conv.case_id, conversationId: conv.id, messageId: msg!.id,
+      jurisdiction, asOf, prompt: b.message, output: withheld ? `[WITHHELD AFTER FAILED CHECK]\n${withheld}` : reply, sources: cited, verification
     })
   })
-  return c.json({ conversation_id: conv.id, reply: result.text, sources: cited, library_matches: sources.length, model: result.model, verification, retrieval, log_id: logId })
+  return c.json({ conversation_id: conv.id, reply, sources: cited, library_matches: sources.length, model: result?.model ?? null, verification, retrieval, log_id: logId, abstained,
+    general: !libraryOnly && !sources.length })
 })
 
 aiRoutes.post('/draft', jsonBody(z.object({
@@ -165,25 +206,38 @@ aiRoutes.post('/draft', jsonBody(z.object({
   const { sources: draftSources, namedSourceIds } = await groundQuestion(c.get('deps'), org.id, {
     question: `${b.instructions} ${b.parties ?? ''}`, jurisdiction: b.jurisdiction, asOf, max: 8, perNamed: 4
   })
-  const result = await ai.complete({
-    messages: draftMessages({
-      templateName: tName, templateId: b.template, lang: b.language, jurisdiction: b.jurisdiction, instructions: b.instructions, parties: b.parties,
-      caseContext: await caseContext(db, org.id, b.case_id), sources: draftSources
-    }),
-    maxTokens: 6000,
-    temperature: 0.3
+  const base = draftMessages({
+    templateName: tName, templateId: b.template, lang: b.language, jurisdiction: b.jurisdiction, instructions: b.instructions, parties: b.parties,
+    caseContext: await caseContext(db, org.id, b.case_id), sources: draftSources
   })
-  const content = result.text.replace(/^```[a-z]*\n?|```$/g, '').replace(/\*\*(.+?)\*\*/g, '$1').replace(/^#{1,6}\s+/gm, '').trim()
-  const tpl = DOCUMENT_TEMPLATES.find((t) => t.id === b.template)!
+  const clean = (t: string) => t.replace(/^```[a-z]*\n?|```$/g, '').replace(/\*\*(.+?)\*\*/g, '$1').replace(/^#{1,6}\s+/gm, '').trim()
   // Drafts cite by law name and article number; check those against the library the same way.
-  const verification = await verifyAnswer(db, { orgId: org.id, answer: content, sources: draftSources, asOf, allowedJurisdictions: allowedJurisdictions(b.jurisdiction), namedSourceIds, implicitRefs: true })
+  const verifyDraft = (text: string) => verifyAnswer(db, { orgId: org.id, answer: text, sources: draftSources, asOf, allowedJurisdictions: allowedJurisdictions(b.jurisdiction), namedSourceIds, implicitRefs: true })
+  let result = await ai.complete({ messages: base, maxTokens: 6000, temperature: 0.1 })
+  const completions = [result]
+  let content = clean(result.text)
+  let verification = await verifyDraft(content)
+  if (verification.errors) {
+    const problems = verification.checks.filter((x) => x.severity === 'error').map((x) => `- ${x.detail}`).join('\n')
+    result = await ai.complete({ messages: [...base, { role: 'assistant', content: result.text }, { role: 'user', content: `The draft failed the automatic citation check:\n${problems}\nRewrite the full draft. Cite only articles that exist in the <sources>; where a legal basis is needed but not in the sources, write [LEGAL BASIS – ARTICLE TO BE CONFIRMED].` }], maxTokens: 6000, temperature: 0.1 })
+    completions.push(result)
+    content = clean(result.text)
+    verification = await verifyDraft(content)
+  }
+  for (const r of completions) await recordAiUsage(db, org.id, user.id, 'draft', r)
+  if (verification.errors) {
+    // Blocked after one regeneration: nothing is saved.
+    return c.json({ error: { code: 'draft_failed_check', message: b.language === 'ar'
+      ? 'لم تُحفظ المسودة لأن استشهاداتها القانونية لم تجتز الفحص الآلي بعد محاولتين. أضف القوانين المعنية إلى المكتبة أو عدّل التعليمات.'
+      : 'The draft was not saved because its legal citations failed the automatic check twice. Add the relevant laws to the library or adjust the instructions.' }, verification }, 422)
+  }
+  const tpl = DOCUMENT_TEMPLATES.find((t) => t.id === b.template)!
   const usedRefs = new Set(verification.checks.map((x) => x.ref).filter(Boolean))
   const document = await db.tx(async (q) => {
     const doc = await insertDocument(q, {
       orgId: org.id, userId: user.id, title: b.title || (b.language === 'ar' ? tpl.name_ar : tpl.name), docType: b.template,
       language: b.language, jurisdiction: b.jurisdiction, source: 'ai', content, caseId: b.case_id, clientId: b.client_id
     })
-    await recordAiUsage(q, org.id, user.id, 'draft', result)
     await logAiUse(q, {
       orgId: org.id, userId: user.id, feature: 'draft', model: result.model, documentId: doc.id, caseId: b.case_id ?? null, jurisdiction: b.jurisdiction, asOf,
       prompt: `${tName}: ${b.instructions}`, output: content, sources: draftSources.filter((x) => usedRefs.has(x.ref)).map(citedSummary), verification
@@ -209,10 +263,15 @@ aiRoutes.post('/documents/:id/analyze', jsonBody(z.object({
   throttle(c)
   await assertCanUseAi(db, org, b.type !== 'summary')
   const jurisdiction = b.jurisdiction ?? doc.jurisdiction ?? org.default_jurisdiction
+  const asOf = gulfToday()
+  // Legal points are grounded in the firm's library, found from the document's own text.
+  const { sources, namedSourceIds } = b.type === 'summary' ? { sources: [], namedSourceIds: [] }
+    : await groundQuestion(c.get('deps'), org.id, { question: `${doc.title} ${doc.content.slice(0, 1500)}`, jurisdiction, asOf, max: 10 })
   const result = await ai.complete({
-    messages: analysisMessages({ type: b.type as AnalysisType, lang: b.language, jurisdiction, title: doc.title, text: doc.content }),
+    messages: analysisMessages({ type: b.type as AnalysisType, lang: b.language, jurisdiction, title: doc.title, text: doc.content, sources }),
     json: true,
-    maxTokens: 4000
+    maxTokens: 4500,
+    temperature: 0.1
   })
   let analysis
   try {
@@ -220,13 +279,34 @@ aiRoutes.post('/documents/:id/analyze', jsonBody(z.object({
   } catch {
     throw new HttpError(502, 'ai_bad_output', 'The AI returned an unreadable analysis. Please try again.')
   }
+  // Code checks: each issue must quote the document word for word; each legal basis must pass the citation check.
+  const checks = { issues_kept: 0, issues_removed: 0, legal_basis_removed: 0, truncated: doc.content.length > 60_000 }
+  const kept: typeof analysis.issues = []
+  for (const i of analysis.issues) {
+    if (!i.quote || !appearsIn(i.quote, doc.content)) { checks.issues_removed++; continue }
+    if (i.legal_basis) {
+      const v = await verifyAnswer(db, { orgId: org.id, answer: i.legal_basis, sources, asOf, allowedJurisdictions: allowedJurisdictions(jurisdiction), namedSourceIds })
+      if (v.errors || !v.citations) { i.legal_basis = ''; checks.legal_basis_removed++ }
+    }
+    // Law named anywhere else in the issue without a verified basis is not shown as fact.
+    if (!i.legal_basis && (mentionedArticles(i.issue).length || lawReferences(i.issue).length)) i.issue = `${i.issue}\n(${b.language === 'ar' ? 'الإشارة القانونية غير متحقق منها في المكتبة' : 'Legal reference not verified in the library'})`
+    kept.push(i)
+  }
+  checks.issues_kept = kept.length
+  analysis = { ...analysis, issues: kept, checks }
   const saved = await db.tx(async (q) => {
     const row = await q.one(
       `INSERT INTO document_analyses (org_id, document_id, analysis_type, language, jurisdiction, result, model, created_by)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, analysis_type, language, jurisdiction, result, model, created_at`,
       [org.id, id, b.type, b.language, jurisdiction, JSON.stringify(analysis), result.model, user.id])
     await recordAiUsage(q, org.id, user.id, `analysis:${b.type}`, result)
-    await logAiUse(q, { orgId: org.id, userId: user.id, feature: `analysis:${b.type}`, model: result.model, documentId: id, jurisdiction, prompt: `${b.type} analysis of ${doc.title}`, output: result.text })
+    await logAiUse(q, { orgId: org.id, userId: user.id, feature: `analysis:${b.type}`, model: result.model, documentId: id, jurisdiction, asOf, prompt: `${b.type} analysis of ${doc.title}`, output: result.text,
+      sources: sources.filter((s) => kept.some((i: any) => i.legal_basis.includes(`[${s.ref}]`))).map(citedSummary),
+      verification: { status: checks.issues_removed || checks.legal_basis_removed ? 'passed_with_warnings' : 'passed', errors: 0, warnings: checks.issues_removed + checks.legal_basis_removed, citations: 0, as_of: asOf, checked_at: new Date().toISOString(),
+        checks: [
+          ...(checks.issues_removed ? [{ kind: 'quote' as const, severity: 'warning' as const, ok: false, code: 'issue_quote_not_found', detail: `${checks.issues_removed} issue(s) removed because their quoted clause was not found in the document.` }] : []),
+          ...(checks.legal_basis_removed ? [{ kind: 'reference' as const, severity: 'warning' as const, ok: false, code: 'legal_basis_removed', detail: `${checks.legal_basis_removed} legal basis reference(s) removed because they failed the citation check.` }] : [])
+        ] } })
     return row
   })
   await audit(c, 'ai.analyzed', 'document', id, { type: b.type })
@@ -435,4 +515,34 @@ aiRoutes.get('/log/export', async (c) => {
   return new Response(logDisclosure(rows, { lang, firm: org.name, document }), {
     headers: { 'content-type': 'text/plain; charset=utf-8', 'content-disposition': contentDisposition(`${base}.txt`), 'cache-control': 'private, no-store' }
   })
+})
+
+// ---------------- Report a problem with AI output ----------------
+
+export const FEEDBACK_REASONS = ['wrong_fact', 'wrong_citation', 'not_in_source', 'wrong_date', 'unsafe', 'other'] as const
+
+aiRoutes.post('/feedback', jsonBody(z.object({
+  feature: z.string().trim().min(2).max(60),
+  log_id: z.string().uuid().nullish(),
+  reason: z.enum(FEEDBACK_REASONS),
+  note: z.string().trim().max(2000).nullish(),
+  // The part of the output the user is reporting (kept short; no need to copy whole documents).
+  excerpt: z.string().trim().max(1000).nullish()
+})), async (c) => {
+  const { user, org } = auth(c)
+  const b = c.req.valid('json')
+  const { db, mailer, config, log } = c.get('deps')
+  if (b.log_id && !(await db.query('SELECT 1 FROM ai_use_log WHERE id = $1 AND org_id = $2', [b.log_id, org.id])).length) throw notFound('Log entry')
+  const [row] = await db.query<{ id: string }>(
+    `INSERT INTO ai_feedback (org_id, user_id, log_id, feature, reason, note, excerpt) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+    [org.id, user.id, b.log_id ?? null, b.feature, b.reason, b.note ?? null, b.excerpt ?? null])
+  await audit(c, 'ai.problem_reported', 'ai_feedback', row!.id, { feature: b.feature, reason: b.reason })
+  if (mailer.configured && config.platformAdminEmails.length) {
+    mailer.send({
+      to: config.platformAdminEmails[0]!,
+      subject: `AI problem reported: ${b.feature} (${b.reason})`,
+      text: [`Firm: ${org.name}`, `Feature: ${b.feature}`, `Reason: ${b.reason}`, b.note ? `Note: ${b.note}` : '', b.log_id ? `AI log entry: ${b.log_id}` : '', `Review: ${config.appUrl}/app#/admin`].filter(Boolean).join('\n')
+    }).catch((err) => log.warn('ai feedback email failed', { err }))
+  }
+  return c.json({ id: row!.id }, 201)
 })

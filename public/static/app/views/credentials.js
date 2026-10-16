@@ -1,3 +1,4 @@
+import { markUnverified } from './ai-read.js'
 import { api } from '../api.js'
 import { html, raw, render } from '../dom.js'
 import { fmtDate, t } from '../i18n.js'
@@ -126,12 +127,13 @@ export function openCredentialForm({ client, cases = [], documents = [], credent
       'read-doc': (btn) => busy(btn, async () => {
         const form = m.el.querySelector('form')
         try {
-          const { fields: f } = await api.post('/api/credentials/extract', { document_id: form.elements.document_id.value })
+          const { fields: f, unverified = [] } = await api.post('/api/credentials/extract', { document_id: form.elements.document_id.value })
           const set = (name, v) => { if (v && form.elements[name]) form.elements[name].value = v }
           set('kind', f.kind); set('number', f.number); set('issued_by', f.issued_by); set('issued_on', f.issued_on); set('expires_on', f.expires_on); set('scope', f.scope)
           if (f.notes) form.elements.notes.value = [form.elements.notes.value, f.notes].filter(Boolean).join('\n')
           syncKind()
           toast(t('cred.read_done'))
+          markUnverified(form, unverified)
         } catch (err) { showError(err) }
       })
     },

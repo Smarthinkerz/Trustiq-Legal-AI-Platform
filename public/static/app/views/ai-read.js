@@ -16,6 +16,19 @@ export const readBar = (docs) => aiEnabled() && docs.length ? html`<div class="r
   <p class="w-full text-xs text-violet-800" data-read-note hidden>${t('read.check')}</p></div>` : ''
 
 // Wires the bar: fills each named field the AI returned a value for, and highlights it.
+// Fields the AI named but code could not find in the document: left empty and marked for the lawyer.
+export function markUnverified(form, keys) {
+  if (!keys?.length) return
+  const names = []
+  for (const k of keys) {
+    const el = form.elements[k]
+    if (!el) continue
+    el.classList.add('ring-2', 'ring-amber-400')
+    names.push((el.id && form.querySelector(`label[for="${el.id}"]`)?.textContent?.replace('*', '').trim()) || k)
+  }
+  toast(t('read.unverified', { fields: names.join(', ') }), 'error')
+}
+
 export function wireReadBar(form, url, { onFields } = {}) {
   const go = form.querySelector('[data-read-go]')
   if (!go) return
@@ -23,7 +36,7 @@ export function wireReadBar(form, url, { onFields } = {}) {
     const id = form.querySelector('[data-read-doc]').value
     if (!id) return toast(t('read.need_document'), 'error')
     try {
-      const { fields } = await api.post(url, { document_id: id })
+      const { fields, unverified = [] } = await api.post(url, { document_id: id })
       let filled = 0
       for (const [k, v] of Object.entries(fields)) {
         const el = form.elements[k]
@@ -35,6 +48,7 @@ export function wireReadBar(form, url, { onFields } = {}) {
       onFields?.(fields)
       form.querySelector('[data-read-note]').hidden = false
       toast(filled ? t('read.filled', { n: filled }) : t('read.nothing'), filled ? 'success' : 'error')
+      markUnverified(form, unverified)
     } catch (err) { showError(err) }
   }))
 }

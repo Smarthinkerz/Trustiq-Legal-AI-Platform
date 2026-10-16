@@ -14,7 +14,8 @@ export async function adminView(root, { query, isCurrent }) {
     <div class="card">
       <div class="p-4 border-b border-slate-100"><input type="search" class="input" data-search placeholder="${t('admin.search')}" value="${state.q}" aria-label="${t('common.search')}" /></div>
       <div id="results">${spinner()}</div>
-    </div>`)
+    </div>
+    <section class="card mt-6"><h2 class="px-4 pt-4 font-semibold">${t('admin.ai_feedback')}</h2><div id="ai-feedback" class="p-4">${spinner()}</div></section>`)
   const results = root.querySelector('#results')
   const load = async () => {
     const res = await api.get('/api/admin/organizations' + qs({ page: state.page, q: state.q }))
@@ -50,6 +51,27 @@ export async function adminView(root, { query, isCurrent }) {
       }
     }
   })
+  const feedbackEl = root.querySelector('#ai-feedback')
+  const loadFeedback = async () => {
+    const { items } = await api.get('/api/admin/ai-feedback')
+    if (!isCurrent()) return
+    render(feedbackEl, items.length ? html`<ul class="space-y-4">${items.map((f) => html`<li class="border border-slate-200 rounded-lg p-3 text-sm space-y-2">
+      <div class="flex flex-wrap gap-2 items-center"><span class="badge bg-red-100 text-red-800">${t(`ai.reason.${f.reason}`)}</span><span class="font-medium">${f.feature}</span>
+        <span class="text-xs text-slate-500">${f.org_name || ''} · ${f.user_name || ''} · ${fmtRelative(f.created_at)}</span></div>
+      ${f.excerpt ? html`<blockquote class="border-s-4 border-red-200 ps-3 text-slate-700" dir="auto">${f.excerpt}</blockquote>` : ''}
+      ${f.note ? html`<p dir="auto">${f.note}</p>` : ''}
+      ${f.log_output ? html`<details><summary class="cursor-pointer text-xs text-slate-500">${t('admin.ai_feedback_output')}</summary><pre class="whitespace-pre-wrap text-xs bg-slate-50 p-2 rounded mt-1" dir="auto">${String(f.log_output).slice(0, 5000)}</pre></details>` : ''}
+      <div class="flex flex-wrap gap-2 items-center"><input class="input py-1 flex-1 min-w-48" data-res="${f.id}" placeholder="${t('admin.ai_feedback_resolution')}" aria-label="${t('admin.ai_feedback_resolution')}" />
+        ${['reviewed', 'fixed', 'dismissed'].map((st) => html`<button class="btn btn-outline btn-sm" data-action="fb" data-id="${f.id}" data-status="${st}">${t(`admin.ai_feedback_status.${st}`)}</button>`)}</div>
+    </li>`)}</ul>` : html`<p class="text-sm text-slate-500">${t('admin.ai_feedback_none')}</p>`)
+    bind(feedbackEl, { actions: { fb: async (el) => {
+      try {
+        await api.patch(`/api/admin/ai-feedback/${el.dataset.id}`, { status: el.dataset.status, resolution: feedbackEl.querySelector(`[data-res="${el.dataset.id}"]`)?.value.trim() || null })
+        toast(t('common.saved')); loadFeedback().catch(showError)
+      } catch (err) { showError(err) }
+    } } })
+  }
+  loadFeedback().catch(showError)
   root.querySelector('[data-search]').addEventListener('input', debounce((e) => { state.q = e.target.value.trim(); state.page = 1; reload() }))
   await load()
 }

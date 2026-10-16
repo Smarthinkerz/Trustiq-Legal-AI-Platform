@@ -11,9 +11,11 @@
   // Firm sites post to their own chat; other pages (the TrustiqLegal homepage) set data-endpoint.
   const endpoint = root.dataset.endpoint || `/f/${encodeURIComponent(slug)}/chat`
   const STORE = `tq-chat:${slug || endpoint}`
+  // Messages are kept here only to redraw the chat; the server keeps the conversation itself under chatId.
   let messages = []
-  try { messages = JSON.parse(sessionStorage.getItem(STORE) || '[]').slice(-20) } catch { messages = [] }
-  const save = () => { try { sessionStorage.setItem(STORE, JSON.stringify(messages.slice(-20))) } catch { /* private mode */ } }
+  let chatId = null
+  try { messages = JSON.parse(sessionStorage.getItem(STORE) || '[]').slice(-20); chatId = sessionStorage.getItem(`${STORE}:id`) } catch { messages = [] }
+  const save = () => { try { sessionStorage.setItem(STORE, JSON.stringify(messages.slice(-20))); if (chatId) sessionStorage.setItem(`${STORE}:id`, chatId) } catch { /* private mode */ } }
 
   const el = (tag, attrs = {}, ...children) => {
     const n = document.createElement(tag)
@@ -82,12 +84,12 @@
     try {
       const res = await fetch(endpoint, {
         method: 'POST', headers: { 'content-type': 'application/json' }, credentials: 'omit',
-        body: JSON.stringify({ lang, messages: messages.slice(-12) })
+        body: JSON.stringify({ lang, message: text.slice(0, 1500), ...(chatId ? { chat_id: chatId } : {}) })
       })
       const data = await res.json().catch(() => ({}))
       const reply = res.ok && typeof data.reply === 'string' ? data.reply : (data.error && data.error.message) || t.error || 'Error'
       typing.textContent = reply
-      if (res.ok) { messages.push({ role: 'assistant', content: reply.slice(0, 1500) }); save() }
+      if (res.ok) { if (typeof data.chat_id === 'string') chatId = data.chat_id; messages.push({ role: 'assistant', content: reply.slice(0, 1500) }); save() }
     } catch {
       typing.textContent = t.error || 'Error'
     } finally {
@@ -105,12 +107,13 @@
       e.preventDefault()
       const fd = new FormData(contact)
       const body = Object.fromEntries(fd.entries())
-      body.transcript = messages.slice(-20).map((m) => ({ role: m.role, content: String(m.content).slice(0, 2000) }))
+      if (chatId) body.chat_id = chatId
+      else body.transcript = messages.filter((m) => m.role === 'user').slice(-20).map((m) => ({ role: 'user', content: String(m.content).slice(0, 2000) }))
       fetch(contact.action, { method: 'POST', headers: { 'content-type': 'application/json' }, credentials: 'omit', body: JSON.stringify(body) })
         .then((r) => r.json().then((d) => ({ ok: r.ok && d.ok, error: d.error })))
         .then((r) => {
           const q = lang === 'ar' ? 'lang=ar&' : ''
-          if (r.ok) { try { sessionStorage.removeItem(STORE) } catch { /* ignore */ } }
+          if (r.ok) { try { sessionStorage.removeItem(STORE); sessionStorage.removeItem(`${STORE}:id`) } catch { /* ignore */ } }
           location.href = `${location.pathname}?${q}${r.ok ? 'sent=1' : `error=${r.error === 'limited' ? 'limited' : '1'}`}#contact`
         })
         .catch(() => contact.submit())

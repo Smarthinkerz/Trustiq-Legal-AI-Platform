@@ -40,7 +40,9 @@ describe('client updates', () => {
     const edited = await c.patch(`/api/client-updates/${id}`, { body: 'The court has set the first hearing. We will attend for you.' })
     expect(edited.data.update).toMatchObject({ language: 'en', title: 'Your claim: hearing date set', body: 'The court has set the first hearing. We will attend for you.' })
 
-    const pub = await c.post(`/api/client-updates/${id}/publish`, {})
+    // An AI draft goes to the client only after the lawyer confirms they checked it.
+    expect((await c.post(`/api/client-updates/${id}/publish`, {})).status).toBe(400)
+    const pub = await c.post(`/api/client-updates/${id}/publish`, { reviewed: true })
     expect(pub.status).toBe(200)
     expect(pub.data).toMatchObject({ emailed: 1, has_portal: true, update: { status: 'published', emailed: 1 } })
     const mail = ctx.mails.find((m) => m.to === email && m.subject.startsWith('Your claim: hearing date set'))
@@ -53,7 +55,7 @@ describe('client updates', () => {
     expect((await portal.get('/api/portal/overview')).data.cases[0].unread_updates).toBe(1)
     const seen = await portal.get(`/api/portal/cases/${caseId}`)
     expect(seen.data.updates).toHaveLength(1)
-    expect(seen.data.updates[0]).toMatchObject({ title: 'Your claim: hearing date set' })
+    expect(seen.data.updates[0]).toMatchObject({ title: 'Your claim: hearing date set', ai_drafted: true })
     expect((await portal.get('/api/portal/overview')).data.cases[0].unread_updates).toBe(0)
     expect((await c.get(`/api/client-updates/case/${caseId}`)).data.items[0].read_at).toBeTruthy()
     expect((await portal.get(`/api/client-updates/case/${caseId}`)).status).toBe(403)
@@ -68,6 +70,20 @@ describe('client updates', () => {
     expect((await c.patch(`/api/client-updates/${d2.data.update.id}`, { body: ar.data.update.body })).data.update.body).toBe(ar.data.update.body)
     expect(ctx.ai.calls.at(-1)!.map((m: any) => m.content).join('\n')).toContain('Previous update sent to the client')
     expect((await c.del(`/api/client-updates/${d2.data.update.id}`)).status).toBe(200)
+
+    // A draft with a date that is not in the matter record is regenerated once, then refused.
+    ctx.ai.nextReply = JSON.stringify({ title: 'Hearing moved', body: 'The court has moved your hearing to 14 February 2031. We will attend.' })
+    const invented = await c.post(`/api/client-updates/case/${caseId}/draft`, { language: 'en', points: 'Tell the client the hearing is coming.' })
+    expect(invented.status).toBe(422)
+    expect(invented.data.error.code).toBe('unverified_dates')
+    expect(invented.data.error.message).toContain('14 February 2031')
+  })
+
+  it('refuses to draft when nothing new is recorded', async () => {
+    const { c, caseId } = await firmWithPortalClient()
+    const r = await c.post(`/api/client-updates/case/${caseId}/draft`, { language: 'en' })
+    expect(r.status).toBe(422)
+    expect(r.data.error.code).toBe('nothing_to_report')
   })
 
   it('lists matters whose client is due an update and writes updates by hand', async () => {

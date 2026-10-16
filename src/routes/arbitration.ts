@@ -1,3 +1,4 @@
+import { logAiUse } from '../services/ai-log'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { audit, auth, requireRole, type AppEnv } from '../context'
@@ -5,7 +6,7 @@ import type { Queryable } from '../db'
 import { badRequest, HttpError, notFound } from '../lib/errors'
 import { jsonBody, optText, queryParams, updateBody, uuidParam } from '../lib/http'
 import {
-  DUE_SOON_DAYS, INSTITUTION_NAME, INSTITUTIONS, MEMBER_ROLES, NOMINATORS, normalizeTimetable, PARTIES, RESULTS, stage, STEP_KINDS, syncStepEvent, timetableMessages, type Step
+  DUE_SOON_DAYS, INSTITUTION_NAME, INSTITUTIONS, MEMBER_ROLES, NOMINATORS, normalizeTimetable, verifyTimetable, PARTIES, RESULTS, stage, STEP_KINDS, syncStepEvent, timetableMessages, type Step
 } from '../services/arbitration'
 import { GULF_TODAY } from '../services/credentials'
 import { parseJsonObject } from '../services/legal-prompts'
@@ -283,13 +284,20 @@ arbitrationRoutes.post('/case/:id/timetable/read', jsonBody(z.object({
   if (text.length < 30) throw badRequest('Paste the procedural order or choose a document with readable text.')
   await assertCanUseAi(db, org)
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Muscat' }).format(new Date())
-  const result = await ai.complete({ messages: timetableMessages(text, { today, ourSide: arb.our_side }), json: true, maxTokens: 2500, temperature: 0 })
+  const result = await ai.complete({ messages: timetableMessages(text, { today, ourSide: arb.our_side }), json: true, maxTokens: 3000, temperature: 0 })
   await recordAiUsage(db, org.id, user.id, 'arbitration_timetable', result)
+  let parsed
   try {
-    return c.json(normalizeTimetable(parseJsonObject(result.text)))
+    parsed = normalizeTimetable(parseJsonObject(result.text))
   } catch {
     throw new HttpError(502, 'ai_bad_output', 'The AI could not read this order. Please add the steps by hand.')
   }
+  // Only steps whose date is written in the order are proposed; their dates are recalculated by code.
+  const checked = verifyTimetable(parsed, text)
+  await logAiUse(db, { orgId: org.id, userId: user.id, feature: 'arbitration_timetable', model: result.model, documentId: b.document_id ?? null, caseId: k.id, prompt: 'Read procedural order',
+    output: result.text, verification: { status: checked.unverified ? 'passed_with_warnings' : checked.steps.length ? 'passed' : 'unverified', warnings: checked.unverified, errors: 0, citations: 0, as_of: today, checked_at: new Date().toISOString(),
+      checks: checked.skipped.filter((x) => x.includes('could not be found')).map((detail) => ({ kind: 'quote' as const, severity: 'warning' as const, ok: false, code: 'date_not_found', detail })) } })
+  return c.json({ steps: checked.steps.map(({ evidence: _e, ...s }: any) => s), skipped: checked.skipped, unverified: checked.unverified, corrected: checked.corrected })
 })
 
 // ----- Firm-wide register -----

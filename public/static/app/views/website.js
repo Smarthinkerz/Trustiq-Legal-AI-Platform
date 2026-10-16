@@ -558,9 +558,12 @@ export async function postEditView(root, ctx) {
   }
   showCover()
 
+  let aiUsed = false
   const writer = async (btn, payload) => {
     try {
-      const { result } = await api.post('/api/website/writer', payload)
+      const { result, verify_marks: marks } = await api.post('/api/website/writer', payload)
+      aiUsed = true
+      if (marks) toast(t('web.verify_marks', { n: marks }), 'error')
       return result
     } catch (err) { showError(err); return null }
   }
@@ -574,7 +577,7 @@ export async function postEditView(root, ctx) {
 
   const save = (btn, status) => busy(btn, async () => {
     const f = formData(postForm)
-    const payload = { ...f, status }
+    const payload = { ...f, status, ...(aiUsed || post.ai_assisted ? { ai_assisted: true } : {}) }
     if (!payload.slug) delete payload.slug
     try {
       const r = isNew ? await api.post('/api/website/posts', payload) : await api.patch(`/api/website/posts/${post.id}`, payload)

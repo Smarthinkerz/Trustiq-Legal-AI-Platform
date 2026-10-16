@@ -55,17 +55,22 @@ describe('arbitration', () => {
     // AI reads the procedural order; nothing is saved until the lawyer confirms.
     ctx.ai.nextReply = JSON.stringify({
       steps: [
-        { kind: 'submission', title: 'Statement of Defence and Counterclaim', party: 'us', due_on: gulfDay(3), notes: '' },
-        { kind: 'deposit', title: 'Advance on costs', party: 'both', due_on: gulfDay(-1), notes: '' },
-        { kind: 'hearing', title: 'Evidentiary hearing', party: 'both', due_on: gulfDay(60), notes: '' },
-        { kind: 'submission', title: 'Reply', party: 'them', due_on: gulfDay(20), notes: '' }
+        { kind: 'submission', title: 'Statement of Defence and Counterclaim', party: 'us', due_on: gulfDay(3), evidence: gulfDay(3), notes: '' },
+        { kind: 'deposit', title: 'Advance on costs', party: 'both', due_on: gulfDay(-1), evidence: gulfDay(-1), notes: '' },
+        { kind: 'hearing', title: 'Evidentiary hearing', party: 'both', due_on: gulfDay(60), evidence: gulfDay(60), notes: '' },
+        { kind: 'submission', title: 'Reply', party: 'them', due_on: gulfDay(20), evidence: gulfDay(20), notes: '' },
+        // A step whose date is not in the order is not proposed.
+        { kind: 'award', title: 'Final award', party: 'tribunal', due_on: gulfDay(200), evidence: gulfDay(200), notes: '' }
       ],
       skipped: ['Post-hearing briefs']
     })
     expect((await owner.post(`/api/arbitration/case/${k.id}/timetable/read`, { text: 'short' })).status).toBe(400)
-    const read = await owner.post(`/api/arbitration/case/${k.id}/timetable/read`, { text: 'Procedural Order No. 1. The Respondent shall file its Statement of Defence ...' })
+    const order = `Procedural Order No. 1. Advance on costs by ${gulfDay(-1)}. The Respondent shall file its Statement of Defence by ${gulfDay(3)}. Reply by ${gulfDay(20)}. Hearing on ${gulfDay(60)}.`
+    const read = await owner.post(`/api/arbitration/case/${k.id}/timetable/read`, { text: order })
     expect(read.status).toBe(200)
     expect(read.data.steps.map((s: any) => s.title)).toEqual(['Advance on costs', 'Statement of Defence and Counterclaim', 'Reply', 'Evidentiary hearing'])
+    expect(read.data.unverified).toBe(1)
+    expect(read.data.skipped.join(' ')).toMatch(/Final award: the date could not be found/)
     expect(ctx.ai.calls.at(-1)!.map((m: any) => m.content).join('\n')).toContain('Our client is the respondent')
     expect((await owner.get(`/api/arbitration/case/${k.id}`)).data.steps).toHaveLength(0)
 

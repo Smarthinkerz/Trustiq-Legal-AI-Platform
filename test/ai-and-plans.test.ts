@@ -13,15 +13,17 @@ describe('AI assistant', () => {
     const { c } = await registered(ctx.app)
     const k = await c.post('/api/cases', { title: 'Wrongful termination – Hamdan', jurisdiction: 'oman', description: 'Employee dismissed without notice.' })
     ctx.ai.nextReply = 'Under the Omani Labour Law... Verify: notice period.'
-    const first = await c.post('/api/ai/chat', { message: 'What remedies are available?', case_id: k.data.case.id })
+    // With an empty library, an answer from general knowledge is an explicit, labelled opt-in.
+    const first = await c.post('/api/ai/chat', { message: 'What remedies are available?', case_id: k.data.case.id, allow_general: true })
     expect(first.status).toBe(200)
     expect(first.data.reply).toContain('Omani Labour Law')
+    expect(first.data).toMatchObject({ general: true, abstained: null })
     const system = ctx.ai.calls.at(-1)![0].content
     expect(system).toContain('Sultanate of Oman')
     expect(system).toContain('Wrongful termination')
     expect(system).toMatch(/Never invent statutes/)
 
-    await c.post('/api/ai/chat', { message: 'And the limitation period?', conversation_id: first.data.conversation_id })
+    await c.post('/api/ai/chat', { message: 'And the limitation period?', conversation_id: first.data.conversation_id, allow_general: true })
     const lastCall = ctx.ai.calls.at(-1)!
     expect(lastCall.map((m) => m.role)).toEqual(['system', 'user', 'assistant', 'user'])
 
@@ -32,8 +34,20 @@ describe('AI assistant', () => {
 
   it('answers in Arabic when requested', async () => {
     const { c } = await registered(ctx.app)
-    await c.post('/api/ai/chat', { message: 'ما هي شروط عقد العمل؟', language: 'ar' })
+    await c.post('/api/ai/chat', { message: 'ما هي شروط عقد العمل؟', language: 'ar', allow_general: true })
     expect(ctx.ai.calls.at(-1)![0].content).toContain('Modern Standard Arabic')
+  })
+
+  it('says it could not find the answer when the library has nothing, without calling the model', async () => {
+    const { c } = await registered(ctx.app)
+    const calls = ctx.ai.calls.length
+    const r = await c.post('/api/ai/chat', { message: 'What is the limitation period for a labour claim?', jurisdiction: 'oman' })
+    expect(r.status).toBe(200)
+    expect(r.data).toMatchObject({ abstained: 'no_sources', sources: [] })
+    expect(r.data.reply).toContain('I could not find this in the available sources.')
+    expect(ctx.ai.calls.length).toBe(calls)
+    const ar = await c.post('/api/ai/chat', { message: 'ما مدة التقادم؟', language: 'ar', jurisdiction: 'oman' })
+    expect(ar.data.reply).toContain('لم أجد هذا في المصادر المتاحة.')
   })
 
   it('drafts a document into the library', async () => {
@@ -49,11 +63,23 @@ describe('AI assistant', () => {
 
   it('analyses a document and stores a normalised result', async () => {
     const { c } = await registered(ctx.app)
-    const d = await c.post('/api/documents', { title: 'Service agreement', content: 'SERVICE AGREEMENT. '.repeat(20) })
+    const d = await c.post('/api/documents', { title: 'Service agreement', content: 'SERVICE AGREEMENT. '.repeat(20) + 'Clause 5. The Supplier shall be liable for all losses without limit.' })
+    ctx.ai.nextReply = JSON.stringify({ summary: 'A service agreement.', risk_score: 62, risk_level: 'high', parties: ['A', 'B'], key_terms: [], missing_clauses: [], next_steps: [],
+      issues: [
+        { severity: 'high', clause: '5', quote: 'The Supplier shall be liable for all losses without limit', issue: 'Uncapped liability', legal_basis: '', recommendation: 'Add a cap' },
+        // Invented clause: its quote is not in the document, so the issue is removed.
+        { severity: 'critical', clause: '9', quote: 'The Client waives all rights to terminate', issue: 'No termination right', legal_basis: '', recommendation: 'Add one' },
+        // A law named without a verified basis is labelled, not shown as fact.
+        { severity: 'medium', clause: '5', quote: 'liable for all losses', issue: 'Breaches Article 999 of the Civil Code', legal_basis: 'Article 999 of the Civil Code [S7]', recommendation: '' }
+      ] })
     const r = await c.post(`/api/ai/documents/${d.data.document.id}/analyze`, { type: 'risk' })
     expect(r.status).toBe(201)
     expect(r.data.analysis.result.risk_score).toBe(62)
-    expect(r.data.analysis.result.issues[0].severity).toBe('high')
+    expect(r.data.analysis.result.issues.map((i: any) => i.clause)).toEqual(['5', '5'])
+    expect(r.data.analysis.result.issues[0]).toMatchObject({ severity: 'high', quote: 'The Supplier shall be liable for all losses without limit' })
+    expect(r.data.analysis.result.issues[1].legal_basis).toBe('')
+    expect(r.data.analysis.result.issues[1].issue).toContain('Legal reference not verified in the library')
+    expect(r.data.analysis.result.checks).toMatchObject({ issues_kept: 2, issues_removed: 1, legal_basis_removed: 1 })
     const doc = await c.get(`/api/documents/${d.data.document.id}`)
     expect(doc.data.analyses).toHaveLength(1)
     // The document text is fenced as data, not instructions.
@@ -106,7 +132,7 @@ describe('OpenAI client', () => {
     const r = normalizeAnalysis({ risk_score: '250', issues: [{ severity: 'extreme', issue: 'x' }, { nothing: true }], parties: 'not-an-array' })
     expect(r.risk_score).toBe(100)
     expect(r.risk_level).toBe('critical')
-    expect(r.issues).toEqual([{ severity: 'medium', clause: '', issue: 'x', recommendation: '' }])
+    expect(r.issues).toEqual([{ severity: 'medium', clause: '', quote: '', issue: 'x', legal_basis: '', recommendation: '' }])
     expect(r.parties).toEqual([])
   })
 })

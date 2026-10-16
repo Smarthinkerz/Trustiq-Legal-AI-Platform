@@ -86,7 +86,7 @@ portalRoutes.get('/cases/:id', async (c) => {
          FROM hearing_records h JOIN events e ON e.id = h.event_id LEFT JOIN events n ON n.id = h.next_event_id
         WHERE h.case_id = $1 AND h.org_id = $2 AND h.shared_with_client ORDER BY e.starts_at DESC`, [id, org.id]),
     db.query(
-      `SELECT x.id, x.title, x.body, x.language, x.published_at, x.read_at, u.name AS author_name FROM case_updates x LEFT JOIN users u ON u.id = x.published_by
+      `SELECT x.id, x.title, x.body, x.language, x.published_at, x.read_at, x.ai_drafted, u.name AS author_name FROM case_updates x LEFT JOIN users u ON u.id = x.published_by
         WHERE x.case_id = $1 AND x.org_id = $2 AND x.status = 'published' ORDER BY x.published_at DESC LIMIT 50`, [id, org.id])
   ])
   await db.query(`UPDATE case_updates SET read_at = now() WHERE case_id = $1 AND org_id = $2 AND status = 'published' AND read_at IS NULL`, [id, org.id])

@@ -1,6 +1,6 @@
 import { $, $$, bind, html, raw, render } from './dom.js'
 import { getLang, t } from './i18n.js'
-import { ApiError } from './api.js'
+import { api, ApiError } from './api.js'
 
 // ---------- Toasts ----------
 export function toast(message, type = 'success') {
@@ -221,7 +221,40 @@ export const pageHeader = (title, subtitle, actions) => html`
     ${actions ? html`<div class="flex flex-wrap gap-2">${actions}</div>` : ''}
   </div>`
 
-export const aiDisclaimer = () => html`<p class="text-xs text-slate-500 flex items-start gap-1.5"><i class="fas fa-circle-info mt-0.5"></i><span>${t('ai.disclaimer')}</span></p>`
+export const aiDisclaimer = (feature, logId) => html`<p class="text-xs text-slate-500 flex items-start gap-1.5"><i class="fas fa-circle-info mt-0.5"></i><span>${t('ai.disclaimer')}${feature ? html` <button type="button" class="underline text-slate-600 hover:text-red-700" data-ai-report="${feature}" data-log-id="${logId || ''}">${t('ai.report_problem')}</button>` : ''}</span></p>`
+
+// "Report a problem" on any AI output: goes to the platform team's review list.
+export function reportAiProblem(feature, logId) {
+  const reasons = ['wrong_fact', 'wrong_citation', 'not_in_source', 'wrong_date', 'unsafe', 'other']
+  const m = modal({
+    title: t('ai.report_problem'),
+    size: 'sm',
+    body: html`<form data-form="report" class="space-y-4" novalidate>
+      <p class="text-sm text-slate-600">${t('ai.report_help')}</p>
+      ${selectField({ name: 'reason', label: t('ai.report_reason'), required: true, options: reasons.map((r) => ({ value: r, label: t(`ai.reason.${r}`) })) })}
+      ${textareaField({ name: 'excerpt', label: t('ai.report_excerpt'), rows: 3 })}
+      ${textareaField({ name: 'note', label: t('ai.report_note'), rows: 3 })}
+      ${formActions(t('ai.report_send'))}
+    </form>`,
+    forms: {
+      report: async (form) => {
+        const f = new FormData(form)
+        await busy(submitButton(form), async () => {
+          try {
+            await api.post('/api/ai/feedback', { feature, log_id: logId || null, reason: f.get('reason'), excerpt: String(f.get('excerpt') || '').trim() || null, note: String(f.get('note') || '').trim() || null })
+            toast(t('ai.report_sent'))
+            m.close()
+          } catch (err) { showError(err, form) }
+        })
+      }
+    }
+  })
+}
+
+document.addEventListener('click', (e) => {
+  const b = e.target.closest?.('[data-ai-report]')
+  if (b) { e.preventDefault(); reportAiProblem(b.dataset.aiReport, b.dataset.logId) }
+})
 
 export function debounce(fn, ms = 300) {
   let h

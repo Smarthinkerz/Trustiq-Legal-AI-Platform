@@ -1,3 +1,4 @@
+import { publicReplyProblem } from '../services/ai-guard'
 import { Hono } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import { z } from 'zod'
@@ -39,9 +40,13 @@ export function helpRoutes(deps: Deps) {
     const fallback = () => c.json({ reply: platformHelpFallback(lang, contact), fallback: true })
     if (!ai.configured || !daily.take('all').ok) return fallback()
     try {
-      const result = await ai.complete({ messages: platformHelpMessages(knowledge, messages, lang), maxTokens: 500, temperature: 0.3 })
+      // Only the visitor's own messages are trusted; "assistant" turns sent by the browser are ignored.
+      const own = messages.filter((m) => m.role === 'user').slice(-6)
+      const result = await ai.complete({ messages: platformHelpMessages(knowledge, own, lang), maxTokens: 500, temperature: 0.2 })
       log.info('platform help chat', { promptTokens: result.promptTokens, completionTokens: result.completionTokens })
-      return c.json({ reply: result.text.trim().slice(0, 3000) })
+      let reply = result.text.trim().slice(0, 3000)
+      if (publicReplyProblem(reply) === 'law_reference') reply = platformHelpFallback(lang, contact)
+      return c.json({ reply })
     } catch (err) {
       log.warn('platform help chat failed', { err })
       return fallback()

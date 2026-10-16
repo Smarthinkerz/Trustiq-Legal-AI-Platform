@@ -94,10 +94,23 @@ describe('powers of attorney and IDs', () => {
       title: 'وكالة عامة', language: 'ar',
       content: 'وكالة عامة رقم 118/2026. أنا الموقع أدناه شركة الخليج للتجارة أوكل المحامي ... للمرافعة أمام جميع المحاكم. تاريخ التحرير 2026-01-10، وتنتهي في 2027-01-09. الكاتب بالعدل - مسقط'
     })
-    ctx.ai.nextReply = JSON.stringify({ kind: 'power_of_attorney', number: '118/2026', holder: 'شركة الخليج للتجارة', issued_by: 'الكاتب بالعدل - مسقط', issued_on: '2026-01-10', expires_on: '2027-01-09', scope: 'المرافعة أمام جميع المحاكم', notes: '', extra: 1 })
+    ctx.ai.nextReply = JSON.stringify({ kind: 'power_of_attorney', number: '118/2026', holder: 'شركة الخليج للتجارة', issued_by: 'الكاتب بالعدل - مسقط', issued_on: '2026-01-10', expires_on: '2027-01-09', scope: 'المرافعة أمام جميع المحاكم', notes: '', extra: 1,
+      evidence: { number: 'رقم 118/2026', holder: 'شركة الخليج للتجارة', issued_by: 'الكاتب بالعدل - مسقط', issued_on: '2026-01-10', expires_on: '2027-01-09' } })
     const res = await c.post('/api/credentials/extract', { document_id: document.id })
     expect(res.status).toBe(200)
     expect(res.data.fields).toEqual({ kind: 'power_of_attorney', number: '118/2026', holder: 'شركة الخليج للتجارة', issued_by: 'الكاتب بالعدل - مسقط', issued_on: '2026-01-10', expires_on: '2027-01-09', scope: 'المرافعة أمام جميع المحاكم', notes: '' })
+    expect(res.data.unverified).toEqual([])
+
+    // An expiry date or number the document does not contain is left empty, never guessed.
+    ctx.ai.nextReply = JSON.stringify({ kind: 'power_of_attorney', number: '999/2026', holder: 'شركة الخليج للتجارة', expires_on: '2028-05-01', issued_on: '2026-01-10',
+      evidence: { number: 'رقم 999/2026', holder: 'شركة الخليج للتجارة', expires_on: '2028-05-01', issued_on: '2026-01-10' } })
+    const guessed = await c.post('/api/credentials/extract', { document_id: document.id })
+    expect(guessed.data.fields).toMatchObject({ number: '', expires_on: '', issued_on: '2026-01-10', holder: 'شركة الخليج للتجارة' })
+    expect(guessed.data.unverified.sort()).toEqual(['expires_on', 'number'])
+    // The extraction is in the AI use log with the check result.
+    const log = await c.get(`/api/ai/log?document_id=${document.id}`)
+    expect(log.data.items.at(-1)).toMatchObject({ feature: 'credential_extract' })
+    expect(log.data.items.at(-1).verification.warnings).toBe(2)
     expect(ctx.ai.calls.at(-1)![1]!.content).toContain('وكالة عامة رقم 118/2026')
 
     const { data: { document: empty } } = await c.post('/api/documents', { title: 'Scan', content: '' })
