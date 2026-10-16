@@ -102,7 +102,7 @@ function openEngagementForm(kase, data, onChange) {
           const r = await api.post(`/api/engagements/case/${kase.id}/scope`, { language: form.elements.language.value })
           form.elements.scope.value = r.scope
           if (r.exclusions) form.elements.exclusions.value = r.exclusions
-          toast(t('eng.ai_review'))
+          toast(r.verify_marks ? t('eng.verify_marks', { n: r.verify_marks }) : t('eng.ai_review'), r.verify_marks ? 'error' : 'success')
         } catch (err) { showError(err) }
       })
     },

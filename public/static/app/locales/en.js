@@ -1975,6 +1975,8 @@ export default {
   'intake.amount_unverified': 'not in the enquiry; check',
   'leads.reply_advice': 'Check the draft: parts of it may read as legal advice. Edit before sending.',
   'leads.reply_law_reference': 'Check the draft: it names a law or article. Verify it or remove it before sending.',
+  'cmp.checks': 'Code checks: {removed} point(s) removed because they did not match a real change; {cleared} clause number(s) cleared because they were not in the change.',
+  'eng.verify_marks': '{n} law reference(s) could not be confirmed in your library and are marked [verify]. Check and remove the marks before preparing the letter.',
   'docs.history': 'Version history',
   'docs.view': 'View',
   'docs.version': 'Version',

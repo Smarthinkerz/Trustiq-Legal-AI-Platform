@@ -1,3 +1,5 @@
+import { markUnverifiedLaw, VERIFY_MARKER } from '../services/ai-guard'
+import { logAiUse } from '../services/ai-log'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { audit, auth, requireRole, type AppEnv } from '../context'
@@ -81,6 +83,7 @@ engagementRoutes.post('/case/:id', jsonBody(z.object({
   const { db } = c.get('deps')
   const k = await loadCase(db, org.id, id)
   if (!k.client_id) throw badRequest('Link this matter to a client before preparing an engagement letter.')
+  if (VERIFY_MARKER.test(JSON.stringify(terms))) throw badRequest('Check and remove every [verify: ...] mark before preparing the letter.')
   const brand = await db.one('SELECT firm_name, firm_name_ar, address FROM branding WHERE org_id = $1', [org.id])
   const ar = language === 'ar'
   const letter = renderEngagementLetter(language, {
@@ -129,9 +132,16 @@ engagementRoutes.post('/case/:id/scope', jsonBody(z.object({ language: z.enum(['
   await recordAiUsage(db, org.id, user.id, 'engagement_scope', out)
   let r: any
   try { r = parseJsonObject(out.text) } catch { throw new HttpError(502, 'ai_bad_output', 'The AI returned an unreadable answer. Please try again.') }
-  const scope = typeof r?.scope === 'string' ? r.scope.trim().slice(0, 8000) : ''
-  if (!scope) throw new HttpError(502, 'ai_bad_output', 'The AI returned an unreadable answer. Please try again.')
-  return c.json({ scope, exclusions: typeof r?.exclusions === 'string' ? r.exclusions.trim().slice(0, 4000) : '' })
+  const rawScope = typeof r?.scope === 'string' ? r.scope.trim().slice(0, 8000) : ''
+  if (!rawScope) throw new HttpError(502, 'ai_bad_output', 'The AI returned an unreadable answer. Please try again.')
+  // Law references the library cannot confirm are marked [verify: ...] for the lawyer.
+  const scope = await markUnverifiedLaw(db, org.id, rawScope)
+  const exclusions = await markUnverifiedLaw(db, org.id, typeof r?.exclusions === 'string' ? r.exclusions.trim().slice(0, 4000) : '')
+  const marks = scope.marked + exclusions.marked
+  await logAiUse(db, { orgId: org.id, userId: user.id, feature: 'engagement_scope', model: out.model, caseId: k.id, prompt: `Engagement scope (${language})`, output: `${scope.text}\n\n${exclusions.text}`,
+    verification: { status: marks ? 'passed_with_warnings' : 'passed', errors: 0, warnings: marks,
+      checks: marks ? [{ kind: 'law_reference', severity: 'warning', ok: false, code: 'unverified_law_reference', detail: `${marks} law reference(s) not found in the library were marked [verify].` }] : [] } })
+  return c.json({ scope: scope.text, exclusions: exclusions.text, verify_marks: marks })
 })
 
 export default engagementRoutes
