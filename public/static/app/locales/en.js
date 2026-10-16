@@ -2877,7 +2877,7 @@ export default {
   "web.address": "Office address",
   "web.office_hours": "Office hours",
   "web.chatbot": "Website chatbot",
-  "web.chatbot_hint": "Answers visitors' questions from your website content and the information below, never gives legal advice, and invites visitors to request a consultation.",
+  "web.chatbot_hint": "Answers visitors' questions from your website content and the information below, is instructed not to give legal advice (replies that cite laws or read as advice are replaced automatically), and invites visitors to request a consultation.",
   "web.chatbot_enable": "Show the chatbot on the website",
   "web.greeting": "Greeting",
   "web.knowledge": "Information for the chatbot",
