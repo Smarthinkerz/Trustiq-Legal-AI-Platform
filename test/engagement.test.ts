@@ -84,7 +84,14 @@ describe('engagement letters on a matter', () => {
 
     ctx.ai.nextReply = JSON.stringify({ scope: '1. Send a legal notice.\n2. File the claim.', exclusions: 'Appeals.' })
     const scope = await c.post(`/api/engagements/case/${k.id}/scope`, { language: 'en' })
-    expect(scope.data).toEqual({ scope: '1. Send a legal notice.\n2. File the claim.', exclusions: 'Appeals.' })
+    expect(scope.data).toEqual({ scope: '1. Send a legal notice.\n2. File the claim.', exclusions: 'Appeals.', verify_marks: 0 })
+
+    // A law the library does not hold is marked, and a marked scope cannot go into a letter.
+    ctx.ai.nextReply = JSON.stringify({ scope: 'Advise under Royal Decree 77/2099 on the deposit.', exclusions: '' })
+    const marked = await c.post(`/api/engagements/case/${k.id}/scope`, { language: 'en' })
+    expect(marked.data.verify_marks).toBe(1)
+    expect(marked.data.scope).toMatch(/\[verify/)
+    expect((await c.post(`/api/engagements/case/${k.id}`, { language: 'en', terms: { ...base, scope: marked.data.scope } })).status).toBe(400)
     expect(ctx.ai.calls.at(-1)![1]!.content).toContain('Landlord refuses to return the deposit.')
 
     const b = await registered(ctx.app)

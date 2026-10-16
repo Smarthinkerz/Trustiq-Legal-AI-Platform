@@ -4,7 +4,7 @@ import type { Logger } from '../lib/logger'
 
 type ContentPart = { type: 'text'; text: string } | { type: 'file'; file: { filename: string; file_data: string } }
 export type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string | ContentPart[] }
-export type Completion = { text: string; model: string; promptTokens: number; completionTokens: number }
+export type Completion = { text: string; model: string; promptTokens: number; completionTokens: number; finishReason?: string }
 
 export interface AiService {
   configured: boolean
@@ -142,7 +142,8 @@ export function createAiService(config: Config, log: Logger, fetchImpl: typeof f
         text,
         model: data.model ?? model,
         promptTokens: data.usage?.prompt_tokens ?? 0,
-        completionTokens: data.usage?.completion_tokens ?? 0
+        completionTokens: data.usage?.completion_tokens ?? 0,
+        finishReason: data?.choices?.[0]?.finish_reason
       }
     }
   }

@@ -129,7 +129,7 @@ export function openDictation(kase, { onSaved } = {}) {
         ${r.tasks.length ? html`<ul class="space-y-2">${r.tasks.map((x, i) => html`<li class="flex flex-wrap items-center gap-2" data-task="${i}">
           <input type="checkbox" checked data-keep aria-label="${t('dictate.keep')}" />
           <input class="input flex-1 min-w-48" data-f="title" value="${x.title}" maxlength="300" dir="auto" aria-label="${t('tasks.title')}" />
-          <input class="input w-40" type="date" data-f="due_date" value="${x.due_date}" aria-label="${t('tasks.due')}" /></li>`)}</ul>`
+          <input class="input w-40" type="date" data-f="due_date" value="${x.due_date}" aria-label="${t('tasks.due')}" />${dateNote(x)}</li>`)}</ul>`
         : html`<p class="text-sm text-slate-500">${t('dictate.none')}</p>`}
       </section>
       <section>
@@ -140,7 +140,7 @@ export function openDictation(kase, { onSaved } = {}) {
           <input class="input flex-1 min-w-40" data-f="title" value="${x.title}" maxlength="300" dir="auto" aria-label="${t('events.title')}" />
           <input class="input w-40" type="date" data-f="date" value="${x.date}" required aria-label="${t('dictate.date')}" />
           <input class="input w-28" type="time" data-f="time" value="${x.time}" aria-label="${t('dictate.time')}" />
-          <input class="input w-full" data-f="location" value="${x.location}" maxlength="300" dir="auto" placeholder="${t('events.location')}" aria-label="${t('events.location')}" /></li>`)}</ul>`
+          <input class="input w-full" data-f="location" value="${x.location}" maxlength="300" dir="auto" placeholder="${t('events.location')}" aria-label="${t('events.location')}" />${dateNote(x)}</li>`)}</ul>`
         : html`<p class="text-sm text-slate-500">${t('dictate.none')}</p>`}
       </section>
       ${has_client ? html`<section>
@@ -204,4 +204,11 @@ export function openDictation(kase, { onSaved } = {}) {
     if (act === 'save') save(el)
   })
   capture()
+}
+
+// How code checked a date against the dictation.
+function dateNote(x) {
+  if (x.date_check === 'worked_out') return html`<p class="w-full text-xs text-amber-700"><i class="fas fa-calendar-check"></i> ${t('dictate.date_worked_out', { words: x.date_words })}</p>`
+  if (x.date_check === 'removed') return html`<p class="w-full text-xs text-red-700"><i class="fas fa-triangle-exclamation"></i> ${t('dictate.date_removed')}</p>`
+  return ''
 }

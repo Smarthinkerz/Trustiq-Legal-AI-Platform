@@ -4,7 +4,8 @@ import { audit, auth, requireRole, type AppEnv } from '../context'
 import { badRequest, HttpError, notFound, tooMany } from '../lib/errors'
 import { jsonBody, likePattern, optText, queryParams, updateBody, uuidParam } from '../lib/http'
 import { CLAUSE_CATEGORIES, CLAUSE_LIMIT } from '../services/playbook'
-import { cleanTranslation, termsInText, translationMessages, type GlossaryTerm } from '../services/translation'
+import { checkTranslation, cleanTranslation, termsInText, translationMessages, type GlossaryTerm } from '../services/translation'
+import { logAiUse } from '../services/ai-log'
 import { assertCanUseAi, recordAiUsage } from '../services/usage'
 
 // The firm's clause bank: approved wording in English and Arabic, ready to insert into drafts.
@@ -101,11 +102,16 @@ clauseRoutes.post('/:id/translate', jsonBody(z.object({ to: z.enum(['en', 'ar'])
   if (!deps.limiters.ai.take(user.id).ok) throw tooMany('You are sending AI requests too quickly. Please wait a moment.')
   await assertCanUseAi(db, org)
   const terms = await db.query<GlossaryTerm>('SELECT term_en, term_ar, note FROM glossary_terms WHERE org_id = $1', [org.id])
-  const out = await ai.complete({ messages: translationMessages(source, from, to, termsInText(terms, source, from)), maxTokens: 4000, temperature: 0.1 })
+  const used = termsInText(terms, source, from)
+  const out = await ai.complete({ messages: translationMessages(source, from, to, used), maxTokens: 4000, temperature: 0 })
   await recordAiUsage(db, org.id, user.id, 'clause_translation', out)
   const text = cleanTranslation(out.text)
   if (!text) throw new HttpError(502, 'ai_bad_output', 'The AI returned an empty translation. Please try again.')
-  return c.json({ text: text.slice(0, 20_000) })
+  const checks = checkTranslation(source, text, { from, to, terms: used, part: 1, finishReason: out.finishReason })
+  await logAiUse(db, { orgId: org.id, userId: user.id, feature: 'clause_translation', model: out.model, prompt: `Clause translation into ${to}`, output: text,
+    verification: { status: checks.length ? 'passed_with_warnings' : 'passed', errors: 0, warnings: checks.length,
+      checks: checks.map((x) => ({ kind: x.kind, severity: 'warning' as const, ok: false, code: `translation_${x.kind}`, detail: x.detail })) } })
+  return c.json({ text: text.slice(0, 20_000), checks })
 })
 
 export default clauseRoutes

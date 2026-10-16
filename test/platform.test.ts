@@ -54,7 +54,8 @@ describe('law library and cited research', () => {
 
     // Another firm cannot see this firm's library.
     const other = await registered(ctx.app)
-    expect((await other.c.get('/api/library/search?q=gratuity')).data.items).toHaveLength(0)
+    // (Other test files may add shared laws on gratuity to the same database, so check by source.)
+    expect((await other.c.get('/api/library/search?q=gratuity')).data.items.filter((i: any) => i.source_id === up.data.source.id)).toHaveLength(0)
     // Only platform admins may add to the shared library.
     form.set('scope', 'platform')
     expect((await c.post('/api/library/sources', form)).status).toBe(403)

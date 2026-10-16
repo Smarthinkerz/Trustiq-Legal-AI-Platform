@@ -442,6 +442,9 @@ export async function librarySourceView(root, { params, query, isCurrent, rerend
           <button class="btn btn-danger-ghost" data-action="delete" aria-label="${t('common.delete')}"><i class="fas fa-trash"></i></button>` : ''}
       </div>
     </div>
+    ${s.ocr && !s.ocr_reviewed_at ? html`<div class="rounded-lg bg-amber-50 border border-amber-200 text-amber-900 p-3 mb-6 text-sm flex flex-wrap items-center justify-between gap-2">
+      <span><i class="fas fa-triangle-exclamation"></i> ${t('library.ocr_unreviewed')}</span>
+      ${editable ? html`<button class="btn btn-outline btn-sm" data-action="ocr-ok"><i class="fas fa-check"></i>${t('library.ocr_mark_reviewed')}</button>` : ''}</div>` : ''}
     ${s.notes ? html`<div class="card card-pad mb-6 text-sm text-slate-700 whitespace-pre-wrap" dir="auto">${s.notes}</div>` : ''}
     ${relations.length || versions.length > 1 || (!readOnly() && can('owner', 'admin', 'lawyer')) ? html`<section class="card mb-6">
       <div class="px-5 py-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2">
@@ -471,6 +474,10 @@ export async function librarySourceView(root, { params, query, isCurrent, rerend
       file: () => download(`/api/library/sources/${s.id}/file`),
       edit: () => openSourceForm({ source: s, onSaved: rerender }),
       'add-link': () => openRelationForm({ source: s, onSaved: rerender }),
+      'ocr-ok': async () => {
+        if (!(await confirmDialog(t('library.ocr_confirm'), { danger: false }))) return
+        try { await api.post(`/api/library/sources/${s.id}/ocr-reviewed`); toast(t('common.saved')); rerender() } catch (err) { showError(err) }
+      },
       delete: async () => {
         if (!(await confirmDialog(t('library.confirm_delete', { title: s.title })))) return
         try { await api.del(`/api/library/sources/${s.id}`); toast(t('common.deleted')); location.hash = '#/library' } catch (err) { showError(err) }

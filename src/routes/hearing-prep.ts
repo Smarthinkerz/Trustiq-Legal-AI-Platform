@@ -1,3 +1,4 @@
+import { logAiUse } from '../services/ai-log'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { audit, auth, requireRole, type AppEnv } from '../context'
@@ -57,6 +58,7 @@ hearingPrepRoutes.post('/:id/ai', jsonBody(z.object({ language: z.enum(['en', 'a
       [id, org.id, facts.case.id, language, JSON.stringify(note), JSON.stringify(checklist), result.model, user.id])
     await recordAiUsage(q, org.id, user.id, 'hearing_prep', result)
   })
+  await logAiUse(db, { orgId: org.id, userId: user.id, feature: 'hearing_prep', model: result.model, caseId: facts.case.id, prompt: `Hearing preparation (${language})`, output: JSON.stringify(note) })
   await audit(c, 'ai.hearing_prep', 'event', id, { language, model: result.model })
   return c.json({ prep: { language, content: note, checklist, model: result.model } }, 201)
 })

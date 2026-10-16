@@ -26,7 +26,9 @@ export function errorMessage(err) {
     ai_unavailable: 'error.ai_unavailable', ai_busy: 'error.ai_busy', ai_input_too_long: 'error.ai_input_too_long',
     ai_bad_output: 'error.ai_unavailable', ai_empty: 'error.ai_unavailable', account_locked: 'error.account_locked',
     unsupported_file: 'error.unsupported_file', file_too_large: 'error.file_too_large', unreadable_file: 'error.unreadable_file',
-    payload_too_large: 'error.file_too_large', internal_error: 'error.generic'
+    payload_too_large: 'error.file_too_large', internal_error: 'error.generic',
+    draft_failed_check: 'error.draft_failed_check', summary_failed_check: 'error.summary_failed_check', unverified_dates: 'error.unverified_dates',
+    nothing_to_report: 'error.nothing_to_report', placeholders_left: 'error.placeholders_left'
   }
   if (err.message === 'offline') return t('error.offline')
   const key = byCode[err.code]

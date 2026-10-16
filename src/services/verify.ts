@@ -31,7 +31,7 @@ export type VerifySource = {
   effective_to: string | null
 }
 
-export type CheckKind = 'quote' | 'article' | 'instrument' | 'in_force' | 'jurisdiction' | 'reference' | 'law_reference' | 'uncited_article'
+export type CheckKind = 'quote' | 'article' | 'instrument' | 'in_force' | 'jurisdiction' | 'reference' | 'law_reference' | 'uncited_article' | 'source_text' | 'figure' | 'date' | 'glossary' | 'truncated'
 export type Check = { kind: CheckKind; severity: 'error' | 'warning' | 'info'; ok: boolean; ref?: string; code: string; detail: string; text?: string }
 export type Verification = {
   status: 'passed' | 'passed_with_warnings' | 'failed' | 'unverified'
@@ -235,6 +235,16 @@ export async function verifyAnswer(q: Queryable, opts: {
       checks.push({ kind: 'jurisdiction', severity: named ? 'info' : 'error', ok: !!named, ref: s.ref, code: named ? 'jurisdiction_named' : 'jurisdiction_mismatch',
         detail: named ? `${s.citation} is from ${s.jurisdiction}; the user asked for this law by number.`
           : `${s.citation} is from ${s.jurisdiction}, not the matter's jurisdiction (${opts.allowedJurisdictions.join(', ')}).` })
+    }
+  }
+
+  // Source text read from a scan (OCR) that nobody has checked against the original yet.
+  if (sourceIds.length) {
+    const unreviewed = await q.query<{ id: string }>('SELECT id FROM library_sources WHERE id = ANY($1) AND ocr AND ocr_reviewed_at IS NULL', [sourceIds])
+    for (const r of unreviewed) {
+      const s = cited.find((x) => x.source_id === r.id)!
+      checks.push({ kind: 'source_text', severity: 'warning', ok: true, ref: s.ref, code: 'ocr_unreviewed',
+        detail: `${s.citation} was read from a scan (OCR) and its text has not yet been checked against the original. Confirm the wording before relying on it.` })
     }
   }
 

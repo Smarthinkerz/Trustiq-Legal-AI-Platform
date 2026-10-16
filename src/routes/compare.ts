@@ -1,10 +1,11 @@
+import { logAiUse } from '../services/ai-log'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { audit, auth, type AppEnv } from '../context'
 import type { Db } from '../db'
 import { badRequest, HttpError, notFound, tooMany } from '../lib/errors'
 import { jsonBody, optText, queryParams } from '../lib/http'
-import { compareTexts, normalizeSummary, summaryMessages } from '../services/compare'
+import { compareTexts, checkSummaryRefs, normalizeSummary, summaryMessages } from '../services/compare'
 import { contentDisposition, renderRedlineDocx, safeFileName } from '../services/export'
 import { ACCEPTED_TYPES } from '../services/extract'
 import { parseJsonObject } from '../services/legal-prompts'
@@ -84,10 +85,16 @@ compareRoutes.post('/summary', jsonBody(pair.extend({ language: z.enum(['en', 'a
   }
   const out = await ai.complete({ messages: summaryMessages({ leftTitle: left.label, rightTitle: right.label, hunks: result.hunks, lang: b.language, actingFor }), json: true, maxTokens: 3000, temperature: 0.1 })
   await recordAiUsage(db, org.id, user.id, 'compare_summary', out)
-  let summary
-  try { summary = normalizeSummary(parseJsonObject(out.text)) } catch { throw new HttpError(502, 'ai_bad_output', 'The AI returned an unreadable summary. Please try again.') }
+  let parsed
+  try { parsed = normalizeSummary(parseJsonObject(out.text), Math.min(80, result.hunks.length)) } catch { throw new HttpError(502, 'ai_bad_output', 'The AI returned an unreadable summary. Please try again.') }
+  const { summary, removed, clauseCleared } = checkSummaryRefs(parsed, result.hunks)
+  const warnings = removed + clauseCleared
+  await logAiUse(db, { orgId: org.id, userId: user.id, feature: 'compare_summary', model: out.model, documentId: right.id, prompt: `Compare ${left.label} with ${right.label}`, output: JSON.stringify(summary),
+    verification: { status: warnings ? 'passed_with_warnings' : 'passed', errors: 0, warnings,
+      checks: [...(removed ? [{ kind: 'quote' as const, severity: 'warning' as const, ok: false, code: 'item_without_change', detail: `${removed} item(s) removed: they did not point at a real change.` }] : []),
+        ...(clauseCleared ? [{ kind: 'article' as const, severity: 'warning' as const, ok: false, code: 'clause_not_in_change', detail: `${clauseCleared} clause number(s) cleared: not found in the change.` }] : [])] } })
   await audit(c, 'ai.compare_summary', 'document', right.id, { left: left.id, changes: result.stats.changes })
-  return c.json({ summary, acting_for: actingFor, truncated: result.hunks.length > 80 })
+  return c.json({ summary, acting_for: actingFor, truncated: result.hunks.length > 80, checks: { removed, clause_cleared: clauseCleared } })
 })
 
 export default compareRoutes

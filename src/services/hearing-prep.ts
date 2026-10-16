@@ -117,7 +117,9 @@ export type PrepNote = ReturnType<typeof normalizePrep>
 const H: Record<string, [string, string]> = {
   title: ['Hearing preparation', 'تحضير الجلسة'], summary: ['Where things stand', 'الوضع الحالي'], objectives: ['Objectives', 'الأهداف'], arguments: ['Points to argue', 'الدفوع والنقاط'],
   requests: ['Requests to the court', 'الطلبات من المحكمة'], bring: ['To bring', 'ما يجب إحضاره'], risks: ['Risks', 'المخاطر'], open_questions: ['To confirm', 'للتأكيد'],
-  checklist: ['Checklist', 'قائمة المهام'], last: ['Last hearing', 'الجلسة السابقة']
+  checklist: ['Checklist', 'قائمة المهام'], last: ['Last hearing', 'الجلسة السابقة'],
+  ai: ['AI-assisted preparation note for lawyer review. Not legal advice; check every point against the case file before relying on it.',
+    'مذكرة تحضير بمساعدة الذكاء الاصطناعي لمراجعة المحامي. ليست استشارة قانونية؛ تحقّق من كل نقطة في ملف القضية قبل الاعتماد عليها.']
 }
 
 // Plain text of the note for the Word export.
@@ -125,6 +127,7 @@ export function prepText(o: { lang: 'en' | 'ar'; reference: string; title: strin
   const h = (k: string) => H[k]![o.lang === 'ar' ? 1 : 0]
   const out = [`${h('title')} – ${o.reference} ${o.title}`, `${o.date}${o.court ? ` – ${o.court}` : ''}`]
   if (o.last) out.push('', h('last'), `${o.last.date}: ${o.last.outcome}${o.last.next_steps ? ` – ${o.last.next_steps}` : ''}`)
+  if (o.note) out.push('', `[${h('ai')}]`)
   if (o.note?.summary) out.push('', h('summary'), o.note.summary)
   for (const k of ['objectives', 'arguments', 'requests', 'bring', 'risks', 'open_questions'] as const) {
     const list = o.note?.[k] ?? []

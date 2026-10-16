@@ -211,6 +211,25 @@ export function datesIn(text: string): { raw: string; date: string }[] {
   return out
 }
 
+// Every figure written with digits (Arabic or Latin), as plain numbers: "12,500.50" -> 12500.5.
+export function numbersIn(text: string): number[] {
+  const t = latin(text).replace(/٫/g, '.').replace(/٬/g, ',')
+  const out: number[] = []
+  for (const m of t.matchAll(/\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?/g)) {
+    const n = Number(m[0].replace(/,/g, ''))
+    if (Number.isFinite(n)) out.push(n)
+  }
+  return out
+}
+
+// Figures in the output that are not among the allowed ones (compared to two decimals, and as
+// rounded whole numbers). Small counts up to `smallOk` are always allowed.
+export function unsupportedNumbers(output: string, allowed: number[], smallOk = 0): number[] {
+  const keys = new Set<string>()
+  for (const n of allowed) { keys.add(n.toFixed(2)); keys.add(Math.round(n).toFixed(2)); keys.add((Math.round(n * 10) / 10).toFixed(2)) }
+  return [...new Set(numbersIn(output))].filter((n) => !(Number.isInteger(n) && n <= smallOk) && !keys.has(n.toFixed(2)))
+}
+
 // Marks law references the firm's library cannot confirm with "[verify: ...]" so they cannot be
 // published unchecked (see VERIFY_MARKER). A sentence naming a law or article is kept as is only when
 // every law number it names is in the library; an article with no law number is always marked.

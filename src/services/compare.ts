@@ -123,7 +123,7 @@ Rules:
 - ${o.lang === 'ar' ? 'Write all string values in formal Modern Standard Arabic. JSON keys stay in English.' : 'Write all string values in clear professional English. JSON keys stay in English.'}
 Return ONLY JSON:
 {"overview": string,  // 2-4 sentences on the overall effect of the revisions
- "items": [{"clause": string, "change": string, "impact": "favours_client" | "favours_other_side" | "neutral" | "unclear", "severity": "low" | "medium" | "high", "recommendation": string}],
+ "items": [{"changes": number[], "clause": string, "change": string, "impact": "favours_client" | "favours_other_side" | "neutral" | "unclear", "severity": "low" | "medium" | "high", "recommendation": string}],  // "changes": the n of each <change> block the item is about; code drops items that point at none
  "questions": string[]  // points to raise with the other side, may be empty
 }`
     },
@@ -132,11 +132,12 @@ Return ONLY JSON:
 }
 
 const str = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '')
-export function normalizeSummary(raw: any) {
+export function normalizeSummary(raw: any, shown = Infinity) {
   const r = raw && typeof raw === 'object' ? raw : {}
   return {
     overview: str(r.overview, 3000),
     items: (Array.isArray(r.items) ? r.items : []).map((x: any) => ({
+      changes: [...new Set((Array.isArray(x?.changes) ? x.changes : [x?.changes]).map(Number).filter((n: number) => Number.isInteger(n) && n >= 1 && n <= shown))] as number[],
       clause: str(x?.clause, 200), change: str(x?.change, 2000),
       impact: (IMPACTS as readonly string[]).includes(x?.impact) ? x.impact : 'unclear',
       severity: (SEVERITIES as readonly string[]).includes(x?.severity) ? x.severity : 'medium',
@@ -145,3 +146,20 @@ export function normalizeSummary(raw: any) {
     questions: (Array.isArray(r.questions) ? r.questions : []).map((q: unknown) => str(q, 500)).filter(Boolean).slice(0, 20)
   }
 }
+
+// Every summary item must point at a real change; the clause it names must be in that change.
+export function checkSummaryRefs(summary: ReturnType<typeof normalizeSummary>, hunks: Hunk[]) {
+  let removed = 0
+  let clauseCleared = 0
+  const items = summary.items.filter((x: any) => {
+    if (!x.changes.length) { removed++; return false }
+    if (x.clause) {
+      const text = x.changes.map((n: number) => `${hunks[n - 1]?.before ?? ''}\n${hunks[n - 1]?.after ?? ''}`).join('\n')
+      const num = /\d+(?:\.\d+)*/.exec(latinDigits(x.clause))?.[0]
+      if (num && !latinDigits(text).includes(num)) { x.clause = ''; clauseCleared++ }
+    }
+    return true
+  })
+  return { summary: { ...summary, items }, removed, clauseCleared }
+}
+const latinDigits = (s: string) => s.replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))

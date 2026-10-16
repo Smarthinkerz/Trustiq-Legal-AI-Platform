@@ -1903,6 +1903,20 @@ CREATE TABLE site_chats (
 );
 CREATE INDEX site_chats_org_idx ON site_chats (org_id, created_at DESC);
 `
+  },
+  {
+    version: 51,
+    name: 'ocr_review',
+    sql: `
+-- Library text read from a scan is flagged until someone checks it against the original.
+ALTER TABLE library_sources ADD COLUMN ocr BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE library_sources ADD COLUMN ocr_reviewed_at TIMESTAMPTZ;
+ALTER TABLE library_sources ADD COLUMN ocr_reviewed_by UUID REFERENCES users(id) ON DELETE SET NULL;
+UPDATE library_sources SET ocr = true WHERE notes LIKE '%(OCR)%';
+
+-- Code checks on each translated document: figures, glossary terms and cut-off parts.
+ALTER TABLE documents ADD COLUMN translation_checks JSONB;
+`
   }
 ]
 
