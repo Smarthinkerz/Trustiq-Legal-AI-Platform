@@ -1,4 +1,4 @@
-import { markUnverifiedLaw, VERIFY_MARKER } from '../services/ai-guard'
+import { markUnverifiedLaw, publicReplyProblem, VERIFY_MARKER } from '../services/ai-guard'
 import { logAiUse } from '../services/ai-log'
 import { Hono } from 'hono'
 import { z } from 'zod'
@@ -423,7 +423,12 @@ websiteRoutes.post('/leads/:id/reply-draft', jsonBody(z.object({ language: z.enu
   let draft
   try { draft = normalizeReply(parseJsonObject(result.text)) } catch { draft = { subject: '', body: '' } }
   if (!draft.body) throw new HttpError(502, 'ai_bad_output', 'The AI returned an empty reply. Please try again.')
-  return c.json({ draft: { ...draft, subject: draft.subject || (language === 'ar' ? `استفساركم لدى ${firmName}` : `Your enquiry to ${firmName}`), language } })
+  // Replies go to the public: flag law references or advice for the lawyer before it is sent.
+  const problem = publicReplyProblem(draft.body)
+  await logAiUse(db, { orgId: org.id, userId: user.id, feature: 'lead_reply', model: result.model, prompt: `Reply to lead ${id}`, output: draft.body,
+    verification: { status: problem ? 'passed_with_warnings' : 'passed', errors: 0, warnings: problem ? 1 : 0,
+      checks: problem ? [{ kind: 'law_reference', severity: 'warning', ok: false, code: `reply_${problem}`, detail: problem === 'advice' ? 'The reply may read as legal advice.' : 'The reply names a law or article.' }] : [] } })
+  return c.json({ problem, draft: { ...draft, subject: draft.subject || (language === 'ar' ? `استفساركم لدى ${firmName}` : `Your enquiry to ${firmName}`), language } })
 })
 
 // Emails the enquirer (reply-to is the lawyer) and marks the enquiry as contacted.

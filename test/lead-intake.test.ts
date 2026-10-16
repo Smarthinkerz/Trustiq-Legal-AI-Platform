@@ -58,6 +58,8 @@ describe('AI intake of website enquiries', () => {
     const lead = leads[0]
     expect(lead).toMatchObject({ urgency: 'urgent', practice_area: 'employment', intake_model: 'test-model' })
     expect(lead.intake.case_title).toBe('Unpaid wages claim against Gulf Trading LLC')
+    // "Ahmed (manager)" and the amount are not in the enquiry text: labelled, still conflict-checked.
+    expect(lead.intake).toMatchObject({ unverified_parties: ['Ahmed (manager)'], amount_unverified: true })
     const types = lead.conflicts.blocking.map((b: any) => b.type).sort()
     expect(types).toEqual(['client_is_opposing', 'opposing_is_client'])
     const prompt = ctx.ai.calls.at(-1)!

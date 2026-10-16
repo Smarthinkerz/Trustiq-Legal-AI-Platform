@@ -1,3 +1,5 @@
+import { appearsIn, numbersIn, unsupportedNumbers } from './ai-guard'
+import { logAiUse } from './ai-log'
 import type { Deps, Org } from '../context'
 import type { Queryable } from '../db'
 import { parseJsonObject, truncate } from './legal-prompts'
@@ -103,7 +105,7 @@ export async function runLeadIntake(deps: Pick<Deps, 'db' | 'ai' | 'log'>, orgId
   const [lead] = await db.query<LeadRow & { message: string | null }>('SELECT * FROM leads WHERE id = $1 AND org_id = $2', [leadId, orgId])
   if (!lead) return false
   const [org] = await db.query<Org>('SELECT * FROM organizations WHERE id = $1', [orgId])
-  let intake: Intake | null = null
+  let intake: (Intake & { unverified_parties?: string[]; amount_unverified?: boolean }) | null = null
   let model: string | null = null
   if (ai.configured && lead.message?.trim()) {
     let allowed = true
@@ -113,9 +115,22 @@ export async function runLeadIntake(deps: Pick<Deps, 'db' | 'ai' | 'log'>, orgId
     }
     if (allowed) {
       const result = await ai.complete({ messages: intakeMessages(lead, { jurisdiction: org.default_jurisdiction }), json: true, maxTokens: 1500, temperature: 0.1 })
-      intake = normalizeIntake(parseJsonObject(result.text))
+      const parsed = normalizeIntake(parseJsonObject(result.text))
+      // Names the enquiry does not contain (often a translation or a guess) are still searched in the
+      // conflict check, which is the safe side, but are labelled for the lawyer.
+      const msg = lead.message ?? ''
+      const unverified_parties = [...parsed.opposing_parties, ...parsed.other_parties].filter((n) => !appearsIn(n, msg))
+      const amount_unverified = !!parsed.amount && unsupportedNumbers(parsed.amount, numbersIn(msg)).length > 0
+      intake = { ...parsed, unverified_parties, amount_unverified }
       model = result.model
       await recordAiUsage(db, orgId, userId, 'lead_intake', result)
+      if (userId) {
+        await logAiUse(db, { orgId, userId, feature: 'lead_intake', model, prompt: `Enquiry: ${msg.slice(0, 900)}`, output: JSON.stringify(intake),
+          verification: { status: unverified_parties.length || amount_unverified ? 'passed_with_warnings' : 'passed', errors: 0, warnings: unverified_parties.length + (amount_unverified ? 1 : 0),
+            checks: [...unverified_parties.map((n) => ({ kind: 'quote' as const, severity: 'warning' as const, ok: false, code: 'name_not_in_enquiry', detail: `"${n}" is not written in the enquiry.` })),
+              ...(amount_unverified ? [{ kind: 'figure' as const, severity: 'warning' as const, ok: false, code: 'amount_not_in_enquiry', detail: `The amount "${parsed.amount}" is not in the enquiry.` }] : [])] } })
+          .catch((err) => deps.log.warn('lead intake log failed', { err }))
+      }
     }
   }
   const conflicts = await leadConflicts(db, orgId, lead, intake?.opposing_parties ?? [])

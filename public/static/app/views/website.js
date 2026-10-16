@@ -45,7 +45,8 @@ function intakePanel(l) {
       ${i.urgency_reason ? html`<p class="text-xs text-red-700">${i.urgency_reason}</p>` : ''}
       ${summary ? html`<p dir="auto">${summary}</p>` : ''}
       ${i.opposing_parties.length ? html`<p class="text-xs"><span class="text-slate-500">${t('intake.opposing')}:</span> <span dir="auto">${i.opposing_parties.join('، ')}</span></p>` : ''}
-      ${i.amount ? html`<p class="text-xs"><span class="text-slate-500">${t('intake.amount')}:</span> <span dir="auto">${i.amount}</span></p>` : ''}
+      ${i.unverified_parties?.length ? html`<p class="text-xs text-amber-700"><i class="fas fa-triangle-exclamation"></i> ${t('intake.unverified_parties', { names: i.unverified_parties.join('، ') })}</p>` : ''}
+      ${i.amount ? html`<p class="text-xs"><span class="text-slate-500">${t('intake.amount')}:</span> <span dir="auto">${i.amount}</span>${i.amount_unverified ? html` <span class="text-amber-700">(${t('intake.amount_unverified')})</span>` : ''}</p>` : ''}
       ${i.key_dates.length ? html`<ul class="text-xs space-y-0.5">${i.key_dates.map((d) => html`<li><i class="fas fa-calendar-day text-slate-400 me-1"></i><span dir="ltr">${d.date}</span> – <span dir="auto">${d.what}</span></li>`)}</ul>` : ''}
       ${i.red_flags.length ? html`<ul class="text-xs text-red-700 space-y-0.5">${i.red_flags.map((f) => html`<li><i class="fas fa-flag me-1"></i>${f}</li>`)}</ul>` : ''}
       ${i.questions.length ? html`<details class="text-xs"><summary class="cursor-pointer text-brand-700">${t('intake.questions', { n: i.questions.length })}</summary>
@@ -293,9 +294,10 @@ function openReplyDialog(lead, onDone) {
       draft: (btn) => busy(btn, async () => {
         const form = m.el.querySelector('form')
         try {
-          const { draft } = await api.post(`/api/website/leads/${lead.id}/reply-draft`, { language: form.elements.language.value })
+          const { draft, problem } = await api.post(`/api/website/leads/${lead.id}/reply-draft`, { language: form.elements.language.value })
           form.elements.subject.value = draft.subject
           form.elements.body.value = draft.body
+          if (problem) toast(t(`leads.reply_${problem}`), 'error')
         } catch (err) { showError(err) }
       })
     },
