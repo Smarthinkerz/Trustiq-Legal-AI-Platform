@@ -67,7 +67,7 @@ libraryRoutes.get('/sources', queryParams(z.object({
   const [{ n }] = await db.query(`SELECT count(*)::int AS n FROM library_sources s WHERE ${where}`, params)
   const items = await db.query(
     `SELECT s.id, s.org_id, (s.org_id IS NULL) AS shared, s.jurisdiction, s.kind, s.title, s.number, s.year, s.status, s.language,
-            s.source_url, s.articles, s.file_name, s.created_at, s.updated_at, s.version_label,
+            s.source_url, s.articles, s.file_name, s.created_at, s.updated_at, s.version_label, s.ocr, (s.ocr AND s.ocr_reviewed_at IS NULL) AS ocr_unreviewed,
             to_char(s.effective_from, 'YYYY-MM-DD') AS effective_from, to_char(s.effective_to, 'YYYY-MM-DD') AS effective_to
        FROM library_sources s WHERE ${where}
       ORDER BY s.jurisdiction, s.year DESC NULLS LAST, s.title LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
@@ -81,7 +81,7 @@ libraryRoutes.get('/sources/:id', queryParams(z.object({ q: z.string().trim().ma
   const { db } = c.get('deps')
   const source = await db.one(
     `SELECT s.id, s.org_id, (s.org_id IS NULL) AS shared, s.jurisdiction, s.kind, s.title, s.number, s.year, s.status, s.language,
-            s.source_url, s.notes, s.articles, s.file_name, s.created_at, s.updated_at, s.work_id, s.version_label,
+            s.source_url, s.notes, s.articles, s.file_name, s.created_at, s.updated_at, s.work_id, s.version_label, s.ocr, s.ocr_reviewed_at,
             to_char(s.effective_from, 'YYYY-MM-DD') AS effective_from, to_char(s.effective_to, 'YYYY-MM-DD') AS effective_to
        FROM library_sources s WHERE s.id = $1 AND (s.org_id = $2 OR s.org_id IS NULL)`, [id, org.id])
   if (!source) throw notFound('Source')
@@ -164,10 +164,10 @@ libraryRoutes.post('/sources', async (c) => {
   const ownerOrg = m.scope === 'platform' ? null : org.id
   const result = await db.tx(async (q) => {
     const src = await q.one(
-      `INSERT INTO library_sources (org_id, jurisdiction, kind, title, number, year, status, language, source_url, notes, file_name, mime_type, file_data, created_by, effective_from, effective_to, version_label)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING id`,
+      `INSERT INTO library_sources (org_id, jurisdiction, kind, title, number, year, status, language, source_url, notes, file_name, mime_type, file_data, created_by, effective_from, effective_to, version_label, ocr)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) RETURNING id`,
       [ownerOrg, m.jurisdiction, m.kind, m.title, m.number, m.year, m.status, m.language, m.source_url, m.notes,
-       fileInfo?.name ?? null, fileInfo?.mime ?? null, fileInfo ? Buffer.from(fileInfo.bytes) : null, user.id, m.effective_from, m.effective_to, m.version_label])
+       fileInfo?.name ?? null, fileInfo?.mime ?? null, fileInfo ? Buffer.from(fileInfo.bytes) : null, user.id, m.effective_from, m.effective_to, m.version_label, ocr])
     const passages = await indexSource(q, src!.id, ownerOrg, text)
     return { id: src!.id as string, passages }
   })
@@ -189,6 +189,19 @@ libraryRoutes.patch('/sources/:id', jsonBody(updateBody(metaSchema.omit({ scope:
   for (const k of cols) if (b[k] !== undefined) { values.push(b[k]); sets.push(`${k} = $${values.length + 1}`) }
   if (sets.length) await db.query(`UPDATE library_sources SET ${sets.join(', ')}, updated_at = now() WHERE id = $1`, [id, ...values])
   await audit(c, 'library.source_updated', 'library_source', id, { fields: Object.keys(b) })
+  return c.json({ ok: true })
+})
+
+// A lawyer confirms the OCR text matches the original scan; citations then stop carrying the OCR warning.
+libraryRoutes.post('/sources/:id/ocr-reviewed', async (c) => {
+  const { org, user } = auth(c)
+  const id = uuidParam(c.req.param('id'), 'Source')
+  const { db } = c.get('deps')
+  const src = await db.one<{ org_id: string | null }>('SELECT org_id FROM library_sources WHERE id = $1 AND (org_id = $2 OR org_id IS NULL) AND ocr', [id, org.id])
+  if (!src) throw notFound('Source')
+  assertCanEdit(c, src)
+  await db.query('UPDATE library_sources SET ocr_reviewed_at = now(), ocr_reviewed_by = $2 WHERE id = $1', [id, user.id])
+  await audit(c, 'library.ocr_reviewed', 'library_source', id, {})
   return c.json({ ok: true })
 })
 

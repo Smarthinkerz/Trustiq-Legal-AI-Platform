@@ -537,11 +537,11 @@ async function processImport(deps: ImportDeps, row: ImportRow): Promise<{ status
   const sourceId = await db.tx(async (q) => {
     if (replaces) await q.query('DELETE FROM library_sources WHERE id = $1', [replaces])
     const src = await q.one(
-      `INSERT INTO library_sources (org_id, jurisdiction, kind, title, number, year, status, language, source_url, notes, file_name, mime_type, file_data, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id`,
+      `INSERT INTO library_sources (org_id, jurisdiction, kind, title, number, year, status, language, source_url, notes, file_name, mime_type, file_data, created_by, ocr)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING id`,
       [ownerOrg, row.jurisdiction, row.kind || meta.kind, title, meta.number, meta.year, row.status_hint || 'in_force', row.language || meta.language,
        row.url, importNote(row.url, ocr),
-       file?.name ?? null, file?.mime ?? null, file ? Buffer.from(file.bytes) : null, row.created_by])
+       file?.name ?? null, file?.mime ?? null, file ? Buffer.from(file.bytes) : null, row.created_by, ocr])
     await indexSource(q, src!.id, ownerOrg, text)
     return src!.id as string
   })
