@@ -13,6 +13,7 @@ import { createTapClient } from './services/tap'
 import { runWhatsAppReminders } from './services/whatsapp'
 import { runLibraryImports } from './services/library-import'
 import { runCalendarSync } from './services/google-calendar'
+import { createEmbeddingService, createRerankService, runEmbeddingBackfill } from './services/retrieval'
 
 async function main() {
   const config = loadConfig()
@@ -24,12 +25,17 @@ async function main() {
 
   const mailer = createMailer(config, log)
   const ai = createAiService(config, log)
+  const embeddings = createEmbeddingService(config, log)
+  const reranker = createRerankService(config, log)
+  log.info('law library retrieval', { mode: embeddings.configured ? 'hybrid' : 'bm25', embeddings: embeddings.configured ? embeddings.model : null, reranker: reranker.configured ? reranker.model : null })
   const app = createApp({
     config,
     db,
     log,
     mailer,
     ai,
+    embeddings,
+    reranker,
     tap: createTapClient(config, log),
     limiters: {
       auth: new RateLimiter(20, 15 * 60_000),
@@ -75,6 +81,17 @@ async function main() {
   }, 5_000)
   importer.unref()
 
+  // Embeds new law-library passages for hybrid retrieval.
+  let embedding = false
+  const embedder = setInterval(() => {
+    if (embedding || !embeddings.configured) return
+    embedding = true
+    runEmbeddingBackfill({ db, log, embeddings }, { max: 512 })
+      .catch((err) => log.error('embedding backfill failed', { err }))
+      .finally(() => { embedding = false })
+  }, 30_000)
+  embedder.unref()
+
   // Google Calendar sync: pushes firm calendar changes to connected users' Google calendars.
   let syncing = false
   const calendarSync = setInterval(() => {
@@ -99,6 +116,7 @@ async function main() {
     clearInterval(jobs)
     clearInterval(importer)
     clearInterval(calendarSync)
+    clearInterval(embedder)
     server.close(async () => {
       await db.close().catch(() => {})
       process.exit(0)

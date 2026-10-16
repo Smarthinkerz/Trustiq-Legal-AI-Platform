@@ -1772,6 +1772,95 @@ ALTER TABLE organizations ADD COLUMN price_notice_sent_at TIMESTAMPTZ;
 UPDATE organizations SET locked_plan = 'professional', locked_amount = 499, locked_currency = 'OMR', locked_until = '2027-10-16T00:00:00+04:00'
  WHERE plan = 'professional' AND quote_id IS NULL;
 `
+  },
+  {
+    version: 49,
+    name: 'court_grade_ai',
+    sql: `
+-- Point-in-time law: the dates an instrument (one version of a law) applied, and the work it is a version of.
+ALTER TABLE library_sources ADD COLUMN effective_from DATE;
+ALTER TABLE library_sources ADD COLUMN effective_to DATE;
+ALTER TABLE library_sources ADD COLUMN work_id UUID;
+ALTER TABLE library_sources ADD COLUMN version_label TEXT;
+CREATE INDEX library_sources_work_idx ON library_sources (work_id);
+
+-- Article numbers, per-article repeal and amendment flags, and dense embeddings for hybrid retrieval.
+ALTER TABLE library_chunks ADD COLUMN article_no TEXT;
+ALTER TABLE library_chunks ADD COLUMN status TEXT NOT NULL DEFAULT 'in_force' CHECK (status IN ('in_force','amended','repealed'));
+ALTER TABLE library_chunks ADD COLUMN changed_on DATE;
+ALTER TABLE library_chunks ADD COLUMN embedding REAL[];
+ALTER TABLE library_chunks ADD COLUMN embedding_model TEXT;
+ALTER TABLE library_chunks ADD COLUMN embedded_at TIMESTAMPTZ;
+UPDATE library_chunks SET article_no = (substring(translate(label, '٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹', '01234567890123456789') from '([0-9]{1,6})'))::int::text
+ WHERE label ~ '[0-9٠-٩۰-۹]';
+CREATE INDEX library_chunks_article_idx ON library_chunks (source_id, article_no);
+CREATE INDEX library_chunks_unembedded_idx ON library_chunks (id) WHERE embedding IS NULL;
+CREATE INDEX library_chunks_embedded_at_idx ON library_chunks (embedded_at) WHERE embedding IS NOT NULL;
+
+-- Links between instruments: a decree amends or repeals a law (or one article), a regulation implements a law,
+-- a new version replaces an old one. org_id NULL means a link in the shared library.
+CREATE TABLE library_relations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID REFERENCES organizations(id) ON DELETE CASCADE,
+  from_source_id UUID NOT NULL REFERENCES library_sources(id) ON DELETE CASCADE,
+  from_article TEXT,
+  relation TEXT NOT NULL CHECK (relation IN ('amends','repeals','implements','replaces')),
+  to_source_id UUID NOT NULL REFERENCES library_sources(id) ON DELETE CASCADE,
+  to_article TEXT,
+  effective_on DATE,
+  notes TEXT,
+  created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CHECK (from_source_id <> to_source_id)
+);
+CREATE INDEX library_relations_from_idx ON library_relations (from_source_id);
+CREATE INDEX library_relations_to_idx ON library_relations (to_source_id);
+
+-- Result of the deterministic citation check on each AI answer.
+ALTER TABLE ai_messages ADD COLUMN verification JSONB;
+
+-- AI use and verification log (QICDRC Practice Direction 1 of 2026): what AI produced, from which sources,
+-- what the automatic check found, and which lawyer confirmed it against primary sources.
+CREATE TABLE ai_use_log (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  feature TEXT NOT NULL,
+  model TEXT,
+  document_id UUID REFERENCES documents(id) ON DELETE SET NULL,
+  case_id UUID REFERENCES cases(id) ON DELETE SET NULL,
+  conversation_id UUID REFERENCES ai_conversations(id) ON DELETE SET NULL,
+  message_id UUID REFERENCES ai_messages(id) ON DELETE SET NULL,
+  jurisdiction TEXT,
+  as_of DATE,
+  prompt_excerpt TEXT,
+  output_sha256 TEXT,
+  sources JSONB NOT NULL DEFAULT '[]',
+  verification JSONB,
+  reviewed_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  reviewed_at TIMESTAMPTZ,
+  review_note TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX ai_use_log_doc_idx ON ai_use_log (org_id, document_id, created_at);
+CREATE INDEX ai_use_log_case_idx ON ai_use_log (org_id, case_id, created_at);
+CREATE INDEX ai_use_log_org_idx ON ai_use_log (org_id, created_at DESC);
+
+-- Runs of the standing GCC legal evaluation set.
+CREATE TABLE legal_eval_runs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  org_id UUID REFERENCES organizations(id) ON DELETE SET NULL,
+  status TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running','done','failed')),
+  error TEXT,
+  finished_at TIMESTAMPTZ,
+  model TEXT,
+  retrieval JSONB NOT NULL DEFAULT '{}',
+  summary JSONB NOT NULL DEFAULT '{}',
+  results JSONB NOT NULL DEFAULT '[]',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+`
   }
 ]
 

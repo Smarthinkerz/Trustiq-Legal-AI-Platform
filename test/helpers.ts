@@ -7,6 +7,7 @@ import { RateLimiter } from '../src/lib/rate-limit'
 import type { AiService, ChatMessage } from '../src/services/ai'
 import type { TapCharge, TapClient } from '../src/services/tap'
 import { runLibraryImports, type WebFetcher } from '../src/services/library-import'
+import type { EmbeddingService, RerankService } from '../src/services/retrieval'
 
 // A fake web for the law-library importer: register URL -> response, everything else 404s.
 export function fakeWeb() {
@@ -113,7 +114,7 @@ export function fakeWhatsApp() {
   return wa
 }
 
-export async function setup(env: Record<string, string> = {}, opts: { googleFetch?: typeof fetch; hubFetch?: typeof fetch } = {}) {
+export async function setup(env: Record<string, string> = {}, opts: { googleFetch?: typeof fetch; hubFetch?: typeof fetch; embeddings?: EmbeddingService; reranker?: RerankService } = {}) {
   const config = loadConfig({
     NODE_ENV: 'test', APP_URL: 'http://localhost:8080', PLATFORM_ADMIN_EMAILS: 'ops@trustiq.test',
     ...(process.env.TEST_DATABASE_URL ? { DATABASE_URL: process.env.TEST_DATABASE_URL } : {}),
@@ -132,7 +133,7 @@ export async function setup(env: Record<string, string> = {}, opts: { googleFetc
   const runDeferred = async () => { while (deferred.length) await deferred.shift()!() }
   const log = createLogger('error', true)
   const app = createApp({
-    config, db, ai, mailer, tap, firmTap: firmTap.forKey, defer: (task) => { deferred.push(task) }, waFetch: wa.fetch as typeof fetch, webFetch: web.fetch, googleFetch: opts.googleFetch, hubFetch: opts.hubFetch,
+    config, db, ai, mailer, tap, firmTap: firmTap.forKey, defer: (task) => { deferred.push(task) }, waFetch: wa.fetch as typeof fetch, webFetch: web.fetch, googleFetch: opts.googleFetch, hubFetch: opts.hubFetch, embeddings: opts.embeddings, reranker: opts.reranker,
     log,
     limiters: { auth: new RateLimiter(1000, 60_000), api: new RateLimiter(10_000, 60_000), ai: new RateLimiter(1000, 60_000), webhook: new RateLimiter(1000, 60_000), apiKey: new RateLimiter(1000, 60_000) }
   })

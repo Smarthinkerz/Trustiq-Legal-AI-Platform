@@ -1,4 +1,5 @@
 import type { Queryable } from '../db'
+import { applyArticleFlags, articleNumber, mentionedArticles as mentionedArticleNumbers, validityOn } from './legal-corpus'
 
 // ---------------------------------------------------------------------------
 // Text normalisation shared by indexing and querying.
@@ -132,12 +133,13 @@ export async function indexSource(q: Queryable, sourceId: string, orgId: string 
     const batch = segments.slice(i, i + 100)
     const params: unknown[] = []
     const rows = batch.map((s, j) => {
-      params.push(sourceId, orgId, i + j, s.label, s.text, indexText(`${s.label ?? ''} ${s.text}`))
-      const b = params.length - 6
-      return `($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $${b + 5}, to_tsvector('simple', $${b + 6}))`
+      params.push(sourceId, orgId, i + j, s.label, s.text, indexText(`${s.label ?? ''} ${s.text}`), articleNumber(s.label))
+      const b = params.length - 7
+      return `($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $${b + 5}, to_tsvector('simple', $${b + 6}), $${b + 7})`
     })
-    await q.query(`INSERT INTO library_chunks (source_id, org_id, ordinal, label, text, search) VALUES ${rows.join(', ')}`, params)
+    await q.query(`INSERT INTO library_chunks (source_id, org_id, ordinal, label, text, search, article_no) VALUES ${rows.join(', ')}`, params)
   }
+  await applyArticleFlags(q, sourceId)
   const articles = segments.filter((s) => s.label).length
   await q.query('UPDATE library_sources SET articles = $2, updated_at = now() WHERE id = $1', [sourceId, articles || segments.length])
   return segments.length
@@ -154,32 +156,97 @@ export type Passage = {
   kind: string
   status: string
   jurisdiction: string
+  article_no: string | null
+  article_status: string
+  changed_on: string | null
+  effective_from: string | null
+  effective_to: string | null
   rank: number
 }
 
-// Ranked retrieval across the organisation's private library and the shared platform library.
-export async function searchLibrary(q: Queryable, orgId: string, question: string, opts: { jurisdictions?: string[]; limit?: number; sourceId?: string } = {}): Promise<Passage[]> {
+export const PASSAGE_COLUMNS = `c.id, c.source_id, c.label, c.text, s.title, s.number, s.year, s.kind, s.status, s.jurisdiction,
+  c.article_no, c.status AS article_status, to_char(c.changed_on, 'YYYY-MM-DD') AS changed_on,
+  to_char(s.effective_from, 'YYYY-MM-DD') AS effective_from, to_char(s.effective_to, 'YYYY-MM-DD') AS effective_to`
+
+export type SearchOpts = { jurisdictions?: string[]; limit?: number; sourceId?: string; asOf?: string }
+
+// Scope shared by every library query: the firm's own library plus the shared one, optionally a jurisdiction,
+// one source, and the versions in force on a date. Parameters start after `params`.
+export function scopeFilter(params: unknown[], orgId: string, opts: SearchOpts) {
+  params.push(orgId)
+  let sql = `(s.org_id = $${params.length} OR s.org_id IS NULL)`
+  if (opts.jurisdictions?.length) { params.push(opts.jurisdictions); sql += ` AND s.jurisdiction = ANY($${params.length})` }
+  if (opts.sourceId) { params.push(opts.sourceId); sql += ` AND s.id = $${params.length}` }
+  if (opts.asOf) {
+    params.push(opts.asOf)
+    sql += ` AND (s.effective_from IS NULL OR s.effective_from <= $${params.length}::date) AND (s.effective_to IS NULL OR s.effective_to > $${params.length}::date)`
+  }
+  return sql
+}
+
+// Whether a passage was out of force on the date (or, with no date, is marked repealed today).
+export function outOfForce(p: Pick<Passage, 'status' | 'article_status' | 'changed_on' | 'effective_from' | 'effective_to'>, asOf?: string) {
+  if (!asOf) return p.status === 'repealed' || p.article_status === 'repealed'
+  return !validityOn(p, { status: p.article_status, changed_on: p.changed_on }, asOf).in_force
+}
+
+const BM25_K1 = 1.2
+const BM25_B = 0.75
+const statsCache = new Map<string, { at: number; n: number; avgdl: number }>()
+
+// Okapi BM25 over the visible library. Postgres finds the candidates (any query term, GIN index);
+// document frequencies come from the same scope, and term frequencies from the passage text.
+export async function searchLibrary(q: Queryable, orgId: string, question: string, opts: SearchOpts = {}): Promise<Passage[]> {
   const tsq = buildTsQuery(question)
   if (!tsq) return []
-  const params: unknown[] = [orgId, tsq]
-  let filter = ''
-  if (opts.jurisdictions?.length) {
-    params.push(opts.jurisdictions)
-    filter += ` AND s.jurisdiction = ANY($${params.length})`
-  }
-  if (opts.sourceId) {
-    params.push(opts.sourceId)
-    filter += ` AND s.id = $${params.length}`
-  }
-  params.push(opts.limit ?? 8)
-  return q.query<Passage>(
-    `SELECT c.id, c.source_id, c.label, c.text, s.title, s.number, s.year, s.kind, s.status, s.jurisdiction,
-            ts_rank_cd(c.search, to_tsquery('simple', $2)) * CASE WHEN s.status = 'repealed' THEN 0.3 ELSE 1 END AS rank
+  const terms = tsq.split(' | ').map((t) => t.replace(/:\*$/, ''))
+  const params: unknown[] = []
+  const scope = scopeFilter(params, orgId, opts)
+  params.push(tsq)
+  const tsqParam = `$${params.length}`
+  const candidates = await q.query<Passage & { lexemes: number }>(
+    `SELECT ${PASSAGE_COLUMNS}, length(c.search) AS lexemes
        FROM library_chunks c JOIN library_sources s ON s.id = c.source_id
-      WHERE (s.org_id = $1 OR s.org_id IS NULL) AND c.search @@ to_tsquery('simple', $2) ${filter}
-      ORDER BY rank DESC LIMIT $${params.length}`,
-    params
-  )
+      WHERE ${scope} AND c.search @@ to_tsquery('simple', ${tsqParam})
+      ORDER BY ts_rank_cd(c.search, to_tsquery('simple', ${tsqParam})) DESC LIMIT 200`, params)
+  if (!candidates.length) return []
+
+  // Corpus statistics for this scope, cached briefly.
+  const key = `${orgId}|${(opts.jurisdictions ?? []).join(',')}|${opts.sourceId ?? ''}|${opts.asOf ?? ''}`
+  let stats = statsCache.get(key)
+  if (!stats || Date.now() - stats.at > 5 * 60_000) {
+    const p: unknown[] = []
+    const sc = scopeFilter(p, orgId, opts)
+    const [row] = await q.query(`SELECT count(*)::int AS n, COALESCE(avg(length(c.search)), 1)::float AS avgdl FROM library_chunks c JOIN library_sources s ON s.id = c.source_id WHERE ${sc}`, p)
+    stats = { at: Date.now(), n: Number(row.n), avgdl: Number(row.avgdl) || 1 }
+    statsCache.set(key, stats)
+    if (statsCache.size > 500) statsCache.delete(statsCache.keys().next().value!)
+  }
+  const dfParams: unknown[] = []
+  const dfScope = scopeFilter(dfParams, orgId, opts)
+  const dfSql = terms.map((t, k) => {
+    dfParams.push(`${t}:*`)
+    return `SELECT ${k} AS i, count(*)::int AS df FROM library_chunks c JOIN library_sources s ON s.id = c.source_id WHERE ${dfScope} AND c.search @@ to_tsquery('simple', $${dfParams.length})`
+  }).join(' UNION ALL ')
+  const dfRows = await q.query<{ i: number; df: number }>(dfSql, dfParams)
+  const df = new Map(dfRows.map((r) => [terms[Number(r.i)]!, Number(r.df)]))
+
+  const scored = candidates.map(({ lexemes, ...p }) => {
+    const tokens = tokenize(`${p.label ?? ''} ${p.text}`)
+    const dl = Number(lexemes) || tokens.length || 1
+    let score = 0
+    for (const t of terms) {
+      const tf = tokens.reduce((n, w) => n + (w.startsWith(t) ? 1 : 0), 0)
+      if (!tf) continue
+      const d = df.get(t) ?? 1
+      const idf = Math.log(1 + (stats!.n - d + 0.5) / (d + 0.5))
+      score += idf * (tf * (BM25_K1 + 1)) / (tf + BM25_K1 * (1 - BM25_B + BM25_B * dl / stats!.avgdl))
+    }
+    // Repealed law still answers history questions, but ranks after law in force on the date.
+    if (outOfForce(p, opts.asOf)) score *= 0.3
+    return { ...p, rank: score }
+  })
+  return scored.sort((a, b) => b.rank - a.rank).slice(0, opts.limit ?? 8)
 }
 
 // ---------------------------------------------------------------------------
@@ -191,7 +258,7 @@ export type LawRef = { number: string; years: string[] }
 
 const fullYear = (y: string) => (y.length === 4 ? y : Number(y) >= 50 ? `19${y}` : `20${y}`)
 
-export function lawReferences(text: string): LawRef[] {
+export function lawReferences(text: string, max = 3): LawRef[] {
   const t = normalizeText(text)
   const out = new Map<string, LawRef>()
   const add = (num: string, year: string) => {
@@ -208,7 +275,7 @@ export function lawReferences(text: string): LawRef[] {
     else add(m[1]!, m[2]!)
   }
   for (const m of t.matchAll(/(?:رقم|no\.?|number)\s*\(?\s*(\d{1,4})\s*\)?\s*(?:لسنه|لعام|of|for)\s*(\d{4})/g)) add(m[1]!, m[2]!)
-  return [...out.values()].slice(0, 3)
+  return [...out.values()].slice(0, max)
 }
 
 const DIGITS_FROM = '٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹'
@@ -234,13 +301,16 @@ export async function findReferencedSources(q: Queryable, orgId: string, refs: L
 
 // Passages from one named law: its opening (title and preamble) plus the parts that best match the question.
 export async function referencedPassages(q: Queryable, orgId: string, sourceId: string, question: string, limit = 8): Promise<Passage[]> {
-  const select = `SELECT c.id, c.source_id, c.label, c.text, s.title, s.number, s.year, s.kind, s.status, s.jurisdiction, 1 AS rank
+  const select = `SELECT ${PASSAGE_COLUMNS}, 1 AS rank
        FROM library_chunks c JOIN library_sources s ON s.id = c.source_id
       WHERE c.source_id = $1 AND (s.org_id = $2 OR s.org_id IS NULL)`
   const opening = await q.query<Passage>(`${select} ORDER BY c.ordinal LIMIT 4`, [sourceId, orgId])
+  // Articles named in the question ("Article 12 of Royal Decree 6/2022") come straight after the opening.
+  const named = mentionedArticleNumbers(question)
+  const articles = named.length ? await q.query<Passage>(`${select} AND c.article_no = ANY($3) ORDER BY c.ordinal LIMIT 6`, [sourceId, orgId, named]) : []
   const matched = await searchLibrary(q, orgId, question, { sourceId, limit })
   const seen = new Set<string>()
-  return [...opening, ...matched].filter((p) => !seen.has(p.id) && seen.add(p.id)).slice(0, limit)
+  return [...opening, ...articles, ...matched].filter((p) => !seen.has(p.id) && seen.add(p.id)).slice(0, limit)
 }
 
 export function citationLabel(p: Pick<Passage, 'title' | 'number' | 'year' | 'label'>) {
