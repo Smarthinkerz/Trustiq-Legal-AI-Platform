@@ -83,13 +83,18 @@ const analysisFocus: Record<AnalysisType, string> = {
   review: 'Perform a full clause-by-clause legal review: drafting quality, ambiguities, one-sided terms, enforceability issues and missing standard clauses.'
 }
 
-export function analysisMessages(opts: { type: AnalysisType; lang: 'en' | 'ar'; jurisdiction?: string | null; title: string; text: string }) {
+export function analysisMessages(opts: { type: AnalysisType; lang: 'en' | 'ar'; jurisdiction?: string | null; title: string; text: string; sources?: PromptSource[] }) {
+  const sources = opts.sources ?? []
   const system = [
     'You are a senior Middle East contracts lawyer (GCC and wider Arab region) reviewing a document for a law firm.',
     `Jurisdiction: ${jurisdictionName(opts.jurisdiction)}.`,
     SAFETY,
     languageRule(opts.lang) + ' JSON keys stay in English; JSON string values follow the language rule.',
     `Task: ${analysisFocus[opts.type]}`,
+    `Evidence rules (checked by code):
+- For every issue, copy into "quote" the exact words of the clause you rely on (at most 300 characters). An issue whose quote is not found word for word in the document is removed. For a missing clause, put it in "missing_clauses" instead.
+- Cite a law only in "legal_basis", and only from the <sources> passages with their reference, e.g. "Article 43 of the Labour Law [S2]". Each legal basis is checked against the library; one that fails is removed. If no passage supports it, leave "legal_basis" empty and do not name laws or article numbers anywhere else.`,
+    sources.length ? `<sources>\n${sourcesBlock(sources)}\n</sources>` : 'No passages from the firm\'s law library were found for this document, so leave every "legal_basis" empty.',
     `Return ONLY a JSON object with exactly this shape:
 {
   "summary": string,                       // 3-6 sentences
@@ -97,7 +102,7 @@ export function analysisMessages(opts: { type: AnalysisType; lang: 'en' | 'ar'; 
   "risk_level": "low" | "medium" | "high" | "critical",
   "parties": string[],
   "key_terms": [{ "label": string, "value": string }],
-  "issues": [{ "severity": "low" | "medium" | "high" | "critical", "clause": string, "issue": string, "recommendation": string }],
+  "issues": [{ "severity": "low" | "medium" | "high" | "critical", "clause": string, "quote": string, "issue": string, "legal_basis": string, "recommendation": string }],
   "missing_clauses": string[],
   "next_steps": string[]
 }`
@@ -181,7 +186,9 @@ export function normalizeAnalysis(raw: any) {
       ? raw.issues.slice(0, 60).map((i: any) => ({
           severity: SEVERITIES.includes(i?.severity) ? i.severity : 'medium',
           clause: clampStr(i?.clause, 300),
+          quote: clampStr(i?.quote, 600),
           issue: clampStr(i?.issue, 2000),
+          legal_basis: clampStr(i?.legal_basis, 1000),
           recommendation: clampStr(i?.recommendation, 2000)
         })).filter((i: any) => i.issue)
       : [],

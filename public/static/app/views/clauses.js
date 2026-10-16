@@ -361,6 +361,8 @@ export function playbookPanel(box, doc, { onInsert, canEdit }) {
         <span class="w-14 h-14 rounded-full flex items-center justify-center text-lg font-bold ${scoreColor(r.score)}" title="${t('playbook.score_help')}">${r.score}</span>
         <div class="text-xs text-slate-500 flex-1">
           <div class="flex flex-wrap gap-1 mb-1">${['deviates', 'missing', 'fallback', 'meets'].filter((s) => r.counts[s]).map((s) => html`<span class="badge ${STATUS[s][0]}">${r.counts[s]} ${t(`playbook.status_${s}`)}</span>`)}</div>
+          ${r.truncated ? html`<p class="text-xs text-amber-700"><i class="fas fa-triangle-exclamation"></i> ${t('analysis.truncated')}</p>` : ''}
+          ${r.quotes_removed ? html`<p class="text-xs text-amber-700"><i class="fas fa-triangle-exclamation"></i> ${t('playbook.quotes_removed', { n: r.quotes_removed })}</p>` : ''}
           ${fmtDateTime(rv.created_at)} · v${rv.document_version}${rv.document_version !== d.version ? html` <span class="text-amber-700">(${t('playbook.outdated')})</span>` : ''}${rv.acting_for ? ` · ${t('cmp.acting_for', { name: rv.acting_for })}` : ''}
         </div>
       </div>

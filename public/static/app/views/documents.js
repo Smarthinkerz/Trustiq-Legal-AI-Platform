@@ -216,6 +216,7 @@ function analysisCard(a, expanded) {
       ${severityBadge(r.risk_level)}
     </summary>
     <div class="px-5 pb-5 space-y-5 border-t border-slate-100 pt-4" dir="${dir}">
+      ${r.checks ? html`<p class="text-xs text-slate-500"><i class="fas fa-shield-halved"></i> ${t('analysis.checks', { kept: r.checks.issues_kept, removed: r.checks.issues_removed, basis: r.checks.legal_basis_removed })}${r.checks.truncated ? ` ${t('analysis.truncated')}` : ''}</p>` : ''}
       ${r.summary ? html`<div><h4 class="text-xs font-semibold uppercase text-slate-500 mb-1">${t('analysis.summary')}</h4><p class="text-sm leading-relaxed whitespace-pre-wrap">${r.summary}</p></div>` : ''}
       ${r.parties?.length ? html`<div><h4 class="text-xs font-semibold uppercase text-slate-500 mb-1">${t('analysis.parties')}</h4><p class="text-sm">${r.parties.join(' · ')}</p></div>` : ''}
       ${r.key_terms?.length ? html`<div><h4 class="text-xs font-semibold uppercase text-slate-500 mb-2">${t('analysis.key_terms')}</h4>
@@ -223,7 +224,9 @@ function analysisCard(a, expanded) {
       ${r.issues?.length ? html`<div><h4 class="text-xs font-semibold uppercase text-slate-500 mb-2">${t('analysis.issues')} (${r.issues.length})</h4>
         <ul class="space-y-3">${[...r.issues].sort((x, y) => sevRank(y.severity) - sevRank(x.severity)).map((i) => html`<li class="rounded-lg border border-slate-200 p-3">
           <div class="flex flex-wrap items-center gap-2 mb-1">${severityBadge(i.severity)}${i.clause ? html`<span class="text-xs font-medium text-slate-500">${i.clause}</span>` : ''}</div>
-          <p class="text-sm text-slate-800">${i.issue}</p>
+          ${i.quote ? html`<blockquote class="border-s-2 border-slate-300 ps-3 text-slate-600 italic text-sm mb-1" dir="auto">${i.quote}</blockquote>` : ''}
+          <p class="text-sm text-slate-800 whitespace-pre-wrap">${i.issue}</p>
+          ${i.legal_basis ? html`<p class="text-xs text-brand-800 mt-1"><i class="fas fa-book-open"></i> ${i.legal_basis}</p>` : ''}
           ${i.recommendation ? html`<p class="text-sm text-emerald-800 mt-1"><i class="fas fa-lightbulb"></i> ${i.recommendation}</p>` : ''}
         </li>`)}</ul></div>` : ''}
       ${r.missing_clauses?.length ? html`<div><h4 class="text-xs font-semibold uppercase text-slate-500 mb-1">${t('analysis.missing')}</h4><ul class="list-disc ps-5 text-sm space-y-0.5">${r.missing_clauses.map((x) => html`<li>${x}</li>`)}</ul></div>` : ''}

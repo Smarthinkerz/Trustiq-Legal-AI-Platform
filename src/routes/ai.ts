@@ -7,7 +7,9 @@ import { jsonBody, optUuid, uuidParam } from '../lib/http'
 import { JURISDICTION_CODES, jurisdictionName, templateName, DOCUMENT_TEMPLATES } from '../services/reference'
 import { analysisMessages, chatSystemPrompt, draftMessages, normalizeAnalysis, parseJsonObject, type AnalysisType } from '../services/legal-prompts'
 import { assertCanCreateDocument, assertCanUseAi, recordAiUsage } from '../services/usage'
-import { citedRefs } from '../services/library'
+import { citedRefs, lawReferences } from '../services/library'
+import { appearsIn } from '../services/ai-guard'
+import { mentionedArticles } from '../services/legal-corpus'
 import { allowedJurisdictions, citedSummary, groundQuestion, gulfToday } from '../services/grounding'
 import { verifyAnswer } from '../services/verify'
 import { LOG_COLUMNS, LOG_FROM, logAiUse, logCsv, logDisclosure } from '../services/ai-log'
@@ -209,10 +211,15 @@ aiRoutes.post('/documents/:id/analyze', jsonBody(z.object({
   throttle(c)
   await assertCanUseAi(db, org, b.type !== 'summary')
   const jurisdiction = b.jurisdiction ?? doc.jurisdiction ?? org.default_jurisdiction
+  const asOf = gulfToday()
+  // Legal points are grounded in the firm's library, found from the document's own text.
+  const { sources, namedSourceIds } = b.type === 'summary' ? { sources: [], namedSourceIds: [] }
+    : await groundQuestion(c.get('deps'), org.id, { question: `${doc.title} ${doc.content.slice(0, 1500)}`, jurisdiction, asOf, max: 10 })
   const result = await ai.complete({
-    messages: analysisMessages({ type: b.type as AnalysisType, lang: b.language, jurisdiction, title: doc.title, text: doc.content }),
+    messages: analysisMessages({ type: b.type as AnalysisType, lang: b.language, jurisdiction, title: doc.title, text: doc.content, sources }),
     json: true,
-    maxTokens: 4000
+    maxTokens: 4500,
+    temperature: 0.1
   })
   let analysis
   try {
@@ -220,13 +227,34 @@ aiRoutes.post('/documents/:id/analyze', jsonBody(z.object({
   } catch {
     throw new HttpError(502, 'ai_bad_output', 'The AI returned an unreadable analysis. Please try again.')
   }
+  // Code checks: each issue must quote the document word for word; each legal basis must pass the citation check.
+  const checks = { issues_kept: 0, issues_removed: 0, legal_basis_removed: 0, truncated: doc.content.length > 60_000 }
+  const kept: typeof analysis.issues = []
+  for (const i of analysis.issues) {
+    if (!i.quote || !appearsIn(i.quote, doc.content)) { checks.issues_removed++; continue }
+    if (i.legal_basis) {
+      const v = await verifyAnswer(db, { orgId: org.id, answer: i.legal_basis, sources, asOf, allowedJurisdictions: allowedJurisdictions(jurisdiction), namedSourceIds })
+      if (v.errors || !v.citations) { i.legal_basis = ''; checks.legal_basis_removed++ }
+    }
+    // Law named anywhere else in the issue without a verified basis is not shown as fact.
+    if (!i.legal_basis && (mentionedArticles(i.issue).length || lawReferences(i.issue).length)) i.issue = `${i.issue}\n(${b.language === 'ar' ? 'الإشارة القانونية غير متحقق منها في المكتبة' : 'Legal reference not verified in the library'})`
+    kept.push(i)
+  }
+  checks.issues_kept = kept.length
+  analysis = { ...analysis, issues: kept, checks }
   const saved = await db.tx(async (q) => {
     const row = await q.one(
       `INSERT INTO document_analyses (org_id, document_id, analysis_type, language, jurisdiction, result, model, created_by)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, analysis_type, language, jurisdiction, result, model, created_at`,
       [org.id, id, b.type, b.language, jurisdiction, JSON.stringify(analysis), result.model, user.id])
     await recordAiUsage(q, org.id, user.id, `analysis:${b.type}`, result)
-    await logAiUse(q, { orgId: org.id, userId: user.id, feature: `analysis:${b.type}`, model: result.model, documentId: id, jurisdiction, prompt: `${b.type} analysis of ${doc.title}`, output: result.text })
+    await logAiUse(q, { orgId: org.id, userId: user.id, feature: `analysis:${b.type}`, model: result.model, documentId: id, jurisdiction, asOf, prompt: `${b.type} analysis of ${doc.title}`, output: result.text,
+      sources: sources.filter((s) => kept.some((i: any) => i.legal_basis.includes(`[${s.ref}]`))).map(citedSummary),
+      verification: { status: checks.issues_removed || checks.legal_basis_removed ? 'passed_with_warnings' : 'passed', errors: 0, warnings: checks.issues_removed + checks.legal_basis_removed, citations: 0, as_of: asOf, checked_at: new Date().toISOString(),
+        checks: [
+          ...(checks.issues_removed ? [{ kind: 'quote' as const, severity: 'warning' as const, ok: false, code: 'issue_quote_not_found', detail: `${checks.issues_removed} issue(s) removed because their quoted clause was not found in the document.` }] : []),
+          ...(checks.legal_basis_removed ? [{ kind: 'reference' as const, severity: 'warning' as const, ok: false, code: 'legal_basis_removed', detail: `${checks.legal_basis_removed} legal basis reference(s) removed because they failed the citation check.` }] : [])
+        ] } })
     return row
   })
   await audit(c, 'ai.analyzed', 'document', id, { type: b.type })

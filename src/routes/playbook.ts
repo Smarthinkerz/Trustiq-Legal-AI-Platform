@@ -1,10 +1,12 @@
+import { appearsIn } from '../services/ai-guard'
+import { logAiUse } from '../services/ai-log'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { audit, auth, requireRole, type AppEnv } from '../context'
 import { badRequest, HttpError, notFound, tooMany } from '../lib/errors'
 import { jsonBody, optText, optUuid, queryParams, updateBody, uuidParam } from '../lib/http'
 import { parseJsonObject } from '../services/legal-prompts'
-import { CLAUSE_CATEGORIES, CLAUSE_LIMIT, normalizeReview, reviewMessages, RULE_LIMIT, SEVERITIES, STARTER_CLAUSES, STARTER_RULES, type Rule } from '../services/playbook'
+import { CLAUSE_CATEGORIES, CLAUSE_LIMIT, normalizeReview, scoreReview, reviewMessages, RULE_LIMIT, SEVERITIES, STARTER_CLAUSES, STARTER_RULES, type Rule } from '../services/playbook'
 import { jurisdictionName } from '../services/reference'
 import { assertCanUseAi, recordAiUsage } from '../services/usage'
 
@@ -169,19 +171,38 @@ playbookRoutes.post('/review', jsonBody(z.object({
   })
   let review
   try { review = normalizeReview(parseJsonObject(out.text), rules) } catch { throw new HttpError(502, 'ai_bad_output', 'The AI returned an unreadable review. Please try again.') }
+  // Contracts longer than the model reads are flagged: a "missing" finding may sit in the unread part.
+  const truncated = doc.content.length > 60_000
+  const ar = b.language === 'ar'
   // Attach the firm's approved wording, in the contract's language, to every gap the playbook links to a clause.
+  let quotesRemoved = 0
   const items = review.items.map((i, n) => {
     const r = rules[n]!
     const approved = doc.language === 'ar' ? r.clause_ar ?? r.clause_en : r.clause_en ?? r.clause_ar
-    return { ...i, approved_clause: i.status === 'meets' || i.status === 'not_applicable' || !approved ? null : { title: r.clause_title, text: approved } }
+    // Code check: the quoted contract words must be in the contract.
+    let { found, issue, status } = i
+    if (found && !appearsIn(found, doc.content)) {
+      quotesRemoved++
+      found = ''
+      issue = `${issue}${issue ? '\n' : ''}${ar ? 'لم يُعثر على النص المقتبس في العقد؛ راجع هذا البند يدوياً.' : 'The quoted words were not found in the contract; check this rule by hand.'}`
+      if (status === 'meets' || status === 'fallback') status = 'deviates'
+    }
+    if (truncated && status === 'missing') issue = `${issue}${issue ? '\n' : ''}${ar ? 'العقد أطول مما قرئ؛ قد يكون هذا البند في الجزء غير المقروء.' : 'The contract is longer than the part reviewed; this clause may be in the unread part.'}`
+    return { ...i, found, issue, status, found_verified: !!found, approved_clause: status === 'meets' || status === 'not_applicable' || !approved ? null : { title: r.clause_title, text: approved } }
   })
-  const result = { ...review, items }
+  const result = { ...review, items, ...scoreReview(items), truncated, quotes_removed: quotesRemoved }
   const saved = await db.tx(async (q) => {
     const row = await q.one(
       `INSERT INTO playbook_reviews (org_id, document_id, document_version, language, acting_for, result, model, created_by)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
       [org.id, doc.id, doc.version, b.language, actingFor, JSON.stringify(result), out.model, user.id])
     await recordAiUsage(q, org.id, user.id, 'playbook_review', out)
+    await logAiUse(q, { orgId: org.id, userId: user.id, feature: 'playbook_review', model: out.model, documentId: doc.id, prompt: `Playbook review of ${doc.title}`, output: out.text,
+      verification: { status: quotesRemoved || truncated ? 'passed_with_warnings' : 'passed', errors: 0, warnings: quotesRemoved + (truncated ? 1 : 0), citations: 0, as_of: new Date().toISOString().slice(0, 10), checked_at: new Date().toISOString(),
+        checks: [
+          ...(quotesRemoved ? [{ kind: 'quote' as const, severity: 'warning' as const, ok: false, code: 'quote_not_found', detail: `${quotesRemoved} quoted clause(s) were not found in the contract and were removed.` }] : []),
+          ...(truncated ? [{ kind: 'quote' as const, severity: 'warning' as const, ok: false, code: 'truncated', detail: 'The contract is longer than the part reviewed.' }] : [])
+        ] } })
     return row!
   })
   await audit(c, 'ai.playbook_review', 'document', doc.id, { score: result.score, rules: rules.length })
