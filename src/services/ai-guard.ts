@@ -1,5 +1,7 @@
 import type { AiService, ChatMessage, Completion } from './ai'
-import { normalizeText } from './library'
+import type { Queryable } from '../db'
+import { findReferencedSources, lawReferences, normalizeText } from './library'
+import { mentionedArticles } from './legal-corpus'
 import { parseJsonObject } from './legal-prompts'
 
 // ---------------------------------------------------------------------------
@@ -208,6 +210,40 @@ export function datesIn(text: string): { raw: string; date: string }[] {
   for (const m of t.matchAll(/\b([A-Za-z]+)\s+(\d{1,2}),?\s+(\d{4})\b/g)) add(m[0])
   return out
 }
+
+// Marks law references the firm's library cannot confirm with "[verify: ...]" so they cannot be
+// published unchecked (see VERIFY_MARKER). A sentence naming a law or article is kept as is only when
+// every law number it names is in the library; an article with no law number is always marked.
+export async function markUnverifiedLaw(db: Queryable, orgId: string, text: string): Promise<{ text: string; marked: number }> {
+  if (!text) return { text, marked: 0 }
+  let marked = 0
+  const lines: string[] = []
+  for (const line of text.split(/\n/)) {
+    const fixed: string[] = []
+    for (const sentence of line.split(/(?<=[.!?؟])\s+/)) {
+      const refs = VERIFY_MARKER.test(sentence) ? [] : lawReferences(sentence, 5)
+      const arts = VERIFY_MARKER.test(sentence) ? [] : mentionedArticles(sentence)
+      if (!refs.length && !arts.length) { fixed.push(sentence); continue }
+      const found = refs.length ? await findReferencedSources(db, orgId, refs) : []
+      if (refs.length && found.length >= refs.length) { fixed.push(sentence); continue }
+      marked++
+      fixed.push(`${sentence} [verify: ${[...refs.map((r) => `${r.number}/${r.years[0]}`), ...arts.map((x) => `Article ${x}`)].join(', ')}]`)
+    }
+    lines.push(fixed.join(' '))
+  }
+  return { text: lines.join('\n'), marked }
+}
+
+// Code filter for public chatbots: no law references, article numbers, outcome promises or personal advice.
+const ADVICE = /\b(you should|you must|you will (?:win|lose|get)|you are entitled|guarantee[ds]?|definitely win|your case will)\b|يجب عليك|ننصحك|ستكسب|ستخسر|مضمون|نضمن|من حقك أن/i
+export function publicReplyProblem(reply: string): 'law_reference' | 'advice' | null {
+  if (lawReferences(reply, 5).length || mentionedArticles(reply).length) return 'law_reference'
+  if (ADVICE.test(reply)) return 'advice'
+  return null
+}
+
+// Public content cannot be published while it still carries [verify] markers.
+export const VERIFY_MARKER = /\[(verify|تحقق)[^\]]*\]/i
 
 export const ABSTAIN = {
   en: 'I could not find this in the available sources.',

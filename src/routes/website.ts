@@ -1,3 +1,5 @@
+import { markUnverifiedLaw, VERIFY_MARKER } from '../services/ai-guard'
+import { logAiUse } from '../services/ai-log'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { audit, auth, requireRole, runLater, type AppEnv, type Ctx } from '../context'
@@ -100,9 +102,19 @@ const postFields = {
   body_ar: optText(60_000),
   cover_media_id: z.string().uuid().nullish().or(z.literal('')).transform((v) => v || null),
   cover_alt: optText(300),
+  // Set by the editor when the AI writer was used; shown on the public article.
+  ai_assisted: z.boolean().optional(),
   status: z.enum(['draft', 'published'])
 }
-const POST_UPDATABLE = ['slug', 'title', 'title_ar', 'excerpt', 'excerpt_ar', 'body', 'body_ar', 'cover_media_id', 'cover_alt'] as const
+const POST_UPDATABLE = ['slug', 'title', 'title_ar', 'excerpt', 'excerpt_ar', 'body', 'body_ar', 'cover_media_id', 'cover_alt', 'ai_assisted'] as const
+
+// Public articles cannot go live while "[verify]" markers (from the AI writer or the firm) remain.
+function assertPublishable(p: Record<string, unknown>) {
+  const fields = ['title', 'title_ar', 'excerpt', 'excerpt_ar', 'body', 'body_ar']
+  if (fields.some((f) => typeof p[f] === 'string' && VERIFY_MARKER.test(p[f] as string))) {
+    throw badRequest('Resolve every [verify] marker before publishing: check the point against the official source, then edit or remove it.')
+  }
+}
 
 // Files uploaded before the post was first saved are filed under it once it uses them.
 async function linkMedia(c: Ctx, orgId: string, post: Record<string, any>) {
@@ -148,12 +160,13 @@ websiteRoutes.post('/posts', jsonBody(z.object({ ...postFields, status: postFiel
   const { user, org } = auth(c)
   const b = c.req.valid('json')
   if (!hasTitle(b)) throw badRequest('Give the post a title in English or Arabic.')
+  if (b.status === 'published') assertPublishable(b)
   await assertCover(c, org.id, b.cover_media_id)
   const postSlug = await uniquePostSlug(c, org.id, b.slug ?? slugify(b.title ?? ''))
   const post = await c.get('deps').db.one(
-    `INSERT INTO blog_posts (org_id, slug, title, title_ar, excerpt, excerpt_ar, body, body_ar, status, published_at, author_id, cover_media_id, cover_alt)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, ${b.status === 'published' ? 'now()' : 'NULL'}, $10, $11, $12) RETURNING *`,
-    [org.id, postSlug, b.title, b.title_ar, b.excerpt, b.excerpt_ar, b.body, b.body_ar, b.status, user.id, b.cover_media_id, b.cover_alt])
+    `INSERT INTO blog_posts (org_id, slug, title, title_ar, excerpt, excerpt_ar, body, body_ar, status, published_at, author_id, cover_media_id, cover_alt, ai_assisted)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, ${b.status === 'published' ? 'now()' : 'NULL'}, $10, $11, $12, $13) RETURNING *`,
+    [org.id, postSlug, b.title, b.title_ar, b.excerpt, b.excerpt_ar, b.body, b.body_ar, b.status, user.id, b.cover_media_id, b.cover_alt, b.ai_assisted ?? false])
   await linkMedia(c, org.id, post!)
   await audit(c, b.status === 'published' ? 'blog.published' : 'blog.created', 'blog_post', post!.id, { title: b.title ?? b.title_ar })
   return c.json({ post }, 201)
@@ -173,6 +186,9 @@ websiteRoutes.patch('/posts/:id', jsonBody(z.object(postFields).partial()), asyn
   if (b.slug && b.slug !== current.slug && await db.one('SELECT 1 FROM blog_posts WHERE org_id = $1 AND slug = $2 AND id <> $3', [org.id, b.slug, id])) {
     throw conflict('Another post already uses that address.')
   }
+  if ((b.status ?? current.status) === 'published') assertPublishable({ ...current, ...b })
+  // Once an article has used the AI writer it stays labelled.
+  if (b.ai_assisted === false && current.ai_assisted) delete b.ai_assisted
   await assertCover(c, org.id, b.cover_media_id)
   const { sets, values } = buildUpdate(b, POST_UPDATABLE, 3)
   if (b.status) {
@@ -315,12 +331,21 @@ websiteRoutes.post('/writer', jsonBody(z.object({
   const firm = await db.one('SELECT firm_name FROM branding WHERE org_id = $1', [org.id])
   const result = await ai.complete({
     messages: writerMessages({ ...b, firm_name: firm?.firm_name || org.name }),
-    json: true, maxTokens: b.action === 'titles' || b.action === 'excerpt' ? 600 : 4000, temperature: 0.4
+    json: true, maxTokens: b.action === 'titles' || b.action === 'excerpt' ? 600 : 4000, temperature: 0.2
   })
   await recordAiUsage(db, org.id, user.id, 'blog_writer', result)
   let parsed: any
   try { parsed = parseJsonObject(result.text) } catch { throw badRequest('The AI reply could not be read. Please try again.') }
-  return c.json({ result: normalizeWriterResult(b.action, parsed) })
+  const out: Record<string, any> = normalizeWriterResult(b.action, parsed)
+  // Law references the library cannot confirm are marked [verify: ...]; the article cannot be published until they are resolved.
+  let marked = 0
+  for (const k of ['body', 'excerpt', 'title']) {
+    if (typeof out[k] === 'string') { const r = await markUnverifiedLaw(db, org.id, out[k]); out[k] = r.text; marked += r.marked }
+  }
+  await logAiUse(db, { orgId: org.id, userId: user.id, feature: 'blog_writer', model: result.model, prompt: `${b.action}: ${b.topic ?? b.title ?? ''}`, output: JSON.stringify(out),
+    verification: { status: marked ? 'passed_with_warnings' : 'unverified', errors: 0, warnings: marked, citations: 0, as_of: new Date().toISOString().slice(0, 10), checked_at: new Date().toISOString(),
+      checks: marked ? [{ kind: 'law_reference', severity: 'warning', ok: false, code: 'law_marked_verify', detail: `${marked} law reference(s) not found in the library were marked [verify].` }] : [] } })
+  return c.json({ result: out, ai_assisted: true, verify_marks: marked })
 })
 
 // ---------------- Leads ----------------

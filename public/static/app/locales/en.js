@@ -1934,6 +1934,7 @@ export default {
   'ai.allow_general': 'Allow general knowledge (unverified)',
   'ai.allow_general_help': 'When the law library has nothing on the question, let the AI answer from general knowledge. Such answers are not checked against any source.',
   'ai.general_label': 'Answered from general knowledge, not from your law library. Not checked against any source.',
+  'web.verify_marks': '{n} law references could not be confirmed in your law library and are marked [verify]. The article cannot be published until you check and resolve them.',
   'docs.history': 'Version history',
   'docs.view': 'View',
   'docs.version': 'Version',
