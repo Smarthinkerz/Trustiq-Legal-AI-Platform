@@ -55,7 +55,8 @@ export async function gatherClientFacts(db: Queryable, orgId: string, caseId: st
   const sections = [lines.filter(Boolean).join('\n')]
   if (hearings.length) {
     sections.push('Hearings in this period:\n' + hearings.map((h) =>
-      `- ${day(h.starts_at)}: outcome ${h.outcome}${h.next_at ? `; next hearing ${day(h.next_at)}` : ''}${h.next_steps ? `. Next steps: ${truncate(h.next_steps, 600)}` : ''}${h.client_message ? `. Already told the client: ${truncate(h.client_message, 600)}` : ''}`).join('\n'))
+      // The lawyer's internal next-step notes are never sent to the model for a client message.
+      `- ${day(h.starts_at)}: outcome ${h.outcome}${h.next_at ? `; next hearing ${day(h.next_at)}` : ''}${h.client_message ? `. Already told the client: ${truncate(h.client_message, 600)}` : ''}`).join('\n'))
   }
   if (judgments.length) {
     sections.push('Judgments:\n' + judgments.map((j) =>

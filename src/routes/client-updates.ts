@@ -8,6 +8,8 @@ import { parseJsonObject } from '../services/legal-prompts'
 import { assertCanUseAi, recordAiUsage } from '../services/usage'
 import { gatherClientFacts, isolateDates, normalizeUpdate, updateMessages, updatesDue, UPDATE_EVERY_DAYS } from '../services/client-updates'
 import { throttle } from './ai'
+import { datesIn } from '../services/ai-guard'
+import { logAiUse } from '../services/ai-log'
 import { caseActivity } from './cases'
 import { caseUpdateWhatsApp, sendCaseUpdateWhatsApp, type CaseUpdateWa } from '../services/whatsapp'
 
@@ -92,16 +94,48 @@ clientUpdateRoutes.post('/case/:id/draft', jsonBody(z.object({
   await assertCanUseAi(db, org)
   const [firm] = await db.query('SELECT firm_name, firm_name_ar FROM branding WHERE org_id = $1', [org.id])
   const firmName = (language === 'ar' && firm?.firm_name_ar) || firm?.firm_name || org.name
-  const result = await ai.complete({ messages: updateMessages(language, facts.text, b.points || null, firmName), json: true, maxTokens: 1500, temperature: 0.3 })
-  let draft
-  try { draft = normalizeUpdate(parseJsonObject(result.text), language) } catch { draft = { title: '', body: '' } }
+  // Nothing new on the matter and no points from the lawyer: there is nothing true to write.
+  if (!facts.facts && !b.points) {
+    throw new HttpError(422, 'nothing_to_report', language === 'ar'
+      ? 'لا توجد مستجدات مسجلة على هذه القضية منذ آخر تحديث. أضف نقاطاً لتستند إليها المسودة، أو اكتب التحديث بنفسك.'
+      : 'Nothing new is recorded on this matter since the last update. Add points for the draft to use, or write the update yourself.')
+  }
+  // Every date in the draft must be a date in the matter record or the lawyer's points.
+  const allowed = new Set([...datesIn(facts.text), ...datesIn(b.points ?? '')].map((d) => d.date))
+  const badDates = (d: { title: string; body: string }) => datesIn(`${d.title}\n${d.body}`).filter((x) => !allowed.has(x.date))
+  const messages = updateMessages(language, facts.text, b.points || null, firmName)
+  const completions = []
+  let draft = { title: '', body: '' }
+  let bad: { raw: string; date: string }[] = []
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const r = await ai.complete({ messages: attempt === 0 ? messages : [...messages, { role: 'assistant', content: completions.at(-1)!.text },
+      { role: 'user', content: `These dates are not in the matter record or the points: ${bad.map((x) => x.raw).join(', ')}. Rewrite the update using only dates that appear in <matter> or <points>. Return the full JSON again.` }],
+      json: true, maxTokens: 1500, temperature: 0.1 })
+    completions.push(r)
+    let next = { title: '', body: '' }
+    try { next = normalizeUpdate(parseJsonObject(r.text), language) } catch { /* unreadable reply */ }
+    // An empty retry does not replace a first draft; that draft's date problems still stand.
+    if (next.body.length < 10 && attempt > 0) break
+    draft = next
+    bad = badDates(draft)
+    if (draft.body.length >= 10 && !bad.length) break
+  }
+  for (const r of completions) await recordAiUsage(db, org.id, user.id, 'client_update', r)
+  const result = completions.at(-1)!
   if (draft.body.length < 10) throw new HttpError(502, 'ai_bad_output', 'The AI returned an empty update. Please try again.')
+  if (bad.length) {
+    throw new HttpError(422, 'unverified_dates', language === 'ar'
+      ? `لم يُحفظ التحديث لأن فيه تواريخ غير موجودة في سجل القضية: ${bad.map((x) => x.raw).join('، ')}. اكتب التحديث بنفسك أو أضف النقاط الصحيحة.`
+      : `The draft was not saved because it contained dates that are not in the matter record: ${bad.map((x) => x.raw).join(', ')}. Write the update yourself or add the correct points.`)
+  }
   const title = draft.title.length >= 2 ? draft.title : `${language === 'ar' ? 'مستجدات القضية' : 'Update on your matter'} ${k.reference}`
   const id = await db.tx(async (q) => {
     const [row] = await q.query(
       `INSERT INTO case_updates (org_id, case_id, language, title, body, ai_drafted, created_by) VALUES ($1, $2, $3, $4, $5, true, $6) RETURNING id`,
       [org.id, k.id, language, title, draft.body, user.id])
-    await recordAiUsage(q, org.id, user.id, 'client_update', result)
+    await logAiUse(q, { orgId: org.id, userId: user.id, feature: 'client_update', model: result.model, caseId: k.id, prompt: b.points ? `Client update. Points: ${b.points}` : 'Client update',
+      output: `${title}\n\n${draft.body}`, verification: { status: 'passed', errors: 0, warnings: 0, citations: 0, as_of: new Date().toISOString().slice(0, 10), checked_at: new Date().toISOString(),
+        checks: [{ kind: 'quote', severity: 'info', ok: true, code: 'dates_in_record', detail: 'Every date in the draft is in the matter record or the lawyer\'s points.' }] } })
     return row.id as string
   })
   await audit(c, 'ai.client_update_drafted', 'case', k.id, { language, model: result.model })
@@ -133,12 +167,14 @@ clientUpdateRoutes.delete('/:id', async (c) => {
 })
 
 // Publishes to the client portal and, optionally, emails the client's portal users.
-clientUpdateRoutes.post('/:id/publish', jsonBody(z.object({ email: z.boolean().default(true), whatsapp: z.boolean().default(true) })), async (c) => {
+clientUpdateRoutes.post('/:id/publish', jsonBody(z.object({ email: z.boolean().default(true), whatsapp: z.boolean().default(true), reviewed: z.boolean().default(false) })), async (c) => {
   requireRole(c, ...writers)
   const { user, org } = auth(c)
   const { db, mailer, config, log } = c.get('deps')
   const u = await loadUpdate(db, org.id, uuidParam(c.req.param('id'), 'Update'))
   if (u.status !== 'draft') throw conflict('This update has already been sent.')
+  // An AI draft reaches the client only after the lawyer confirms they have checked it.
+  if (u.ai_drafted && !c.req.valid('json').reviewed) throw badRequest('Confirm that you have checked this AI draft before sending it to the client.')
   const k = await loadCase(db, org.id, u.case_id)
   if (!k.client_id) throw badRequest('This matter has no client to update.')
   const claimed = await db.query(

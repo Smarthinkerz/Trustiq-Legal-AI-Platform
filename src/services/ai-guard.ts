@@ -174,6 +174,18 @@ export function fieldCheckRecord(r: { unverified: string[]; verified: string[]; 
 // Evidence instructions added to extraction prompts.
 export const EVIDENCE_RULE = `- In "evidence", copy for each filled field the exact words from the document you read it from (for a date, the date exactly as written, including any Hijri marker). Code checks every value against these words and drops any it cannot find.`
 
+// Every date written in a text (numeric, or day + month name + year, Arabic or English), as YYYY-MM-DD.
+export function datesIn(text: string): { raw: string; date: string }[] {
+  const t = latin(text).replace(/[\u2066-\u2069\u200e\u200f]/g, '')
+  const out: { raw: string; date: string }[] = []
+  const seen = new Set<string>()
+  const add = (raw: string) => { const d = parseDateText(raw); if (d && !seen.has(`${raw}|${d}`)) { seen.add(`${raw}|${d}`); out.push({ raw, date: d }) } }
+  for (const m of t.matchAll(/\b\d{4}[-/.]\d{1,2}[-/.]\d{1,2}\b|\b\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}\b/g)) add(m[0])
+  for (const m of t.matchAll(/(\d{1,2})\s+(?:من\s+)?([\p{L}]+(?:\s+[\p{L}]+)?)\s*,?\s+(\d{4})(\s*هـ)?/gu)) add(m[0])
+  for (const m of t.matchAll(/\b([A-Za-z]+)\s+(\d{1,2}),?\s+(\d{4})\b/g)) add(m[0])
+  return out
+}
+
 export const ABSTAIN = {
   en: 'I could not find this in the available sources.',
   ar: 'لم أجد هذا في المصادر المتاحة.'
