@@ -5,6 +5,7 @@ import type { Db } from './db'
 import type { Logger } from './lib/logger'
 import type { Mailer } from './lib/mailer'
 import type { AiService } from './services/ai'
+import type { EmbeddingService, RerankService } from './services/retrieval'
 import type { TapClient } from './services/tap'
 import type { WebFetcher } from './services/library-import'
 import type { RateLimiter } from './lib/rate-limit'
@@ -52,6 +53,9 @@ export type Deps = {
   log: Logger
   mailer: Mailer
   ai: AiService
+  // Optional hybrid-retrieval services for the law library (see services/retrieval.ts).
+  embeddings?: EmbeddingService
+  reranker?: RerankService
   tap: TapClient
   // Builds a client for a firm's own Tap account (invoice payments). Overridable in tests.
   firmTap?: (secretKey: string) => TapClient

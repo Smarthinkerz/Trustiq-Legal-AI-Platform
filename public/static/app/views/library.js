@@ -34,6 +34,9 @@ function openSourceForm({ source, onSaved }) {
       ${inputField({ name: 'year', label: t('library.year'), type: 'number', value: s.year, attrs: 'min="1800" max="2100"' })}
       ${selectField({ name: 'status', label: t('common.status'), options: ['in_force', 'amended', 'repealed'].map((v) => ({ value: v, label: t(`law_status.${v}`) })), value: s.status || 'in_force' })}
       ${selectField({ name: 'language', label: t('settings.language'), options: [{ value: 'ar', label: 'العربية' }, { value: 'en', label: 'English' }], value: s.language || 'ar' })}
+      ${inputField({ name: 'effective_from', label: t('library.effective_from'), type: 'date', value: s.effective_from })}
+      ${inputField({ name: 'effective_to', label: t('library.effective_to'), type: 'date', value: s.effective_to, hint: t('library.effective_to_hint') })}
+      ${inputField({ name: 'version_label', label: t('library.version_label'), value: s.version_label, placeholder: t('library.version_label_placeholder'), cls: 'sm:col-span-2', attrs: 'dir="auto"' })}
       ${inputField({ name: 'source_url', label: t('library.source_url'), type: 'url', value: s.source_url, cls: 'sm:col-span-2', attrs: 'dir="ltr"', hint: t('library.source_url_hint') })}
       ${source ? '' : html`
         <div class="sm:col-span-2">
@@ -53,7 +56,7 @@ function openSourceForm({ source, onSaved }) {
       save: (form) => busy(submitButton(form), async () => {
         try {
           if (source) {
-            const fd = Object.fromEntries(['title', 'jurisdiction', 'kind', 'number', 'year', 'status', 'language', 'source_url', 'notes'].map((k) => [k, form.elements[k].value.trim() || null]))
+            const fd = Object.fromEntries(['title', 'jurisdiction', 'kind', 'number', 'year', 'status', 'language', 'source_url', 'notes', 'effective_from', 'effective_to', 'version_label'].map((k) => [k, form.elements[k].value.trim() || null]))
             if (fd.year) fd.year = Number(fd.year)
             await api.patch(`/api/library/sources/${source.id}`, fd)
             m.close()
@@ -350,9 +353,71 @@ function importsPanel(box, { isCurrent, onFinished }) {
   }
 }
 
+const RELATIONS = ['amends', 'repeals', 'implements', 'replaces']
+
+function openRelationForm({ source, onSaved }) {
+  const m = modal({
+    title: t('library.add_link'),
+    size: 'lg',
+    body: html`<form data-form="link" class="grid sm:grid-cols-2 gap-4" novalidate>
+      <p class="sm:col-span-2 text-sm text-slate-600" dir="auto">${t('library.link_intro', { title: source.title })}</p>
+      ${selectField({ name: 'relation', label: t('library.link_relation'), options: RELATIONS.map((r) => ({ value: r, label: t(`library.rel_${r}`) })), value: 'implements', required: true })}
+      <div>
+        <label class="label" for="f-target">${t('library.link_target')}</label>
+        <input id="f-target" name="target_q" type="search" class="input" dir="auto" placeholder="${t('library.link_target_placeholder')}" autocomplete="off" />
+        <select name="to_source_id" class="input mt-2" required aria-label="${t('library.link_target')}"><option value="">—</option></select>
+      </div>
+      ${inputField({ name: 'from_article', label: t('library.link_from_article'), attrs: 'dir="ltr" maxlength="20"' })}
+      ${inputField({ name: 'to_article', label: t('library.link_to_article'), attrs: 'dir="ltr" maxlength="20"', hint: t('library.link_to_article_hint') })}
+      ${inputField({ name: 'effective_on', label: t('library.link_effective_on'), type: 'date' })}
+      ${textareaField({ name: 'notes', label: t('clients.notes'), rows: 2, cls: 'sm:col-span-2' })}
+      <div class="sm:col-span-2 flex justify-end gap-2 pt-4 border-t border-slate-100">
+        <button type="button" class="btn btn-outline" data-action="close-modal">${t('common.cancel')}</button>
+        <button type="submit" class="btn btn-primary">${t('common.save')}</button>
+      </div>
+    </form>`,
+    forms: {
+      link: (form) => busy(submitButton(form), async () => {
+        if (!form.elements.to_source_id.value) return toast(t('library.link_pick_target'), 'error')
+        const body = Object.fromEntries(['relation', 'to_source_id', 'from_article', 'to_article', 'effective_on', 'notes'].map((k) => [k, form.elements[k].value.trim() || null]))
+        try {
+          await api.post(`/api/library/sources/${source.id}/relations`, body)
+          m.close()
+          toast(t('common.saved'))
+          onSaved?.()
+        } catch (err) { showError(err, form) }
+      })
+    }
+  })
+  const form = m.el.querySelector('form')
+  const search = form.elements.target_q
+  const select = form.elements.to_source_id
+  let timer
+  const load = async () => {
+    try {
+      const res = await api.get('/api/library/sources' + qs({ q: search.value.trim() || undefined, pageSize: 50 }))
+      render(select, html`<option value="">—</option>${res.items.filter((x) => x.id !== source.id).map((x) => html`<option value="${x.id}">${x.title}${x.number ? ` (${x.number})` : ''} · ${refLabel('jurisdictions', x.jurisdiction)}</option>`)}`)
+    } catch { /* keep the previous list */ }
+  }
+  search.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(load, 250) })
+  load()
+}
+
+const relationLine = (r) => {
+  // "in" links point at this source (it is repealed BY, implemented BY ...); "out" links start here.
+  const key = r.direction === 'out' ? `library.rel_${r.relation}` : `library.rel_${r.relation}_by`
+  return html`<li class="px-5 py-3 flex items-center justify-between gap-3 text-sm">
+    <span dir="auto"><span class="text-slate-500">${t(key)}</span>
+      ${r.direction === 'out' && r.from_article ? html`<span class="text-xs text-slate-500">(${t('library.article_n', { n: r.from_article })})</span> ` : ''}
+      <a class="text-brand-700 hover:underline" href="#/library/${r.id}">${r.title}${r.number ? ` (${r.number})` : ''}</a>
+      ${r.to_article ? html` <span class="text-xs text-slate-500">– ${t('library.article_n', { n: r.to_article })}</span>` : ''}
+      ${r.effective_on ? html` <span class="text-xs text-slate-500">· ${t('library.from_date', { date: fmtDate(r.effective_on) })}</span>` : ''}</span>
+  </li>`
+}
+
 export async function librarySourceView(root, { params, query, isCurrent, rerender }) {
   const q = query.get('q') || ''
-  const { source: s, chunks } = await api.get(`/api/library/sources/${params.id}` + qs({ q }))
+  const { source: s, chunks, relations = [], versions = [] } = await api.get(`/api/library/sources/${params.id}` + qs({ q }))
   if (!isCurrent()) return
   const editable = canEdit(s)
   render(root, html`
@@ -365,7 +430,9 @@ export async function librarySourceView(root, { params, query, isCurrent, rerend
           <span>${refLabel('jurisdictions', s.jurisdiction)}</span>·<span>${t(`law_kind.${s.kind}`)}</span>
           ${s.number ? html`·<span dir="ltr">${s.number}</span>` : ''}${s.year ? html`·<span>${s.year}</span>` : ''}
           ${s.shared ? html`<span class="badge bg-brand-50 text-brand-700">${t('library.shared')}</span>` : ''}
+          ${s.version_label ? html`<span class="badge bg-slate-100 text-slate-700" dir="auto">${s.version_label}</span>` : ''}
         </div>
+        ${s.effective_from || s.effective_to ? html`<p class="text-xs text-slate-500 mt-2"><i class="fas fa-calendar-day"></i> ${s.effective_from ? t('library.in_force_from', { date: fmtDate(s.effective_from) }) : ''}${s.effective_from && s.effective_to ? ' · ' : ''}${s.effective_to ? t('library.in_force_until', { date: fmtDate(s.effective_to) }) : ''}</p>` : ''}
         ${s.source_url ? html`<a href="${s.source_url}" target="_blank" rel="noopener noreferrer" class="text-xs text-brand-600 hover:underline mt-2 inline-block" dir="ltr"><i class="fas fa-arrow-up-right-from-square"></i> ${s.source_url}</a>` : ''}
       </div>
       <div class="flex flex-wrap gap-2">
@@ -376,13 +443,25 @@ export async function librarySourceView(root, { params, query, isCurrent, rerend
       </div>
     </div>
     ${s.notes ? html`<div class="card card-pad mb-6 text-sm text-slate-700 whitespace-pre-wrap" dir="auto">${s.notes}</div>` : ''}
+    ${relations.length || versions.length > 1 || (!readOnly() && can('owner', 'admin', 'lawyer')) ? html`<section class="card mb-6">
+      <div class="px-5 py-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2">
+        <h2 class="font-semibold"><i class="fas fa-diagram-project text-violet-500"></i> ${t('library.links_title')}</h2>
+        ${!readOnly() && can('owner', 'admin', 'lawyer') ? html`<button class="btn btn-outline btn-sm" data-action="add-link"><i class="fas fa-link"></i>${t('library.add_link')}</button>` : ''}
+      </div>
+      ${relations.length ? html`<ul class="divide-y divide-slate-100">${relations.map(relationLine)}</ul>` : html`<p class="px-5 py-4 text-sm text-slate-500">${t('library.links_empty')}</p>`}
+      ${versions.length > 1 ? html`<div class="px-5 py-3 border-t border-slate-100">
+        <p class="text-xs font-semibold text-slate-500 mb-1">${t('library.versions')}</p>
+        <ol class="text-sm space-y-1">${versions.map((v) => html`<li>${v.id === s.id ? html`<b dir="auto">${v.version_label || v.title}</b>` : html`<a class="text-brand-700 hover:underline" dir="auto" href="#/library/${v.id}">${v.version_label || v.title}</a>`}
+          <span class="text-xs text-slate-500">${v.effective_from ? fmtDate(v.effective_from) : '…'} – ${v.effective_to ? fmtDate(v.effective_to) : t('library.now')}</span></li>`)}</ol></div>` : ''}
+    </section>` : ''}
     <div class="card">
       <form data-form="find" class="p-4 border-b border-slate-100 flex gap-2">
         <input type="search" name="q" class="input flex-1" dir="auto" value="${q}" placeholder="${t('library.search_in_law')}" aria-label="${t('library.search_in_law')}" />
         <button type="submit" class="btn btn-outline">${t('common.search')}</button>
       </form>
       ${chunks.length ? html`<ol class="divide-y divide-slate-100">${chunks.map((c) => html`<li class="px-5 py-4" id="c-${c.id}">
-        ${c.label ? html`<h3 class="text-sm font-semibold text-slate-900 mb-1" dir="auto">${c.label}</h3>` : ''}
+        ${c.label ? html`<h3 class="text-sm font-semibold text-slate-900 mb-1 flex flex-wrap items-center gap-2" dir="auto">${c.label}
+          ${c.status && c.status !== 'in_force' ? html`${lawStatus(c.status)}${c.changed_on ? html`<span class="text-xs font-normal text-slate-500">${fmtDate(c.changed_on)}</span>` : ''}` : ''}</h3>` : ''}
         <p class="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed" dir="auto">${highlight(c.text, q)}</p>
       </li>`)}</ol>` : emptyState('fa-magnifying-glass', t('common.no_results'), '')}
     </div>
@@ -391,6 +470,7 @@ export async function librarySourceView(root, { params, query, isCurrent, rerend
     actions: {
       file: () => download(`/api/library/sources/${s.id}/file`),
       edit: () => openSourceForm({ source: s, onSaved: rerender }),
+      'add-link': () => openRelationForm({ source: s, onSaved: rerender }),
       delete: async () => {
         if (!(await confirmDialog(t('library.confirm_delete', { title: s.title })))) return
         try { await api.del(`/api/library/sources/${s.id}`); toast(t('common.deleted')); location.hash = '#/library' } catch (err) { showError(err) }

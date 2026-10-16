@@ -1,10 +1,12 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
-import { audit, auth, type AppEnv } from '../context'
-import { forbidden, notFound } from '../lib/errors'
+import { audit, auth, runLater, type AppEnv } from '../context'
+import { badRequest, forbidden, notFound } from '../lib/errors'
 import { jsonBody, likePattern, pageSchema, paged, queryParams, uuidParam } from '../lib/http'
 import { AI_PACK_REQUESTS, PRICES } from '../../public/static/site/firm-pricing.js'
 import { PLANS } from '../lib/plans'
+import { GCC_EVAL_CASES } from '../services/legal-eval-cases'
+import { runLegalEval } from '../services/legal-eval'
 
 // Platform operator console: manage customer organizations and their plans.
 // Access is limited to PLATFORM_ADMIN_EMAILS.
@@ -103,6 +105,51 @@ adminRoutes.patch('/organizations/:id', jsonBody(z.object({
   if (!row) throw notFound('Organization')
   await audit(c, 'admin.organization_updated', 'organization', id, b)
   return c.json({ organization: row })
+})
+
+// ---------------- Standing GCC legal evaluation set ----------------
+
+adminRoutes.get('/legal-eval/cases', (c) => c.json({ items: GCC_EVAL_CASES }))
+
+// Starts a run against this admin's firm library plus the shared library. It runs in the background
+// (one AI request per case and language) and uses the configured model and retrieval services.
+adminRoutes.post('/legal-eval', jsonBody(z.object({
+  case_ids: z.array(z.string().max(80)).max(200).optional(),
+  languages: z.array(z.enum(['en', 'ar'])).min(1).max(2).optional()
+})), async (c) => {
+  const { user, org } = auth(c)
+  const b = c.req.valid('json')
+  const deps = c.get('deps')
+  if (!deps.ai.configured) throw badRequest('The AI service is not configured.')
+  const cases = b.case_ids?.length ? GCC_EVAL_CASES.filter((k) => b.case_ids!.includes(k.id)) : GCC_EVAL_CASES
+  if (!cases.length) throw badRequest('No matching evaluation cases.')
+  const retrieval = { embeddings: deps.embeddings?.configured ? deps.embeddings.model : null, reranker: deps.reranker?.configured ? deps.reranker.model : null }
+  const run = await deps.db.one<{ id: string }>(
+    'INSERT INTO legal_eval_runs (created_by, org_id, model, retrieval) VALUES ($1, $2, $3, $4) RETURNING id', [user.id, org.id, deps.ai.model, JSON.stringify(retrieval)])
+  await audit(c, 'admin.legal_eval_started', 'legal_eval_run', run!.id, { cases: cases.length })
+  runLater(deps, 'legal eval', async () => {
+    try {
+      const out = await runLegalEval(deps, { orgId: org.id, userId: user.id, cases, languages: b.languages })
+      await deps.db.query(`UPDATE legal_eval_runs SET status = 'done', summary = $2, results = $3, finished_at = now() WHERE id = $1`, [run!.id, JSON.stringify(out.summary), JSON.stringify(out.results)])
+    } catch (err) {
+      await deps.db.query(`UPDATE legal_eval_runs SET status = 'failed', error = $2, finished_at = now() WHERE id = $1`, [run!.id, String((err as Error).message).slice(0, 500)])
+      throw err
+    }
+  })
+  return c.json({ run: { id: run!.id, status: 'running', cases: cases.length } }, 202)
+})
+
+adminRoutes.get('/legal-eval/runs', async (c) => {
+  const items = await c.get('deps').db.query(
+    `SELECT r.id, r.status, r.model, r.retrieval, r.summary, r.error, r.created_at, r.finished_at, u.name AS created_by_name
+       FROM legal_eval_runs r LEFT JOIN users u ON u.id = r.created_by ORDER BY r.created_at DESC LIMIT 50`)
+  return c.json({ items })
+})
+
+adminRoutes.get('/legal-eval/runs/:id', async (c) => {
+  const run = await c.get('deps').db.one('SELECT * FROM legal_eval_runs WHERE id = $1', [uuidParam(c.req.param('id'), 'Run')])
+  if (!run) throw notFound('Run')
+  return c.json({ run })
 })
 
 export default adminRoutes

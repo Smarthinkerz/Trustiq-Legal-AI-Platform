@@ -6,6 +6,7 @@ import { jsonBody, likePattern, optText, pageSchema, paged, queryParams, updateB
 import { JURISDICTION_CODES } from '../services/reference'
 import { ACCEPTED_TYPES, cleanText, detectKind, extractWithOcr } from '../services/extract'
 import { citationLabel, indexSource, searchLibrary } from '../services/library'
+import { RELATIONS, applyArticleFlags, applySourceRelation, linkedInstruments } from '../services/legal-corpus'
 import { contentDisposition } from '../services/export'
 import { recordAiUsage } from '../services/usage'
 import { allowedUrl, discoverLinks, ImportError, importDomains } from '../services/library-import'
@@ -24,8 +25,13 @@ const metaSchema = z.object({
   language: z.enum(['en', 'ar']).default('ar'),
   source_url: z.string().trim().url().max(500).nullish().or(z.literal('')).transform((v) => v || null),
   notes: optText(2000),
+  // Point-in-time validity of this version: in force from, and no longer in force from.
+  effective_from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish().or(z.literal('')).transform((v) => v || null),
+  effective_to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish().or(z.literal('')).transform((v) => v || null),
+  version_label: optText(120),
   scope: z.enum(['org', 'platform']).default('org')
 })
+const dateParam = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 
 const isPlatformAdmin = (c: Ctx) => c.get('deps').config.platformAdminEmails.includes(auth(c).user.email.toLowerCase())
 
@@ -61,7 +67,8 @@ libraryRoutes.get('/sources', queryParams(z.object({
   const [{ n }] = await db.query(`SELECT count(*)::int AS n FROM library_sources s WHERE ${where}`, params)
   const items = await db.query(
     `SELECT s.id, s.org_id, (s.org_id IS NULL) AS shared, s.jurisdiction, s.kind, s.title, s.number, s.year, s.status, s.language,
-            s.source_url, s.articles, s.file_name, s.created_at, s.updated_at
+            s.source_url, s.articles, s.file_name, s.created_at, s.updated_at, s.version_label,
+            to_char(s.effective_from, 'YYYY-MM-DD') AS effective_from, to_char(s.effective_to, 'YYYY-MM-DD') AS effective_to
        FROM library_sources s WHERE ${where}
       ORDER BY s.jurisdiction, s.year DESC NULLS LAST, s.title LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
     [...params, pageSize, (page - 1) * pageSize])
@@ -74,14 +81,20 @@ libraryRoutes.get('/sources/:id', queryParams(z.object({ q: z.string().trim().ma
   const { db } = c.get('deps')
   const source = await db.one(
     `SELECT s.id, s.org_id, (s.org_id IS NULL) AS shared, s.jurisdiction, s.kind, s.title, s.number, s.year, s.status, s.language,
-            s.source_url, s.notes, s.articles, s.file_name, s.created_at, s.updated_at
+            s.source_url, s.notes, s.articles, s.file_name, s.created_at, s.updated_at, s.work_id, s.version_label,
+            to_char(s.effective_from, 'YYYY-MM-DD') AS effective_from, to_char(s.effective_to, 'YYYY-MM-DD') AS effective_to
        FROM library_sources s WHERE s.id = $1 AND (s.org_id = $2 OR s.org_id IS NULL)`, [id, org.id])
   if (!source) throw notFound('Source')
   const q = c.req.valid('query').q
   const chunks = q
-    ? (await searchLibrary(db, org.id, q, { sourceId: id, limit: 50 })).map((p) => ({ id: p.id, label: p.label, text: p.text }))
-    : await db.query('SELECT id, ordinal, label, text FROM library_chunks WHERE source_id = $1 ORDER BY ordinal LIMIT 2000', [id])
-  return c.json({ source, chunks })
+    ? (await searchLibrary(db, org.id, q, { sourceId: id, limit: 50 })).map((p) => ({ id: p.id, label: p.label, text: p.text, article_no: p.article_no, status: p.article_status, changed_on: p.changed_on }))
+    : await db.query(`SELECT id, ordinal, label, text, article_no, status, to_char(changed_on, 'YYYY-MM-DD') AS changed_on FROM library_chunks WHERE source_id = $1 ORDER BY ordinal LIMIT 2000`, [id])
+  const relations = (await linkedInstruments(db, org.id, [id])).get(id) ?? []
+  // Other versions of the same instrument (point-in-time history).
+  const versions = source.work_id ? await db.query(
+    `SELECT id, title, version_label, status, to_char(effective_from, 'YYYY-MM-DD') AS effective_from, to_char(effective_to, 'YYYY-MM-DD') AS effective_to
+       FROM library_sources WHERE work_id = $1 AND (org_id = $2 OR org_id IS NULL) ORDER BY effective_from NULLS FIRST, created_at`, [source.work_id, org.id]) : []
+  return c.json({ source, chunks, relations, versions })
 })
 
 libraryRoutes.get('/sources/:id/file', async (c) => {
@@ -108,11 +121,13 @@ libraryRoutes.get('/chunks/:id', async (c) => {
 
 libraryRoutes.get('/search', queryParams(z.object({
   q: z.string().trim().min(2).max(500),
-  jurisdiction: z.enum(JURISDICTION_CODES).optional()
+  jurisdiction: z.enum(JURISDICTION_CODES).optional(),
+  // Only versions in force on this date (point-in-time law).
+  as_of: dateParam.optional()
 })), async (c) => {
   const { org } = auth(c)
-  const { q, jurisdiction } = c.req.valid('query')
-  const passages = await searchLibrary(c.get('deps').db, org.id, q, { jurisdictions: jurisdiction ? [jurisdiction] : undefined, limit: 30 })
+  const { q, jurisdiction, as_of } = c.req.valid('query')
+  const passages = await searchLibrary(c.get('deps').db, org.id, q, { jurisdictions: jurisdiction ? [jurisdiction] : undefined, asOf: as_of, limit: 30 })
   return c.json({ items: passages.map((p) => ({ ...p, citation: citationLabel(p) })) })
 })
 
@@ -149,10 +164,10 @@ libraryRoutes.post('/sources', async (c) => {
   const ownerOrg = m.scope === 'platform' ? null : org.id
   const result = await db.tx(async (q) => {
     const src = await q.one(
-      `INSERT INTO library_sources (org_id, jurisdiction, kind, title, number, year, status, language, source_url, notes, file_name, mime_type, file_data, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id`,
+      `INSERT INTO library_sources (org_id, jurisdiction, kind, title, number, year, status, language, source_url, notes, file_name, mime_type, file_data, created_by, effective_from, effective_to, version_label)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING id`,
       [ownerOrg, m.jurisdiction, m.kind, m.title, m.number, m.year, m.status, m.language, m.source_url, m.notes,
-       fileInfo?.name ?? null, fileInfo?.mime ?? null, fileInfo ? Buffer.from(fileInfo.bytes) : null, user.id])
+       fileInfo?.name ?? null, fileInfo?.mime ?? null, fileInfo ? Buffer.from(fileInfo.bytes) : null, user.id, m.effective_from, m.effective_to, m.version_label])
     const passages = await indexSource(q, src!.id, ownerOrg, text)
     return { id: src!.id as string, passages }
   })
@@ -168,7 +183,7 @@ libraryRoutes.patch('/sources/:id', jsonBody(updateBody(metaSchema.omit({ scope:
   if (!src) throw notFound('Source')
   assertCanEdit(c, src)
   const b = c.req.valid('json')
-  const cols = ['title', 'jurisdiction', 'kind', 'number', 'year', 'status', 'language', 'source_url', 'notes'] as const
+  const cols = ['title', 'jurisdiction', 'kind', 'number', 'year', 'status', 'language', 'source_url', 'notes', 'effective_from', 'effective_to', 'version_label'] as const
   const sets: string[] = []
   const values: unknown[] = []
   for (const k of cols) if (b[k] !== undefined) { values.push(b[k]); sets.push(`${k} = $${values.length + 1}`) }
@@ -186,6 +201,60 @@ libraryRoutes.delete('/sources/:id', async (c) => {
   assertCanEdit(c, src)
   await db.query('DELETE FROM library_sources WHERE id = $1', [id])
   await audit(c, 'library.source_deleted', 'library_source', id, { title: src.title })
+  return c.json({ ok: true })
+})
+
+// ---------------- Links between instruments ----------------
+
+// A link from this source to another: it amends, repeals, implements or replaces it (optionally one article).
+libraryRoutes.post('/sources/:id/relations', jsonBody(z.object({
+  relation: z.enum(RELATIONS),
+  to_source_id: z.string().uuid(),
+  from_article: optText(20),
+  to_article: optText(20),
+  effective_on: dateParam.nullish().or(z.literal('')).transform((v) => v || null),
+  notes: optText(1000)
+})), async (c) => {
+  const { user, org } = auth(c)
+  const id = uuidParam(c.req.param('id'), 'Source')
+  const b = c.req.valid('json')
+  const { db } = c.get('deps')
+  const [from, to] = await Promise.all([id, b.to_source_id].map((sid) =>
+    db.one<{ id: string; org_id: string | null }>('SELECT id, org_id FROM library_sources WHERE id = $1 AND (org_id = $2 OR org_id IS NULL)', [sid, org.id])))
+  if (!from || !to) throw notFound('Source')
+  if (from.id === to.id) throw badRequest('A source cannot be linked to itself.')
+  // A link between two shared sources belongs to the shared library; any other link belongs to the firm.
+  const shared = from.org_id === null && to.org_id === null
+  if (shared) { if (!isPlatformAdmin(c)) throw forbidden('Only platform administrators can link sources in the shared library.') } else requireRole(c, 'owner', 'admin', 'lawyer')
+  // A firm may not change the validity of a shared law for everyone.
+  if (to.org_id === null && !shared && ['repeals', 'replaces', 'amends'].includes(b.relation) && !isPlatformAdmin(c)) {
+    throw forbidden('Only platform administrators can mark a shared law as amended, repealed or replaced.')
+  }
+  const rel = await db.tx(async (q) => {
+    const row = await q.one<{ id: string }>(
+      `INSERT INTO library_relations (org_id, from_source_id, from_article, relation, to_source_id, to_article, effective_on, notes, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
+      [shared ? null : org.id, id, b.from_article, b.relation, b.to_source_id, b.to_article, b.effective_on, b.notes, user.id])
+    await applySourceRelation(q, { from_source_id: id, to_source_id: b.to_source_id, relation: b.relation, to_article: b.to_article, effective_on: b.effective_on })
+    return row!
+  })
+  await audit(c, 'library.relation_added', 'library_source', id, { relation: b.relation, to: b.to_source_id, to_article: b.to_article })
+  return c.json({ relation: { id: rel.id } }, 201)
+})
+
+libraryRoutes.delete('/relations/:id', async (c) => {
+  const { org } = auth(c)
+  const id = uuidParam(c.req.param('id'), 'Link')
+  const { db } = c.get('deps')
+  const rel = await db.one<{ org_id: string | null; to_source_id: string }>(
+    'SELECT org_id, to_source_id FROM library_relations WHERE id = $1 AND (org_id = $2 OR org_id IS NULL)', [id, org.id])
+  if (!rel) throw notFound('Link')
+  if (rel.org_id === null) { if (!isPlatformAdmin(c)) throw forbidden('Only platform administrators can change the shared library.') } else requireRole(c, 'owner', 'admin', 'lawyer')
+  await db.tx(async (q) => {
+    await q.query('DELETE FROM library_relations WHERE id = $1', [id])
+    await applyArticleFlags(q, rel.to_source_id)
+  })
+  await audit(c, 'library.relation_deleted', 'library_source', rel.to_source_id, { relation_id: id })
   return c.json({ ok: true })
 })
 

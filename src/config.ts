@@ -21,6 +21,18 @@ const envSchema = z.object({
   // Provider prices in USD per million tokens, used only to report our AI cost per request. Check them against the provider's price list.
   AI_PRICE_INPUT_PER_MTOK_USD: z.coerce.number().nonnegative().default(2),
   AI_PRICE_OUTPUT_PER_MTOK_USD: z.coerce.number().nonnegative().default(8),
+  // Hybrid retrieval for the law library. EMBEDDINGS_URL is the base URL of an OpenAI-compatible /embeddings
+  // endpoint serving a multilingual model (BAAI/bge-m3 or intfloat/multilingual-e5-large). RERANK_URL is a
+  // Cohere-compatible /rerank endpoint serving BAAI/bge-reranker-v2-m3. Both are optional: without them the
+  // library is searched with BM25 only.
+  EMBEDDINGS_URL: z.string().url().optional(),
+  EMBEDDINGS_API_KEY: z.string().optional(),
+  EMBEDDINGS_MODEL: z.string().default('BAAI/bge-m3'),
+  // Passages kept in each app instance's in-memory vector index (about 1 KB each).
+  VECTOR_INDEX_MAX_CHUNKS: z.coerce.number().int().positive().default(150_000),
+  RERANK_URL: z.string().url().optional(),
+  RERANK_API_KEY: z.string().optional(),
+  RERANK_MODEL: z.string().default('BAAI/bge-reranker-v2-m3'),
 
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().int().positive().default(587),
@@ -76,6 +88,8 @@ export type Config = {
   databaseSsl: boolean
   pgliteDataDir?: string
   ai: { apiKey?: string; baseUrl: string; model: string; imageModel: string; transcribeModel: string; timeoutMs: number; priceInputPerMTok: number; priceOutputPerMTok: number }
+  embeddings: { url?: string; apiKey?: string; model: string; maxIndexChunks: number }
+  rerank: { url?: string; apiKey?: string; model: string }
   smtp?: { host: string; port: number; user?: string; pass?: string; secure: boolean }
   mailFrom: string
   salesEmail: string
@@ -122,6 +136,8 @@ export function loadConfig(source: Record<string, string | undefined> = process.
     databaseSsl: e.DATABASE_SSL === 'true',
     pgliteDataDir: e.PGLITE_DATA_DIR,
     ai: { apiKey: e.OPENAI_API_KEY || undefined, baseUrl: e.OPENAI_BASE_URL.replace(/\/$/, ''), model: e.OPENAI_MODEL, imageModel: e.OPENAI_IMAGE_MODEL, transcribeModel: e.OPENAI_TRANSCRIBE_MODEL, timeoutMs: e.AI_TIMEOUT_MS, priceInputPerMTok: e.AI_PRICE_INPUT_PER_MTOK_USD, priceOutputPerMTok: e.AI_PRICE_OUTPUT_PER_MTOK_USD },
+    embeddings: { url: e.EMBEDDINGS_URL || undefined, apiKey: e.EMBEDDINGS_API_KEY || undefined, model: e.EMBEDDINGS_MODEL, maxIndexChunks: e.VECTOR_INDEX_MAX_CHUNKS },
+    rerank: { url: e.RERANK_URL || undefined, apiKey: e.RERANK_API_KEY || undefined, model: e.RERANK_MODEL },
     smtp: e.SMTP_HOST
       ? { host: e.SMTP_HOST, port: e.SMTP_PORT, user: e.SMTP_USER, pass: e.SMTP_PASS, secure: e.SMTP_SECURE === 'true' || e.SMTP_PORT === 465 }
       : undefined,

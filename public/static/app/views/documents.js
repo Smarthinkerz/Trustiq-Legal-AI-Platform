@@ -12,6 +12,7 @@ import { openSignatureDialog } from './signatures.js'
 import { openComparePicker } from './compare.js'
 import { openClausePicker, playbookPanel } from './clauses.js'
 import { openBilingual } from './bilingual.js'
+import { mountAiLog } from './ai-verify.js'
 
 const DOC_STATUSES = ['draft', 'review', 'final']
 const OTHER_TYPES = ['contract', 'correspondence', 'evidence', 'court_filing', 'other']
@@ -306,6 +307,7 @@ export async function documentDetailView(root, { params, isCurrent, rerender }) 
           ${analyses.map((a, i) => analysisCard(a, i === 0))}
         </div>
         <div data-playbook></div>
+        <div data-ai-log></div>
         ${versions.length ? html`<section class="card">
           <div class="px-5 py-4 border-b border-slate-100"><h2 class="font-semibold">${t('docs.history')}</h2></div>
           <ul class="divide-y divide-slate-100">${versions.map((v) => html`<li class="px-5 py-3 flex items-center justify-between gap-3 text-sm">
@@ -315,6 +317,7 @@ export async function documentDetailView(root, { params, isCurrent, rerender }) 
       </div>
     </div>`)
 
+  mountAiLog(root.querySelector('[data-ai-log]'), { document_id: d.id })
   const editor = root.querySelector('[data-editor]')
   const saveBtn = root.querySelector('[data-action="save"]')
   const saveState = root.querySelector('[data-save-state]')

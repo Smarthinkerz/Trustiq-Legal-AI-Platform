@@ -4,6 +4,7 @@ import { fmtRelative, getLang, t } from '../i18n.js'
 import { aiEnabled, readOnly, refOptions, store } from '../store.js'
 import { aiDisclaimer, confirmDialog, emptyState, selectField, showError, toast } from '../ui.js'
 import { searchPicker, wirePickers } from './pickers.js'
+import { exportLinks, markReviewed, verificationPanel } from './ai-verify.js'
 
 const SUGGESTIONS = ['ai.suggest_1', 'ai.suggest_2', 'ai.suggest_3', 'ai.suggest_4']
 
@@ -56,6 +57,7 @@ export async function assistantView(root, { params, query, isCurrent }) {
           <h1 class="font-semibold truncate" dir="auto">${current ? current.conversation.title : t('ai.new_chat')}</h1>
           <div class="flex items-center gap-3">
             ${current?.conversation.case_id ? html`<a href="#/cases/${current.conversation.case_id}" class="text-xs text-brand-600 hover:underline"><i class="fas fa-folder-open"></i> ${t('ai.linked_case')}</a>` : ''}
+            ${current ? exportLinks({ conversation_id: current.conversation.id }) : ''}
             ${current ? html`<button class="btn btn-danger-ghost btn-sm" data-action="delete-conv" data-id="${current.conversation.id}"><i class="fas fa-trash"></i>${t('ai.delete_conversation')}</button>` : ''}
           </div>
         </div>
@@ -65,7 +67,11 @@ export async function assistantView(root, { params, query, isCurrent }) {
             ${searchPicker({ name: 'case_id', label: t('ai.case_context'), value: presetCase, valueLabel: presetCaseLabel })}
             ${selectField({ name: 'jurisdiction', label: t('common.jurisdiction'), options: refOptions('jurisdictions'), value: store.me.org.default_jurisdiction })}
           </div>` : ''}
-          <label class="flex items-center gap-2 text-xs text-slate-600"><input type="checkbox" name="library_only" /> <i class="fas fa-book-open"></i>${t('ai.library_only')}</label>
+          <div class="flex flex-wrap items-center gap-x-5 gap-y-2">
+            <label class="flex items-center gap-2 text-xs text-slate-600"><input type="checkbox" name="library_only" /> <i class="fas fa-book-open"></i>${t('ai.library_only')}</label>
+            <label class="flex items-center gap-2 text-xs text-slate-600" title="${t('verify.as_of_help')}"><i class="fas fa-calendar-day"></i>${t('verify.as_of')}
+              <input type="date" name="as_of" class="input py-1 text-xs w-auto" /></label>
+          </div>
           <div class="flex gap-2 items-end">
             <textarea name="message" rows="2" class="input flex-1 resize-none" dir="auto" placeholder="${t('ai.placeholder')}" maxlength="8000" required aria-label="${t('ai.placeholder')}"></textarea>
             <button type="submit" class="btn btn-primary h-11" aria-label="${t('ai.send')}"><i class="fas fa-paper-plane rtl:-scale-x-100"></i><span class="hidden sm:inline">${t('ai.send')}</span></button>
@@ -96,6 +102,9 @@ export async function assistantView(root, { params, query, isCurrent }) {
           <p class="text-xs font-semibold text-slate-500 mb-1"><i class="fas fa-book-open"></i> ${t('ai.sources')}</p>
           <ul class="flex flex-wrap gap-1.5">${m.sources.map((src) => html`<li><a href="#/library/${src.source_id}" class="badge ${src.status === 'repealed' ? 'bg-red-50 text-red-700' : 'bg-brand-50 text-brand-700'} hover:underline" dir="auto" title="${src.status === 'repealed' ? t('law_status.repealed') : ''}">[${src.ref}] ${src.citation}</a></li>`)}</ul>
         </div>` : ''}
+        ${m.role === 'assistant' ? verificationPanel(m.verification) : ''}
+        ${m.role === 'assistant' && m.log_id && !m.reviewed_at && !ro ? html`<button class="text-xs text-brand-700 hover:underline mt-1" data-action="review" data-idx="${state.messages.indexOf(m)}"><i class="fas fa-user-check"></i> ${t('verify.mark_reviewed')}</button>` : ''}
+        ${m.role === 'assistant' && m.reviewed_at ? html`<span class="text-xs text-emerald-700 mt-1"><i class="fas fa-user-check"></i> ${t('verify.reviewed')}</span>` : ''}
         ${m.role === 'assistant' && m.library_matches === 0 && !m.sources?.length ? html`<p class="text-xs text-slate-400 mt-1"><i class="fas fa-circle-info"></i> ${t('ai.no_library_matches')} <a class="underline" href="#/library">${t('nav.library')}</a></p>` : ''}
         ${m.role === 'assistant' && !m.pending ? html`<button class="text-xs text-slate-400 hover:text-slate-700 mt-1" data-action="copy" data-idx="${state.messages.indexOf(m)}"><i class="fas fa-copy"></i> ${t('common.copy')}</button>` : ''}
       </div>`)}
@@ -114,6 +123,7 @@ export async function assistantView(root, { params, query, isCurrent }) {
     btn.disabled = true
     try {
       const body = { message: text, language: getLang(), library_only: !!form.elements.library_only?.checked }
+      if (form.elements.as_of?.value) body.as_of = form.elements.as_of.value
       if (state.conversationId) body.conversation_id = state.conversationId
       else {
         const caseId = form.elements.case_id?.value
@@ -122,7 +132,7 @@ export async function assistantView(root, { params, query, isCurrent }) {
       }
       const res = await api.post('/api/ai/chat', body)
       if (!isCurrent()) return
-      state.messages.push({ role: 'assistant', content: res.reply, sources: res.sources, library_matches: res.library_matches })
+      state.messages.push({ role: 'assistant', content: res.reply, sources: res.sources, library_matches: res.library_matches, verification: res.verification, log_id: res.log_id })
       textarea.value = ''
       if (!state.conversationId) {
         state.conversationId = res.conversation_id
@@ -151,6 +161,10 @@ export async function assistantView(root, { params, query, isCurrent }) {
   bind(root, {
     actions: {
       suggest: (el) => { textarea.value = el.dataset.text; textarea.focus() },
+      review: async (el) => {
+        const m = state.messages[Number(el.dataset.idx)]
+        if (await markReviewed(m.log_id)) { m.reviewed_at = new Date().toISOString(); drawMessages() }
+      },
       copy: async (el) => {
         try {
           await navigator.clipboard.writeText(state.messages[Number(el.dataset.idx)].content)
