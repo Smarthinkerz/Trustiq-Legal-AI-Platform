@@ -114,7 +114,7 @@ export function fakeWhatsApp() {
   return wa
 }
 
-export async function setup(env: Record<string, string> = {}, opts: { googleFetch?: typeof fetch; hubFetch?: typeof fetch; embeddings?: EmbeddingService; reranker?: RerankService } = {}) {
+export async function setup(env: Record<string, string> = {}, opts: { googleFetch?: typeof fetch; hubFetch?: typeof fetch; embeddings?: EmbeddingService; reranker?: RerankService; ai?: AiService } = {}) {
   const config = loadConfig({
     NODE_ENV: 'test', APP_URL: 'http://localhost:8080', PLATFORM_ADMIN_EMAILS: 'ops@trustiq.test',
     ...(process.env.TEST_DATABASE_URL ? { DATABASE_URL: process.env.TEST_DATABASE_URL } : {}),
@@ -123,7 +123,9 @@ export async function setup(env: Record<string, string> = {}, opts: { googleFetc
   const db: Db = await createDb(config)
   const mails: Mail[] = []
   const mailer: Mailer = { configured: true, async send(m) { mails.push(m) } }
-  const ai = fakeAi()
+  const fake = fakeAi()
+  // Evals pass a real (or counting) AI service; tests use the fake.
+  const ai = (opts.ai ?? fake) as FakeAi
   const tap = fakeTap()
   const firmTap = fakeFirmTap()
   const wa = fakeWhatsApp()
