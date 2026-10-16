@@ -84,6 +84,13 @@ describe('corporate resolutions', () => {
     expect((await owner.post(`/api/resolutions/client/${co.id}`, { purpose: 'other', resolved_on: gulfDay(0), params: {} })).status).toBe(400)
     const r4 = await owner.post(`/api/resolutions/client/${co.id}`, { purpose: 'other', resolved_on: gulfDay(0), params: {}, items: ai.data.items })
     expect(r4.data.resolution).toMatchObject({ number: 4, items: ai.data.items })
+    // A resolution with [●] gaps cannot be signed.
+    expect((await owner.post(`/api/resolutions/${r4.data.resolution.id}/sign`, { signed_on: gulfDay(0) })).status).toBe(422)
+
+    // Figures the request did not give are replaced with [●].
+    ctx.ai.nextReply = JSON.stringify({ items: [{ en: 'To increase the share capital to OMR 250,000 by issuing 50,000 new shares.', ar: '' }] })
+    const guessed = await owner.post(`/api/resolutions/client/${co.id}/ai`, { description: 'Increase the capital to OMR 250,000' })
+    expect(guessed.data).toMatchObject({ replaced: 1, items: [{ en: 'To increase the share capital to OMR 250,000 by issuing [●] new shares.' }] })
 
     const list = await owner.get(`/api/resolutions/client/${co.id}`)
     expect(list.data.items.map((r: any) => r.number)).toEqual([4, 3, 2, 1])

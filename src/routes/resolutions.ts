@@ -1,3 +1,5 @@
+import { datesIn, numbersIn, parseDateText, unsupportedNumbers } from '../services/ai-guard'
+import { logAiUse } from '../services/ai-log'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { audit, auth, requireRole, type AppEnv } from '../context'
@@ -178,6 +180,10 @@ resolutionRoutes.post('/:id/sign', jsonBody(z.object({ signed_on: day, apply: z.
   if (cur.status === 'signed') throw conflict('This resolution is already signed.')
   if (b.signed_on > (await gulfToday(db))) throw badRequest('The signing date is in the future.')
   if (b.signed_on < cur.resolved_on) throw badRequest('The signing date is before the resolution date.')
+  // An AI draft marks details it was not given with [●]; a resolution cannot be signed with gaps.
+  if ((cur.items as Item[]).some((x) => /\[\s*(●|•|\.\.\.|…)\s*\]/.test(`${x.en} ${x.ar}`))) {
+    throw new HttpError(422, 'placeholders_left', 'Fill in every [●] placeholder before the resolution is signed.')
+  }
   const applies = b.apply && (APPLICABLE as readonly string[]).includes(cur.purpose)
   const p = cur.params as Params
   const effective = p.effective_on || cur.resolved_on
@@ -249,13 +255,27 @@ resolutionRoutes.post('/client/:id/ai', jsonBody(z.object({ description: z.strin
     json: true, maxTokens: 1500, temperature: 0.2
   })
   await recordAiUsage(db, org.id, user.id, 'resolution_draft', result)
-  try {
-    const list = normalizeItems(parseJsonObject(result.text))
-    if (!list.length) throw new Error('empty')
-    return c.json({ items: list })
-  } catch {
+  let list: Item[] = []
+  try { list = normalizeItems(parseJsonObject(result.text)) } catch { /* handled below */ }
+  if (!list.length) {
     throw new HttpError(502, 'ai_bad_output', 'The AI could not draft this resolution. Please write the items yourself.')
   }
+  // Figures (shares, amounts, dates, ID numbers) must come from the request; any other figure is
+  // replaced with [●] for the lawyer to fill in.
+  const given = numbersIn(b.description)
+  const givenDates = new Set(datesIn(b.description).map((d) => d.date))
+  let replaced = 0
+  const clean = (text: string) => text.replace(/[\d٠-٩۰-۹][\d٠-٩۰-۹,٬.٫\/-]*/g, (m) => {
+    const asDate = /[\/-]/.test(m) ? parseDateText(m) : null
+    if (asDate ? givenDates.has(asDate) : !unsupportedNumbers(m, given).length) return m
+    replaced++
+    return '[●]'
+  })
+  const items = list.map((x) => ({ en: clean(x.en), ar: clean(x.ar) }))
+  await logAiUse(db, { orgId: org.id, userId: user.id, feature: 'resolution_draft', model: result.model, prompt: b.description, output: JSON.stringify(items),
+    verification: { status: replaced ? 'passed_with_warnings' : 'passed', errors: 0, warnings: replaced,
+      checks: replaced ? [{ kind: 'figure', severity: 'warning', ok: false, code: 'figure_not_in_request', detail: `${replaced} figure(s) not in the request were replaced with [●].` }] : [] } })
+  return c.json({ items, replaced })
 })
 
 export default resolutionRoutes
