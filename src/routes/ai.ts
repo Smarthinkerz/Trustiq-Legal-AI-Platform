@@ -17,7 +17,7 @@ import { LOG_COLUMNS, LOG_FROM, logAiUse, logCsv, logDisclosure } from '../servi
 import { contentDisposition } from '../services/export'
 import { insertDocument } from './documents'
 import { briefMessages, briefText, gatherCaseFile, normalizeBrief } from '../services/case-brief'
-import { dictationMessages, localToday, MAX_AUDIO_BYTES, MAX_NOTES_CHARS, normalizeDictation, sniffAudio } from '../services/dictation'
+import { checkDictationDates, dictationMessages, localToday, MAX_AUDIO_BYTES, MAX_NOTES_CHARS, normalizeDictation, sniffAudio } from '../services/dictation'
 
 const HISTORY_MESSAGES = 20
 const TEMPLATE_IDS = DOCUMENT_TEMPLATES.map((t) => t.id) as unknown as [string, ...string[]]
@@ -444,8 +444,12 @@ aiRoutes.post('/cases/:id/dictation', async (c) => {
     throw new HttpError(502, 'ai_bad_output', 'The AI returned an unreadable result. Please try again.')
   }
   if (!structured.note) structured.note = transcript
+  const checked = checkDictationDates(structured, transcript)
+  await logAiUse(db, { orgId: org.id, userId: user.id, feature: 'dictation', model: result.model, caseId: id, prompt: `Dictation: ${transcript.slice(0, 900)}`, output: JSON.stringify(checked),
+    verification: { status: checked.dates_removed ? 'passed_with_warnings' : 'passed', errors: 0, warnings: checked.dates_removed,
+      checks: checked.dates_removed ? [{ kind: 'date', severity: 'warning', ok: false, code: 'date_not_in_dictation', detail: `${checked.dates_removed} date(s) removed: they could not be traced to the dictation.` }] : [] } })
   await audit(c, 'ai.dictation', 'case', id, { audio: file instanceof File && file.size > 0, language: opts.data.output_language })
-  return c.json({ transcript, result: structured, has_client: !!kase.client_name })
+  return c.json({ transcript, result: checked, has_client: !!kase.client_name })
 })
 
 // ---------------- AI use and verification log ----------------

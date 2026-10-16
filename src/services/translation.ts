@@ -1,3 +1,5 @@
+import { numbersIn } from './ai-guard'
+import { logAiUse } from './ai-log'
 import type { Deps } from '../context'
 import type { Queryable } from '../db'
 import { HttpError } from '../lib/errors'
@@ -93,6 +95,29 @@ Output only the translation.`
   return msgs
 }
 
+export type TranslationIssue = { kind: 'figure' | 'glossary' | 'truncated'; part: number; detail: string }
+
+// Code checks on one translated part: every figure kept, every glossary term used, nothing cut off.
+export function checkTranslation(source: string, translated: string, o: { from: Lang; to: Lang; terms: GlossaryTerm[]; part: number; finishReason?: string }): TranslationIssue[] {
+  const issues: TranslationIssue[] = []
+  const src = new Set(numbersIn(source).map((n) => n.toFixed(2)))
+  const out = new Set(numbersIn(translated).map((n) => n.toFixed(2)))
+  const fmt = (k: string) => String(Number(k))
+  const missing = [...src].filter((k) => !out.has(k))
+  const added = [...out].filter((k) => !src.has(k))
+  if (missing.length) issues.push({ kind: 'figure', part: o.part, detail: `Figures in the original are missing from the translation: ${missing.slice(0, 10).map(fmt).join(', ')}.` })
+  if (added.length) issues.push({ kind: 'figure', part: o.part, detail: `The translation has figures that are not in the original: ${added.slice(0, 10).map(fmt).join(', ')}.` })
+  const hay = o.to === 'ar' ? normalizeAr(translated) : translated.toLowerCase()
+  const unused = o.terms.filter((g) => {
+    const want = o.to === 'ar' ? normalizeAr(g.term_ar.trim()) : g.term_en.trim().toLowerCase()
+    return want && !hay.includes(want)
+  })
+  if (unused.length) issues.push({ kind: 'glossary', part: o.part, detail: `Glossary terms not used: ${unused.slice(0, 10).map((g) => `${g.term_en} = ${g.term_ar}`).join('; ')}.` })
+  const ratio = translated.replace(/\s/g, '').length / Math.max(1, source.replace(/\s/g, '').length)
+  if (o.finishReason === 'length' || ratio < 0.4) issues.push({ kind: 'truncated', part: o.part, detail: 'This part of the translation looks cut off. Compare it with the original.' })
+  return issues
+}
+
 // Strips wrappers models sometimes add around the translation.
 export function cleanTranslation(text: string): string {
   return text.replace(/^```[a-z]*\n?/i, '').replace(/\n?```\s*$/, '').replace(/^<<<\n?/, '').replace(/\n?>>>\s*$/, '').trim()
@@ -120,15 +145,18 @@ export async function runTranslation(deps: Pick<Deps, 'db' | 'ai' | 'log'>, id: 
     await db.query(`UPDATE documents SET content = '', translation_done = 0, translation_total = $2, translation_error = NULL, translation_heartbeat = now() WHERE id = $1`,
       [id, chunks.length])
     let previous = ''
+    const issues: TranslationIssue[] = []
     for (let i = 0; i < chunks.length; i++) {
       const [, lead, core, trail] = chunks[i].match(/^(\s*)([\s\S]*?)(\s*)$/)!
       let piece = chunks[i]
       if (/[\p{L}\p{N}]/u.test(core)) {
-        const r = await ai.complete({ messages: translationMessages(core, from, to, termsInText(terms, core, from), previous), maxTokens: 8000, temperature: 0 })
+        const used = termsInText(terms, core, from)
+        const r = await ai.complete({ messages: translationMessages(core, from, to, used, previous), maxTokens: 8000, temperature: 0 })
         usage.model = r.model
         usage.promptTokens += r.promptTokens
         usage.completionTokens += r.completionTokens
         const translated = cleanTranslation(r.text)
+        issues.push(...checkTranslation(core, translated, { from, to, terms: used, part: i + 1, finishReason: r.finishReason }))
         piece = lead + translated + trail
         previous = translated
       }
@@ -137,7 +165,15 @@ export async function runTranslation(deps: Pick<Deps, 'db' | 'ai' | 'log'>, id: 
           WHERE id = $1 AND translation_status = 'running' RETURNING id`, [id, piece, i + 1])
       if (!still.length) return // deleted or restarted meanwhile
     }
-    await db.query(`UPDATE documents SET translation_status = 'done', translation_heartbeat = now(), updated_at = now() WHERE id = $1 AND translation_status = 'running'`, [id])
+    const done = await db.query(`UPDATE documents SET translation_status = 'done', translation_checks = $2, translation_heartbeat = now(), updated_at = now() WHERE id = $1 AND translation_status = 'running' RETURNING content`,
+      [id, JSON.stringify(issues)])
+    if (done.length && doc.created_by) {
+      await logAiUse(db, { orgId: doc.org_id, userId: doc.created_by, feature: 'translation', model: usage.model, documentId: id, prompt: `Translation into ${to} of document ${doc.translated_from}`,
+        output: String(done[0].content ?? ''),
+        verification: { status: issues.length ? 'passed_with_warnings' : 'passed', errors: 0, warnings: issues.length,
+          checks: issues.map((x) => ({ kind: x.kind, severity: 'warning' as const, ok: false, code: `translation_${x.kind}`, detail: `Part ${x.part}: ${x.detail}` })) } })
+        .catch((err) => log.warn('translation log failed', { id, err }))
+    }
   } catch (err) {
     const message = err instanceof HttpError ? err.message : 'The translation stopped unexpectedly. Please try again.'
     log.warn('document translation failed', { id, err })

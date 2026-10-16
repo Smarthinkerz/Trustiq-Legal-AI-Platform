@@ -31,7 +31,7 @@ export type VerifySource = {
   effective_to: string | null
 }
 
-export type CheckKind = 'quote' | 'article' | 'instrument' | 'in_force' | 'jurisdiction' | 'reference' | 'law_reference' | 'uncited_article' | 'source_text'
+export type CheckKind = 'quote' | 'article' | 'instrument' | 'in_force' | 'jurisdiction' | 'reference' | 'law_reference' | 'uncited_article' | 'source_text' | 'figure' | 'date' | 'glossary' | 'truncated'
 export type Check = { kind: CheckKind; severity: 'error' | 'warning' | 'info'; ok: boolean; ref?: string; code: string; detail: string; text?: string }
 export type Verification = {
   status: 'passed' | 'passed_with_warnings' | 'failed' | 'unverified'

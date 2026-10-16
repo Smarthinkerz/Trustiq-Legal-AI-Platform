@@ -203,7 +203,8 @@ function openClauseForm(clause, done) {
           await api.patch(`/api/clauses/${clause.id}`, { [to === 'ar' ? 'body_en' : 'body_ar']: source })
           const r = await api.post(`/api/clauses/${clause.id}/translate`, { to })
           form.elements[to === 'ar' ? 'body_ar' : 'body_en'].value = r.text
-          toast(t('clause.translated_review'))
+          if (r.checks?.length) toast(`${t('translate.checks_found', { n: r.checks.length })}: ${r.checks.map((x) => x.detail).join(' ')}`, 'error')
+          else toast(t('clause.translated_review'))
         } catch (err) { showError(err) }
       })
     },

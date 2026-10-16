@@ -102,7 +102,7 @@ documentsRoutes.get('/:id', async (c) => {
     `SELECT d.id, d.title, d.doc_type, d.language, d.jurisdiction, d.status, d.source, d.content, d.version, d.file_name, d.mime_type, d.file_size,
             d.shared_with_client, d.uploaded_by_client, d.ocr,
             d.translated_from, src.title AS translated_from_title, src.language AS translated_from_language,
-            d.translation_status, d.translation_done, d.translation_total, d.translation_error, d.translation_heartbeat,
+            d.translation_status, d.translation_done, d.translation_total, d.translation_error, d.translation_heartbeat, d.translation_checks,
             d.case_id, k.reference AS case_reference, k.title AS case_title, d.client_id, cl.name AS client_name,
             d.created_at, d.updated_at, u.name AS created_by_name
        FROM documents d LEFT JOIN cases k ON k.id = d.case_id LEFT JOIN clients cl ON cl.id = d.client_id LEFT JOIN users u ON u.id = d.created_by

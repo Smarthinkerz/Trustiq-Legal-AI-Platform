@@ -1,3 +1,4 @@
+import { unsupportedNumbers } from './ai-guard'
 import type { Queryable } from '../db'
 import { roundMoney } from './billing'
 
@@ -153,7 +154,7 @@ export function insightsMessages(data: PracticeInsights, language: 'en' | 'ar', 
   const system = [
     `You are the analyst of ${firmName}, a GCC law firm. You write a short management summary of the firm's numbers for the partners.`,
     `Rules:
-- Use ONLY the figures in the <data> block. Never invent numbers, names or causes; when you suggest a reason, say it is a possibility.
+- Use ONLY the figures in the <data> block, copied exactly (hours may be given as minutes / 60). Do not calculate new figures such as differences or percentage changes unless they are in <data>; say "up" or "down" instead. Code removes any point with a figure it cannot find in <data>. Never invent names or causes; when you suggest a reason, say it is a possibility.
 - Compare the period with the previous period where it matters. Money is in ${data.currency}.
 - Lockup = unbilled work (WIP) plus unpaid invoices (debtors), in days of recent activity; lower is better.
 - Be specific: name the lawyers, clients and amounts behind each point.
@@ -177,3 +178,24 @@ const csvCell = (v: unknown) => {
   return /[",\n\r]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe
 }
 export const toCsv = (rows: unknown[][]) => '﻿' + rows.map((r) => r.map(csvCell).join(',')).join('\r\n') + '\r\n'
+
+// Every figure in the data (and minutes as hours), for checking the written summary.
+export function insightFigures(data: unknown): number[] {
+  const out: number[] = []
+  const walk = (v: unknown, key = '') => {
+    if (typeof v === 'number' && Number.isFinite(v)) { out.push(v); if (/minutes/.test(key)) out.push(v / 60) }
+    else if (typeof v === 'string' && /^-?\d+(\.\d+)?$/.test(v)) out.push(Number(v))
+    else if (Array.isArray(v)) v.forEach((x) => walk(x, key))
+    else if (v && typeof v === 'object') for (const [k, x] of Object.entries(v)) walk(x, k)
+  }
+  walk(data)
+  return out
+}
+
+// Removes summary lines that state a figure not in the data.
+export function checkSummaryFigures(summary: ReturnType<typeof normalizeSummary>, data: unknown) {
+  const figures = insightFigures(data)
+  let removed = 0
+  const keep = (line: string) => { const bad = unsupportedNumbers(line, figures, 12).length > 0; if (bad) removed++; return !bad }
+  return { summary: { headline: keep(summary.headline) ? summary.headline : '', points: summary.points.filter(keep), actions: summary.actions.filter(keep) }, removed }
+}

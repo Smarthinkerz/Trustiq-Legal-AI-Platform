@@ -535,7 +535,10 @@ function translationBanner(d) {
     </div>`
   }
   return html`<div class="rounded-xl border border-amber-200 bg-amber-50 p-4 mb-4 flex flex-wrap items-center justify-between gap-3">
-    <div class="text-sm text-amber-900"><i class="fas fa-language"></i> ${t('translate.done_banner')} ${source}. ${t('translate.review_hint')}</div>
+    <div class="text-sm text-amber-900"><i class="fas fa-language"></i> ${t('translate.done_banner')} ${source}. ${t('translate.review_hint')}
+      ${d.translation_checks?.length ? html`<details class="mt-2"><summary class="cursor-pointer font-medium">${t('translate.checks_found', { n: d.translation_checks.length })}</summary>
+        <ul class="list-disc ps-5 mt-1 space-y-0.5">${d.translation_checks.map((x) => html`<li>${t(`translate.check_${x.kind}`)} (${t('translate.part', { n: x.part })}): <span dir="ltr">${x.detail}</span></li>`)}</ul></details>`
+        : d.translation_checks ? html`<p class="mt-1 text-emerald-800"><i class="fas fa-check"></i> ${t('translate.checks_ok')}</p>` : ''}</div>
     ${d.translated_from ? html`<div class="flex flex-wrap gap-2"><button class="btn btn-outline btn-sm" data-action="compare"><i class="fas fa-table-columns"></i>${t('translate.compare')}</button>
       <button class="btn btn-outline btn-sm" data-action="bilingual"><i class="fas fa-file-word"></i>${t('bil.button')}</button></div>` : ''}
   </div>`

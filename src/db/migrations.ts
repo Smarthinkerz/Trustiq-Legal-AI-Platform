@@ -1913,6 +1913,9 @@ ALTER TABLE library_sources ADD COLUMN ocr BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE library_sources ADD COLUMN ocr_reviewed_at TIMESTAMPTZ;
 ALTER TABLE library_sources ADD COLUMN ocr_reviewed_by UUID REFERENCES users(id) ON DELETE SET NULL;
 UPDATE library_sources SET ocr = true WHERE notes LIKE '%(OCR)%';
+
+-- Code checks on each translated document: figures, glossary terms and cut-off parts.
+ALTER TABLE documents ADD COLUMN translation_checks JSONB;
 `
   }
 ]

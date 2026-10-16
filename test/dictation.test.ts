@@ -11,7 +11,7 @@ const RESULT = {
   title: 'Hearing adjourned for payslips',
   note: 'The hearing was adjourned to 20 October 2026 so the employer can file the payslips.',
   tasks: [{ title: 'Ask the client for bank statements', due_date: '2026-10-15' }, { title: '', due_date: '' }, { title: 'Prepare reply memo', due: 'next week' }],
-  events: [{ title: 'Next hearing', kind: 'hearing', date: '2026-10-20', time: '09:30', location: 'Muscat Primary Court' }, { title: 'No date', kind: 'deadline', date: '' }, { title: 'Odd kind', kind: 'party', date: '2026-10-25', time: '25:00' }],
+  events: [{ title: 'Next hearing', kind: 'hearing', date: '2026-10-20', time: '09:30', location: 'Muscat Primary Court', date_words: 'the twentieth' }, { title: 'No date', kind: 'deadline', date: '' }, { title: 'Odd kind', kind: 'party', date: '2026-10-25', time: '25:00' }],
   client_update: 'Your hearing was adjourned to 20 October.',
   extra: 'ignored'
 }
@@ -44,7 +44,7 @@ describe('dictation helpers', () => {
     expect(n).not.toHaveProperty('extra')
     expect(n.tasks).toEqual([{ title: 'Ask the client for bank statements', due_date: '2026-10-15' }, { title: 'Prepare reply memo', due_date: '' }])
     expect(n.events).toEqual([
-      { title: 'Next hearing', kind: 'hearing', date: '2026-10-20', time: '09:30', location: 'Muscat Primary Court' },
+      { title: 'Next hearing', kind: 'hearing', date: '2026-10-20', time: '09:30', location: 'Muscat Primary Court', date_words: 'the twentieth' },
       { title: 'Odd kind', kind: 'deadline', date: '2026-10-25', time: '', location: '' }
     ])
     expect(normalizeDictation(null)).toEqual({ title: '', note: '', tasks: [], events: [], client_update: '' })
@@ -92,7 +92,11 @@ describe('dictating on a case', () => {
     expect(res.status).toBe(200)
     expect(ctx.ai.transcriptions.at(-1)).toMatchObject({ fileName: 'dictation.ogg', mime: 'audio/ogg', language: 'en' })
     expect(res.data.transcript).toContain('adjourned to the twentieth')
-    expect(res.data.result.events[0]).toMatchObject({ kind: 'hearing', date: '2026-10-20', time: '09:30' })
+    expect(res.data.result.events[0]).toMatchObject({ kind: 'hearing', date: '2026-10-20', time: '09:30', date_check: 'worked_out' })
+    // Dates the lawyer never said are not kept: the task date is cleared and the undated event becomes a task.
+    expect(res.data.result.tasks[0]).toMatchObject({ title: 'Ask the client for bank statements', due_date: '', date_check: 'removed' })
+    expect(res.data.result.events.map((e: any) => e.title)).toEqual(['Next hearing'])
+    expect(res.data.result.dates_removed).toBe(2)
     expect(res.data.has_client).toBe(true)
     expect(ctx.ai.calls.at(-1)![1]!.content).toContain(kase.reference)
 

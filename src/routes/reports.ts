@@ -5,7 +5,8 @@ import { badRequest, HttpError, tooMany } from '../lib/errors'
 import { jsonBody, queryParams } from '../lib/http'
 import { matterFinancials } from '../services/matter-finance'
 import { parseJsonObject } from '../services/legal-prompts'
-import { insightsMessages, normalizeSummary, practiceInsights, toCsv } from '../services/practice-insights'
+import { checkSummaryFigures, insightsMessages, normalizeSummary, practiceInsights, toCsv } from '../services/practice-insights'
+import { logAiUse } from '../services/ai-log'
 import { assertCanUseAi, recordAiUsage } from '../services/usage'
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
@@ -113,11 +114,16 @@ reportsRoutes.post('/insights/summary', jsonBody(periodSchema.extend({ language:
   const firm = (b.language === 'ar' ? br?.firm_name_ar || br?.firm_name : br?.firm_name) || org.name
   const result = await ai.complete({ messages: insightsMessages(data, b.language, firm), json: true, maxTokens: 1500, temperature: 0.2 })
   await recordAiUsage(db, org.id, user.id, 'partner_summary', result)
-  let summary
-  try { summary = normalizeSummary(parseJsonObject(result.text)) } catch { summary = null }
-  if (!summary?.headline && !summary?.points.length) throw new HttpError(502, 'ai_bad_output', 'The AI returned an unreadable summary. Please try again.')
+  let parsed
+  try { parsed = normalizeSummary(parseJsonObject(result.text)) } catch { parsed = null }
+  if (!parsed?.headline && !parsed?.points.length) throw new HttpError(502, 'ai_bad_output', 'The AI returned an unreadable summary. Please try again.')
+  // Every figure must be one of the firm's own numbers.
+  const { summary, removed } = checkSummaryFigures(parsed, data)
+  if (!summary.headline && !summary.points.length) throw new HttpError(422, 'summary_failed_check', 'The AI summary stated figures that are not in your numbers, so it was not shown. Please try again.')
+  await logAiUse(db, { orgId: org.id, userId: user.id, feature: 'partner_summary', model: result.model, prompt: `Partner summary ${data.from} to ${data.to}`, output: JSON.stringify(summary),
+    verification: { status: removed ? 'passed_with_warnings' : 'passed', errors: 0, warnings: removed, checks: removed ? [{ kind: 'figure', severity: 'warning', ok: false, code: 'figure_not_in_data', detail: `${removed} line(s) removed: they stated figures not in the data.` }] : [] } })
   await audit(c, 'ai.partner_summary', 'organization', org.id, { from: data.from, to: data.to, language: b.language })
-  return c.json({ summary, from: data.from, to: data.to, language: b.language })
+  return c.json({ summary, from: data.from, to: data.to, language: b.language, removed })
 })
 
 // Lawyers or clients as CSV (UTF-8 with BOM so Excel shows Arabic correctly).
