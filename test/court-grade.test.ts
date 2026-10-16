@@ -132,6 +132,14 @@ describe('court-grade research', () => {
     const r = await c.post('/api/ai/chat', { message: 'What notice must an employer give to end an indefinite contract?', jurisdiction: 'oman' })
     expect(r.data.verification.status).toBe('failed')
     expect(r.data.verification.checks.filter((x: any) => x.severity === 'error').map((x: any) => x.code).sort()).toEqual(['article_not_found', 'quote_not_found', 'unknown_reference'])
+    // Regenerated once with the failures named, still failing: the answer is withheld, not shown.
+    expect(r.data.abstained).toBe('failed_check')
+    expect(r.data.reply).toContain('I could not find this in the available sources.')
+    expect(r.data.reply).not.toContain('sixty days')
+    expect(String(ctx.ai.calls.at(-1)!.at(-1)!.content)).toContain('failed the automatic citation check')
+    // The withheld text is kept in the log for review.
+    const log = await c.get(`/api/ai/log?conversation_id=${r.data.conversation_id}`)
+    expect(log.data.items.at(-1).verification.status).toBe('failed')
   })
 
   it('catches the law versus implementing regulation confusion', async () => {
@@ -190,6 +198,13 @@ describe('court-grade research', () => {
     const draft = await c.post('/api/ai/draft', { template: 'legal_memo', language: 'en', jurisdiction: 'oman', instructions: 'Notice to terminate an indefinite labour contract under Royal Decree 53/2023' })
     expect(draft.status).toBe(201)
     expect(draft.data.verification.checks.find((x: any) => x.code === 'article_matches')).toBeTruthy()
+    // A draft that cites an article the law does not have is regenerated once, then refused and not saved.
+    const before = (await c.get('/api/documents')).data.total
+    respond(() => 'NOTICE\n\nUnder Article 999 of the Labour Law, notice is waived.')
+    const blocked = await c.post('/api/ai/draft', { template: 'legal_memo', language: 'en', jurisdiction: 'oman', instructions: 'Notice to terminate an indefinite labour contract under Royal Decree 53/2023' })
+    expect(blocked.status).toBe(422)
+    expect(blocked.data.error.code).toBe('draft_failed_check')
+    expect((await c.get('/api/documents')).data.total).toBe(before)
 
     const log = await c.get(`/api/ai/log?document_id=${docId}`)
     expect(log.data.items).toHaveLength(1)

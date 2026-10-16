@@ -88,9 +88,32 @@ export function parseDateText(text: string | null | undefined): string | null {
   return null
 }
 
-// A plain number written in the text ("1,250.500", "١٢٥٠٫٥", "OMR 3 500").
+// Numbers written in words, as in Arabic notices ("خمسة عشر يوماً") and English ("fifteen days"). 1 to 999.
+const AR_UNIT_WORDS: Record<string, number> = { 'واحد': 1, 'واحده': 1, 'احد': 1, 'احدي': 1, 'اثنان': 2, 'اثنين': 2, 'اثنا': 2, 'اثني': 2, 'ثلاثه': 3, 'ثلاث': 3, 'اربعه': 4, 'اربع': 4, 'خمسه': 5, 'خمس': 5, 'سته': 6, 'ست': 6, 'سبعه': 7, 'سبع': 7, 'ثمانيه': 8, 'ثماني': 8, 'ثمان': 8, 'تسعه': 9, 'تسع': 9 }
+const AR_TENS_WORDS: Record<string, number> = { 'عشره': 10, 'عشر': 10, 'عشرون': 20, 'عشرين': 20, 'ثلاثون': 30, 'ثلاثين': 30, 'اربعون': 40, 'اربعين': 40, 'خمسون': 50, 'خمسين': 50, 'ستون': 60, 'ستين': 60, 'سبعون': 70, 'سبعين': 70, 'ثمانون': 80, 'ثمانين': 80, 'تسعون': 90, 'تسعين': 90 }
+const AR_SINGLE: Record<string, number> = { 'يوم': 1, 'يوما': 1, 'يومان': 2, 'يومين': 2, 'شهر': 1, 'شهرا': 1, 'شهران': 2, 'شهرين': 2 }
+const AR_HUNDREDS: Record<string, number> = { 'مايه': 100, 'ميه': 100, 'مئه': 100, 'مائه': 100, 'مايتان': 200, 'مئتان': 200, 'مائتين': 200, 'مئتين': 200, 'ثلاثمايه': 300, 'ثلاثمئه': 300, 'اربعمايه': 400, 'خمسمايه': 500, 'خمسمئه': 500 }
+const EN_WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90, hundred: 100 }
+
+export function numberWords(text: string): number | null {
+  const words = matchKey(text).split(' ').map((w) => (w.startsWith('و') && !AR_UNIT_WORDS[w] && !AR_TENS_WORDS[w] ? w.slice(1) : w))
+  let total = 0
+  let seen = false
+  for (const w of words) {
+    if (AR_HUNDREDS[w] !== undefined) { total += AR_HUNDREDS[w]!; seen = true }
+    else if (AR_UNIT_WORDS[w] !== undefined) { total += AR_UNIT_WORDS[w]!; seen = true }
+    else if (AR_TENS_WORDS[w] !== undefined) { total += AR_TENS_WORDS[w]!; seen = true }
+    else if (!seen && AR_SINGLE[w] !== undefined) { return AR_SINGLE[w]! }
+    else if (EN_WORDS[w] !== undefined) { total = w === 'hundred' ? Math.max(total, 1) * 100 : total + EN_WORDS[w]!; seen = true }
+    else if (seen) break
+  }
+  return seen && total > 0 ? total : null
+}
+
+// A plain number written in the text ("1,250.500", "١٢٥٠٫٥", "OMR 3 500"), or in words.
 export function parseNumberText(text: string | null | undefined): number | null {
   if (!text) return null
+  if (!/[\d٠-٩۰-۹]/.test(text)) return numberWords(text)
   const t = latin(text).replace(/٫/g, '.').replace(/٬/g, ',')
   const m = /\d[\d,\s]*(?:\.\d+)?/.exec(t)
   if (!m) return null

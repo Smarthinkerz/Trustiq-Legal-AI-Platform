@@ -68,7 +68,7 @@ export async function assistantView(root, { params, query, isCurrent }) {
             ${selectField({ name: 'jurisdiction', label: t('common.jurisdiction'), options: refOptions('jurisdictions'), value: store.me.org.default_jurisdiction })}
           </div>` : ''}
           <div class="flex flex-wrap items-center gap-x-5 gap-y-2">
-            <label class="flex items-center gap-2 text-xs text-slate-600"><input type="checkbox" name="library_only" /> <i class="fas fa-book-open"></i>${t('ai.library_only')}</label>
+            <label class="flex items-center gap-2 text-xs text-slate-600" title="${t('ai.allow_general_help')}"><input type="checkbox" name="allow_general" /> <i class="fas fa-globe"></i>${t('ai.allow_general')}</label>
             <label class="flex items-center gap-2 text-xs text-slate-600" title="${t('verify.as_of_help')}"><i class="fas fa-calendar-day"></i>${t('verify.as_of')}
               <input type="date" name="as_of" class="input py-1 text-xs w-auto" /></label>
           </div>
@@ -102,7 +102,8 @@ export async function assistantView(root, { params, query, isCurrent }) {
           <p class="text-xs font-semibold text-slate-500 mb-1"><i class="fas fa-book-open"></i> ${t('ai.sources')}</p>
           <ul class="flex flex-wrap gap-1.5">${m.sources.map((src) => html`<li><a href="#/library/${src.source_id}" class="badge ${src.status === 'repealed' ? 'bg-red-50 text-red-700' : 'bg-brand-50 text-brand-700'} hover:underline" dir="auto" title="${src.status === 'repealed' ? t('law_status.repealed') : ''}">[${src.ref}] ${src.citation}</a></li>`)}</ul>
         </div>` : ''}
-        ${m.role === 'assistant' ? verificationPanel(m.verification) : ''}
+        ${m.role === 'assistant' && m.verification?.general ? html`<p class="text-xs text-amber-700 mt-1"><i class="fas fa-globe"></i> ${t('ai.general_label')}</p>` : ''}
+        ${m.role === 'assistant' && m.verification?.abstained !== 'no_sources' ? verificationPanel(m.verification) : ''}
         ${m.role === 'assistant' && m.log_id && !m.reviewed_at && !ro ? html`<button class="text-xs text-brand-700 hover:underline mt-1" data-action="review" data-idx="${state.messages.indexOf(m)}"><i class="fas fa-user-check"></i> ${t('verify.mark_reviewed')}</button>` : ''}
         ${m.role === 'assistant' && m.reviewed_at ? html`<span class="text-xs text-emerald-700 mt-1"><i class="fas fa-user-check"></i> ${t('verify.reviewed')}</span>` : ''}
         ${m.role === 'assistant' && m.library_matches === 0 && !m.sources?.length ? html`<p class="text-xs text-slate-400 mt-1"><i class="fas fa-circle-info"></i> ${t('ai.no_library_matches')} <a class="underline" href="#/library">${t('nav.library')}</a></p>` : ''}
@@ -122,7 +123,7 @@ export async function assistantView(root, { params, query, isCurrent }) {
     const btn = form.querySelector('[type=submit]')
     btn.disabled = true
     try {
-      const body = { message: text, language: getLang(), library_only: !!form.elements.library_only?.checked }
+      const body = { message: text, language: getLang(), allow_general: !!form.elements.allow_general?.checked }
       if (form.elements.as_of?.value) body.as_of = form.elements.as_of.value
       if (state.conversationId) body.conversation_id = state.conversationId
       else {
@@ -132,7 +133,7 @@ export async function assistantView(root, { params, query, isCurrent }) {
       }
       const res = await api.post('/api/ai/chat', body)
       if (!isCurrent()) return
-      state.messages.push({ role: 'assistant', content: res.reply, sources: res.sources, library_matches: res.library_matches, verification: res.verification, log_id: res.log_id })
+      state.messages.push({ role: 'assistant', content: res.reply, sources: res.sources, library_matches: res.library_matches, verification: { ...res.verification, abstained: res.abstained, general: res.general }, log_id: res.log_id })
       textarea.value = ''
       if (!state.conversationId) {
         state.conversationId = res.conversation_id
