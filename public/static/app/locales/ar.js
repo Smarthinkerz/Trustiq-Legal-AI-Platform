@@ -1924,6 +1924,7 @@ export default {
   'library.links_empty': 'لا توجد روابط بعد. اربط القانون بلائحته التنفيذية، أو بالمرسوم الذي يعدله أو يلغيه.',
   'library.versions': 'الإصدارات',
   'library.now': 'الآن',
+  'read.unverified': 'لم يُعثر عليها في المستند فتُركت فارغة لتتحقق منها: {fields}',
   'docs.history': 'سجل الإصدارات',
   'docs.view': 'عرض',
   'docs.version': 'الإصدار',

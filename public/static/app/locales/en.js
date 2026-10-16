@@ -1924,6 +1924,7 @@ export default {
   'library.links_empty': 'No links yet. Link a law to its implementing regulation, or to the decree that amends or repeals it.',
   'library.versions': 'Versions',
   'library.now': 'now',
+  'read.unverified': 'Not found in the document, so left empty for you to check: {fields}',
   'docs.history': 'Version history',
   'docs.view': 'View',
   'docs.version': 'Version',

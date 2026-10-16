@@ -1,3 +1,5 @@
+import { extractWithEvidence, fieldCheckRecord } from '../services/ai-guard'
+import { logAiUse } from '../services/ai-log'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { audit, auth, requireRole, type AppEnv } from '../context'
@@ -5,7 +7,7 @@ import type { Queryable } from '../db'
 import { badRequest, HttpError, notFound } from '../lib/errors'
 import { jsonBody, optText, optUuid, queryParams, uuidParam } from '../lib/http'
 import {
-  casePowerOfAttorney, CREDENTIAL_COLUMNS, CREDENTIAL_KINDS, extractMessages, GULF_TODAY, normalizeExtraction
+  casePowerOfAttorney, CREDENTIAL_COLUMNS, CREDENTIAL_KINDS, extractMessages, GULF_TODAY, normalizeExtraction, CREDENTIAL_FIELDS
 } from '../services/credentials'
 import { parseJsonObject } from '../services/legal-prompts'
 import { assertCanUseAi, recordAiUsage } from '../services/usage'
@@ -163,20 +165,27 @@ credentialsRoutes.delete('/:id', async (c) => {
 
 // Pre-fills the form from an uploaded power of attorney or ID (its extracted / OCR text). Nothing is saved.
 credentialsRoutes.post('/extract', jsonBody(z.object({ document_id: z.string().uuid() })), async (c) => {
+  requireRole(c, ...editors)
   const { user, org } = auth(c)
   const { db, ai } = c.get('deps')
-  const doc = await db.one('SELECT content FROM documents WHERE id = $1 AND org_id = $2', [c.req.valid('json').document_id, org.id])
+  const documentId = c.req.valid('json').document_id
+  const doc = await db.one<{ content: string; case_id: string | null }>('SELECT content, case_id FROM documents WHERE id = $1 AND org_id = $2', [documentId, org.id])
   if (!doc) throw notFound('Document')
   if ((doc.content ?? '').trim().length < 20) throw badRequest('This document has no readable text. Upload a clearer copy or type the details.')
   await assertCanUseAi(db, org)
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Muscat' }).format(new Date())
-  const result = await ai.complete({ messages: extractMessages(doc.content, today), json: true, maxTokens: 800, temperature: 0 })
-  await recordAiUsage(db, org.id, user.id, 'credential_extract', result)
+  let out
   try {
-    return c.json({ fields: normalizeExtraction(parseJsonObject(result.text)) })
+    out = await extractWithEvidence({ ai, messages: extractMessages(doc.content, today), normalize: normalizeExtraction,
+      spec: CREDENTIAL_FIELDS, source: doc.content, critical: ['expires_on', 'number'], maxTokens: 1000 })
   } catch {
     throw new HttpError(502, 'ai_bad_output', 'The AI could not read this document. Please type the details.')
   }
+  for (const r of out.completions) await recordAiUsage(db, org.id, user.id, 'credential_extract', r)
+  await logAiUse(db, { orgId: org.id, userId: user.id, feature: 'credential_extract', model: out.completions.at(-1)!.model, documentId, caseId: doc.case_id, prompt: 'Read power of attorney or ID',
+    output: JSON.stringify(out.raw), verification: fieldCheckRecord(out, today) })
+  // Numbers and dates the code could not find in the document are returned empty, never guessed.
+  return c.json({ fields: out.fields, unverified: out.unverified, corrected: out.corrected })
 })
 
 export default credentialsRoutes

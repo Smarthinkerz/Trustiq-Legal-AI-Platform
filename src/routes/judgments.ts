@@ -1,10 +1,12 @@
+import { extractWithEvidence, fieldCheckRecord } from '../services/ai-guard'
+import { logAiUse } from '../services/ai-log'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { audit, auth, requireRole, type AppEnv } from '../context'
 import type { Db, Queryable } from '../db'
 import { badRequest, HttpError, notFound } from '../lib/errors'
 import { jsonBody, optText, queryParams, updateBody, uuidParam } from '../lib/http'
-import { judgmentMessages, normalizeJudgment } from '../services/ai-read'
+import { judgmentMessages, normalizeJudgment, JUDGMENT_FIELDS } from '../services/ai-read'
 import { GULF_TODAY } from '../services/credentials'
 import { parseJsonObject } from '../services/legal-prompts'
 import { assertCanUseAi, recordAiUsage } from '../services/usage'
@@ -265,13 +267,19 @@ judgmentRoutes.post('/case/:id/read', jsonBody(z.object({ document_id: z.string(
   const text = await matterDocumentText(db, org.id, k.id, c.req.valid('json').document_id)
   await assertCanUseAi(db, org)
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Muscat' }).format(new Date())
-  const result = await ai.complete({ messages: judgmentMessages(text, { client: k.client_name, opponent: k.opposing_party, today }), json: true, maxTokens: 900, temperature: 0 })
-  await recordAiUsage(db, org.id, user.id, 'judgment_read', result)
+  const documentId = c.req.valid('json').document_id
+  let out
   try {
-    return c.json({ fields: normalizeJudgment(parseJsonObject(result.text)) })
+    out = await extractWithEvidence({ ai, messages: judgmentMessages(text, { client: k.client_name, opponent: k.opposing_party, today }), normalize: normalizeJudgment,
+      spec: JUDGMENT_FIELDS, source: text, critical: ['judgment_date'], maxTokens: 1200 })
   } catch {
     throw new HttpError(502, 'ai_bad_output', 'The AI could not read this document. Please type the details.')
   }
+  for (const r of out.completions) await recordAiUsage(db, org.id, user.id, 'judgment_read', r)
+  await logAiUse(db, { orgId: org.id, userId: user.id, feature: 'judgment_read', model: out.completions.at(-1)!.model, documentId, caseId: k.id, prompt: 'Read judgment',
+    output: JSON.stringify(out.raw), verification: fieldCheckRecord(out, today) })
+  // Fields the code could not find in the judgment are returned empty, never guessed.
+  return c.json({ fields: out.fields, unverified: out.unverified, corrected: out.corrected })
 })
 
 export default judgmentRoutes

@@ -25,14 +25,14 @@ export async function logAiUse(q: Queryable, e: {
   prompt?: string | null
   output: string
   sources?: LogSource[]
-  verification?: Verification | null
+  verification?: Pick<Verification, 'status'> & Partial<Verification> | null
 }): Promise<string> {
   const [row] = await q.query<{ id: string }>(
-    `INSERT INTO ai_use_log (org_id, user_id, feature, model, document_id, case_id, conversation_id, message_id, jurisdiction, as_of, prompt_excerpt, output_sha256, sources, verification)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id`,
+    `INSERT INTO ai_use_log (org_id, user_id, feature, model, document_id, case_id, conversation_id, message_id, jurisdiction, as_of, prompt_excerpt, output_sha256, sources, verification, output)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING id`,
     [e.orgId, e.userId, e.feature, e.model ?? null, e.documentId ?? null, e.caseId ?? null, e.conversationId ?? null, e.messageId ?? null,
      e.jurisdiction ?? null, e.asOf ?? null, e.prompt ? e.prompt.slice(0, 1000) : null,
-     createHash('sha256').update(e.output).digest('hex'), JSON.stringify(e.sources ?? []), e.verification ? JSON.stringify(e.verification) : null])
+     createHash('sha256').update(e.output).digest('hex'), JSON.stringify(e.sources ?? []), e.verification ? JSON.stringify(e.verification) : null, e.output.slice(0, 100_000)])
   return row!.id
 }
 

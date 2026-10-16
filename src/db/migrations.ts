@@ -1861,6 +1861,32 @@ CREATE TABLE legal_eval_runs (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 `
+  },
+  {
+    version: 50,
+    name: 'ai_accuracy',
+    sql: `
+-- The full AI output is kept with its sources so every answer can be traced and reviewed.
+ALTER TABLE ai_use_log ADD COLUMN output TEXT;
+
+-- "Report a problem" on any AI output, reviewed by the platform team.
+CREATE TABLE ai_feedback (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID REFERENCES organizations(id) ON DELETE CASCADE,
+  user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  log_id UUID REFERENCES ai_use_log(id) ON DELETE SET NULL,
+  feature TEXT NOT NULL,
+  reason TEXT NOT NULL CHECK (reason IN ('wrong_fact','wrong_citation','not_in_source','wrong_date','unsafe','other')),
+  note TEXT,
+  excerpt TEXT,
+  status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','reviewed','fixed','dismissed')),
+  resolution TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  reviewed_at TIMESTAMPTZ
+);
+CREATE INDEX ai_feedback_status_idx ON ai_feedback (status, created_at DESC);
+CREATE INDEX ai_feedback_org_idx ON ai_feedback (org_id, created_at DESC);
+`
   }
 ]
 
