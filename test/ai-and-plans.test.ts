@@ -45,7 +45,8 @@ describe('AI assistant', () => {
     expect(r.status).toBe(200)
     expect(r.data).toMatchObject({ abstained: 'no_sources', sources: [] })
     expect(r.data.reply).toContain('I could not find this in the available sources.')
-    expect(ctx.ai.calls.length).toBe(calls)
+    // No answer was generated (a one-off translation for a second search is allowed when the library has laws in Arabic).
+    expect(ctx.ai.calls.slice(calls).every((m: any) => String(m[0].content).startsWith('Translate'))).toBe(true)
     const ar = await c.post('/api/ai/chat', { message: 'ما مدة التقادم؟', language: 'ar', jurisdiction: 'oman' })
     expect(ar.data.reply).toContain('لم أجد هذا في المصادر المتاحة.')
   })
