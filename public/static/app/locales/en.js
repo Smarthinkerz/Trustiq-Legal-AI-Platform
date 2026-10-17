@@ -2004,6 +2004,7 @@ export default {
   'ocr.kind_unsure': 'Unsure',
   'ocr.kind_unreadable': 'Unreadable',
   'ocr.kind_mixed_digits': 'Mixed digits',
+  'apikeys.word': 'Microsoft Word add-in',
   'docs.history': 'Version history',
   'docs.view': 'View',
   'docs.version': 'Version',

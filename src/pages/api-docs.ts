@@ -44,6 +44,16 @@ const SECTIONS: { title: string; intro?: string; endpoints: Endpoint[] }[] = [
     ]
   },
   {
+    title: 'Clause bank',
+    endpoints: [
+      ['GET', '/clauses', 'The firm\'s approved clauses in English and Arabic. Query: q (search), category.'],
+      ['POST', '/clauses', 'Add a clause. Body: title, category, body_en, body_ar (at least one), note.'],
+      ['PATCH', '/clauses/{id}', 'Update any of the fields above.'],
+      ['POST', '/clauses/{id}/used', 'Count one use, so the most used wording rises to the top.'],
+      ['DELETE', '/clauses/{id}', 'Delete a clause.']
+    ]
+  },
+  {
     title: 'Time, expenses and invoices',
     endpoints: [
       ['GET', '/billing/time', 'Time entries. Query: case_id, user_id, from, to (YYYY-MM-DD), unbilled=true, page, pageSize.'],
@@ -94,7 +104,7 @@ export function apiDocsPage(opts: { assetVersion: string; appUrl: string }) {
     <p>An owner or admin creates keys in <a href="/app#/settings?tab=api">Settings → API keys</a>. Choose <strong>Read only</strong> unless the integration needs to create or change records. The full key is shown once — store it in your integration's secret settings. Revoke a key at any time; it stops working immediately.</p>
     <ul>
       <li>A key acts with the permissions of the team member who created it, limited to read-only if created that way. If that person is removed from the firm, their keys stop working.</li>
-      <li>Keep keys on servers only. Never put a key in a website, mobile app or browser code, and never share it by email or chat.</li>
+      <li>Keep keys on servers only. Never put a key in a website, mobile app or browser code, and never share it by email or chat. The one exception is the Word add-in below, which keeps a key inside Word on the user's own computer: create a separate key for each person who uses it, so you can revoke one without the others.</li>
       <li>Every change made with a key is recorded in the audit log with the key's name.</li>
     </ul>
 
@@ -129,7 +139,15 @@ export function apiDocsPage(opts: { assetVersion: string; appUrl: string }) {
           <td class="p-2 text-slate-600">${esc(d)}</td></tr>`).join('')}</tbody>
       </table>`).join('')}
 
-    <h2>6. Support</h2>
+    <h2 id="word">6. Microsoft Word add-in</h2>
+    <p>The TrustiqLegal pane for Word inserts your clause bank wording, saves selected text as a new clause, and files the open document to a case. It uses an API key like any other integration: a read-only key can insert clauses, a read and write key can also save.</p>
+    <ol>
+      <li>Download the <a href="/addin/manifest.xml">add-in manifest</a>.</li>
+      <li>One computer: in Word, open Insert, Add-ins, My Add-ins, Upload My Add-in, and choose the file. A whole firm: your Microsoft 365 admin deploys it from the admin center (Settings, Integrated apps, Upload custom apps).</li>
+      <li>Open the TrustiqLegal button on the Home tab and paste an API key. The key is kept on that computer only.</li>
+    </ol>
+
+    <h2>7. Support</h2>
     <p>Questions or a missing endpoint? Contact your TrustiqLegal administrator or our support team, and include the <code>requestId</code> from any error response.</p>
   </main>
 </body>
