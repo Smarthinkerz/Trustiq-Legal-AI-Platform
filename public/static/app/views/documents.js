@@ -276,6 +276,7 @@ export async function documentDetailView(root, { params, isCurrent, rerender }) 
     </div>
 
     ${translationBanner(d)}
+    ${ocrBanner(d)}
     <div class="grid xl:grid-cols-5 gap-6">
       <div class="xl:col-span-3 space-y-3">
         <textarea class="doc-editor" data-editor dir="${dir}" ${ro ? raw('readonly') : ''} spellcheck="true" aria-label="${t('docs.content')}" placeholder="${t('docs.content_placeholder')}">${d.content}</textarea>
@@ -512,6 +513,18 @@ function openTranslateDialog(d) {
       })
     }
   })
+}
+
+// Passages of a scan the OCR could not read with certainty, to check against the original and fix in the text.
+function ocrBanner(d) {
+  if (!d.ocr || !d.ocr_review) return ''
+  if (!d.ocr_review.length) return html`<p class="text-xs text-emerald-700 mb-4"><i class="fas fa-check"></i> ${t('ocr.clean')}</p>`
+  return html`<details class="rounded-xl border border-amber-200 bg-amber-50 p-4 mb-4 text-sm text-amber-900">
+    <summary class="cursor-pointer font-medium"><i class="fas fa-eye"></i> ${t('ocr.to_check', { n: d.ocr_review.length })}</summary>
+    <p class="text-xs mt-2">${t('ocr.help')}</p>
+    <ul class="mt-2 space-y-1">${d.ocr_review.map((x) => html`<li class="text-xs"><span class="badge bg-amber-100 text-amber-900">${t(`ocr.kind_${x.kind}`)}</span>
+      <span dir="auto" class="ms-1">${x.context}</span></li>`)}</ul>
+  </details>`
 }
 
 function translationBanner(d) {

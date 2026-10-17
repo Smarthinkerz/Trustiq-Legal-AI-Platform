@@ -1,3 +1,4 @@
+import { ocrReviewItems } from '../services/ai-guard'
 import { fileStore, readFile, storeFile } from '../services/storage'
 import { Hono } from 'hono'
 import { z } from 'zod'
@@ -112,6 +113,8 @@ documentsRoutes.get('/:id', async (c) => {
       WHERE d.id = $1 AND d.org_id = $2`, [id, org.id])
   if (!document) throw notFound('Document')
   document.translation_stalled = isStalled(document as any)
+  // Text read from a scan: passages the OCR was unsure of, unreadable pages and misread numbers.
+  if (document.ocr) document.ocr_review = ocrReviewItems(String(document.content ?? ''), 50)
   const [versions, analyses, translations] = await Promise.all([
     db.query(`SELECT v.version, v.title, v.created_at, u.name AS created_by_name FROM document_versions v LEFT JOIN users u ON u.id = v.created_by
                WHERE v.document_id = $1 AND v.org_id = $2 ORDER BY v.version DESC`, [id, org.id]),

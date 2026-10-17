@@ -10,7 +10,7 @@ import { assertCanCreateDocument, assertCanUseAi, recordAiUsage } from '../servi
 import { citedRefs, lawReferences } from '../services/library'
 import { ABSTAIN, appearsIn } from '../services/ai-guard'
 import { mentionedArticles } from '../services/legal-corpus'
-import { allowedJurisdictions, citedSummary, groundQuestion, gulfToday } from '../services/grounding'
+import { allowedJurisdictions, citedSummary, crossLanguageQuery, groundQuestion, gulfToday } from '../services/grounding'
 import { verifyAnswer, type Verification } from '../services/verify'
 import type { ChatMessage, Completion } from '../services/ai'
 import { LOG_COLUMNS, LOG_FROM, logAiUse, logCsv, logDisclosure } from '../services/ai-log'
@@ -124,9 +124,20 @@ aiRoutes.post('/chat', jsonBody(z.object({
   // Retrieve from the jurisdiction's law plus GCC-wide instruments; include the previous question for follow-ups.
   // A law named by number (e.g. "Royal Decree 48/2009") is looked up directly, in any jurisdiction, and its own text comes first.
   const lastUser = [...history].reverse().find((m) => m.role === 'user')?.content ?? ''
-  const { sources, namedSourceIds, retrieval } = await groundQuestion(c.get('deps'), org.id, { question: b.message, context: lastUser, jurisdiction, asOf, max: 14 })
+  let { sources, namedSourceIds, retrieval } = await groundQuestion(c.get('deps'), org.id, { question: b.message, context: lastUser, jurisdiction, asOf, max: 14 })
   // Answers come only from library passages unless the lawyer opts in to general knowledge.
   const libraryOnly = b.library_only || !b.allow_general
+  let translatedQuery: string | null = null
+  // Only worth a translation when the library holds laws in the other language.
+  const otherLang = (b.message.match(/[\u0600-\u06FF]/g)?.length ?? 0) > b.message.replace(/\s/g, '').length / 3 ? 'en' : 'ar'
+  if (!sources.length && libraryOnly && (await db.query('SELECT 1 FROM library_sources WHERE language = $2 AND (org_id = $1 OR org_id IS NULL) LIMIT 1', [org.id, otherLang])).length) {
+    const t = await crossLanguageQuery(ai, b.message).catch(() => null)
+    if (t) {
+      await recordAiUsage(db, org.id, user.id, 'query_translation', t.completion)
+      const again = await groundQuestion(c.get('deps'), org.id, { question: t.text, jurisdiction, asOf, max: 14 })
+      if (again.sources.length) { ({ sources, namedSourceIds, retrieval } = again); translatedQuery = t.text }
+    }
+  }
   const verify = (text: string) => verifyAnswer(db, { orgId: org.id, answer: text, sources, asOf, allowedJurisdictions: allowedJurisdictions(jurisdiction), namedSourceIds })
   const completions: Completion[] = []
   let reply: string
@@ -179,7 +190,7 @@ aiRoutes.post('/chat', jsonBody(z.object({
       jurisdiction, asOf, prompt: b.message, output: withheld ? `[WITHHELD AFTER FAILED CHECK]\n${withheld}` : reply, sources: cited, verification
     })
   })
-  return c.json({ conversation_id: conv.id, reply, sources: cited, library_matches: sources.length, model: result?.model ?? null, verification, retrieval, log_id: logId, abstained,
+  return c.json({ conversation_id: conv.id, reply, sources: cited, library_matches: sources.length, model: result?.model ?? null, verification, retrieval, translated_query: translatedQuery, log_id: logId, abstained,
     general: !libraryOnly && !sources.length })
 })
 

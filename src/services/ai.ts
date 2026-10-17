@@ -18,6 +18,7 @@ export interface AiService {
 
 const OCR_PROMPT = `Transcribe all text in this document exactly as written, in its original language (Arabic and/or English).
 Preserve article numbers, headings and paragraph breaks. Do not translate, summarise or add commentary.
+If you cannot read a word, number or date with certainty, write your best reading inside [[? and ]], for example [[?1442]] or [[?الرواحي]]. Never guess silently.
 Output plain text only.`
 
 // Transcribes a scanned PDF using the model's document understanding (used when a PDF has no text layer).

@@ -1,3 +1,4 @@
+import type { AiService, Completion } from './ai'
 import { isGcc } from './reference'
 import { type Passage, citationLabel, findReferencedSources, lawReferences, referencedPassages } from './library'
 import { instrumentNote, linkedInstruments } from './legal-corpus'
@@ -49,3 +50,20 @@ export async function groundQuestion(deps: RetrievalDeps, orgId: string, opts: {
 export const citedSummary = (s: GroundedSource) => ({
   ref: s.ref, chunk_id: s.chunk_id, source_id: s.source_id, citation: s.citation, status: s.article_status === 'repealed' ? 'repealed' : s.status, jurisdiction: s.jurisdiction
 })
+
+// Laws may be in the library in only one language. When a question finds nothing in its own
+// language, it is translated once (Arabic <-> English) for a second search; the answer still comes
+// only from the passages found, so a wrong translation can only miss, never invent.
+export async function crossLanguageQuery(ai: AiService, question: string): Promise<{ text: string; completion: Completion } | null> {
+  if (!ai.configured) return null
+  const arabic = (question.match(/[\u0600-\u06FF]/g)?.length ?? 0) > question.replace(/\s/g, '').length / 3
+  const completion = await ai.complete({
+    messages: [
+      { role: 'system', content: `Translate the user's legal research question into ${arabic ? 'English' : 'formal Modern Standard Arabic'} so it can be searched in a law library. Keep law names, numbers and article numbers. Return only the translation.` },
+      { role: 'user', content: question.slice(0, 2000) }
+    ],
+    maxTokens: 300, temperature: 0
+  })
+  const text = completion.text.trim().slice(0, 2000)
+  return text ? { text, completion } : null
+}

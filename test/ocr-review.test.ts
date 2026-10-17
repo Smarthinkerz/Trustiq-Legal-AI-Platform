@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 import { verifyAnswer } from '../src/services/verify'
+import { ocrReviewItems, verifyFields } from '../src/services/ai-guard'
 import { registered, setup } from './helpers'
 
 let ctx: Awaited<ReturnType<typeof setup>>
@@ -30,5 +31,19 @@ describe('Library text read by OCR', () => {
 
     expect((await c.post(`/api/library/sources/${id}/ocr-reviewed`, {})).status).toBe(200)
     expect((await verify()).checks.some((x) => x.code === 'ocr_unreviewed')).toBe(false)
+  })
+
+  it('lists passages a scan reader was unsure of, and never takes a value from them', async () => {
+    const text = 'صدر الحكم بتاريخ [[?١٢]] رمضان ١٤٤٦ هـ بمبلغ ١٢5٠ ريال.\n[Pages 9–16 could not be read]\nAmount 2,400 OMR'
+    expect(ocrReviewItems(text).map((x) => x.kind)).toEqual(['unsure', 'mixed_digits', 'unreadable'])
+    const r = verifyFields({ d: '2025-03-12', a: 2400 }, { d: '١٢ رمضان ١٤٤٦ هـ', a: '2,400 OMR' }, text, { d: 'date', a: 'number' })
+    expect(r.unverified).toEqual(['d'])
+    expect(r.fields).toEqual({ d: '', a: 2400 })
+
+    const { c, me } = await registered(ctx.app)
+    const [doc] = await ctx.db.query<{ id: string }>(
+      `INSERT INTO documents (org_id, title, doc_type, language, status, source, content, ocr) VALUES ($1, 'Scanned judgment', 'other', 'ar', 'draft', 'upload', $2, true) RETURNING id`, [me.org.id, text])
+    const got = await c.get(`/api/documents/${doc!.id}`)
+    expect(got.data.document.ocr_review.map((x: any) => x.kind)).toEqual(['unsure', 'mixed_digits', 'unreadable'])
   })
 })
