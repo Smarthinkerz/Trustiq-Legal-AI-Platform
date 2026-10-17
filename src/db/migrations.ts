@@ -1981,6 +1981,24 @@ ALTER TABLE invoices ADD COLUMN zatca_pih TEXT;
 ALTER TABLE invoices ADD COLUMN zatca_hash TEXT;
 CREATE UNIQUE INDEX invoices_zatca_icv_key ON invoices (org_id, zatca_icv) WHERE zatca_icv IS NOT NULL;
 `
+  },
+  {
+    version: 55,
+    name: 'thawani_invoice_payments',
+    sql: `
+-- A firm's own Thawani Checkout account (Oman), next to its Tap account, for clients paying invoices in rials.
+ALTER TABLE organizations ADD COLUMN thawani_secret_sealed TEXT;
+ALTER TABLE organizations ADD COLUMN thawani_publishable_key TEXT;
+ALTER TABLE organizations ADD COLUMN thawani_mode TEXT CHECK (thawani_mode IN ('test', 'live'));
+ALTER TABLE organizations ADD COLUMN thawani_key_hint TEXT;
+ALTER TABLE organizations ADD COLUMN thawani_connected_at TIMESTAMPTZ;
+-- Which gateway took an online payment, and the firm-side reference Thawani sends the client back with.
+ALTER TABLE invoice_payments ADD COLUMN provider TEXT CHECK (provider IN ('tap', 'thawani'));
+UPDATE invoice_payments SET provider = 'tap' WHERE method = 'online';
+ALTER TABLE invoice_payments ADD COLUMN provider_ref TEXT;
+CREATE UNIQUE INDEX invoice_payments_provider_ref_key ON invoice_payments (provider_ref) WHERE provider_ref IS NOT NULL;
+CREATE INDEX invoice_payments_open_thawani_idx ON invoice_payments (created_at) WHERE provider = 'thawani' AND status = 'initiated'
+`
   }
 ]
 

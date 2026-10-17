@@ -72,6 +72,7 @@ import { buildIcs } from './services/jobs'
 import { landingPage } from './landing'
 import { platformBlogRoutes } from './routes/platform-blog'
 import { appShell } from './pages/app-shell'
+import { THAWANI_HOSTS } from './services/thawani'
 import { ADDIN_VERSION, addinManifest, addinTaskpane, OFFICE_FRAME_HOSTS, OFFICE_JS_HOST } from './pages/word-addin'
 import { legalPage } from './pages/legal'
 import { apiDocsPage } from './pages/api-docs'
@@ -131,11 +132,11 @@ export function createApp(deps: Deps) {
       objectSrc: ["'none'"],
       frameAncestors: ["'none'"],
       baseUri: ["'self'"],
-      // The invoice payment form redirects to Tap's hosted checkout, which form-action also governs.
+      // The invoice payment form redirects to Tap's or Thawani's hosted checkout, which form-action also governs.
       // YouTube and Vimeo videos placed in blog articles.
       frameSrc: ["'self'", 'https://www.youtube-nocookie.com', 'https://player.vimeo.com'],
       mediaSrc: ["'self'", 'blob:'],
-      formAction: ["'self'", (c) => (/^\/pay\/[\w-]+$/.test(c.req.path) ? 'https://*.tap.company' : '')]
+      formAction: ["'self'", (c) => (/^\/pay\/[\w-]+$/.test(c.req.path) ? `https://*.tap.company ${THAWANI_HOSTS.join(' ')}` : '')]
     },
     strictTransportSecurity: config.isProduction ? 'max-age=31536000; includeSubDomains' : false,
     referrerPolicy: 'strict-origin-when-cross-origin',

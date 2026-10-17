@@ -11,7 +11,8 @@ import { contentDisposition, renderInvoiceDocx, safeFileName } from '../services
 import { ACCEPTED_TYPES } from '../services/extract'
 import { invoiceZatcaQr, isSaudiVatNumber, zatcaApplies } from '../services/zatca'
 import { checkBudgetAlert } from '../services/matter-finance'
-import { ensurePayToken, firmTapClient, onlinePaymentSettings, outstanding, paymentSecret, payUrl, sealTapKey, supportsOnline, TAP_KEY_RE } from '../services/invoice-payments'
+import { canPayOnline, ensurePayToken, firmTapClient, firmThawaniClient, onlinePaymentSettings, onlineProviders, outstanding, paymentSecret, payUrl, sealTapKey, TAP_KEY_RE } from '../services/invoice-payments'
+import { THAWANI_KEY_RE } from '../services/thawani'
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use a date in YYYY-MM-DD format')
 const money = z.number().min(0).max(1e12)
@@ -68,6 +69,40 @@ billingRoutes.delete('/online-payments', async (c) => {
   const { db, config } = c.get('deps')
   await db.query(`UPDATE organizations SET tap_secret_sealed = NULL, tap_key_mode = NULL, tap_key_hint = NULL, tap_connected_at = NULL, updated_at = now() WHERE id = $1`, [org.id])
   await audit(c, 'billing.online_payments_disconnected', 'organization', org.id)
+  return c.json(await onlinePaymentSettings(db, config, org.id))
+})
+
+// ---------------- Online payments (the firm's own Thawani account, Oman) ----------------
+
+billingRoutes.put('/online-payments/thawani', jsonBody(z.object({
+  secret_key: z.string().trim().max(300),
+  publishable_key: z.string().trim().max(300),
+  mode: z.enum(['test', 'live'])
+})), async (c) => {
+  requireRole(c, 'owner', 'admin')
+  const { org } = auth(c)
+  const deps = c.get('deps')
+  const b = c.req.valid('json')
+  if (!paymentSecret(deps.config)) throw unavailable('encryption_key_missing', 'Online payments need ENCRYPTION_KEY to be set on the server before a payment key can be stored.')
+  if (!THAWANI_KEY_RE.test(b.secret_key) || !THAWANI_KEY_RE.test(b.publishable_key)) throw badRequest('Paste both keys from your Thawani merchant portal (Settings, API keys).')
+  if (b.secret_key === b.publishable_key) throw badRequest('The secret key and the publishable key are different keys. Paste each one in its own field.')
+  const row = { thawani_secret_sealed: sealTapKey(deps.config, b.secret_key), thawani_publishable_key: b.publishable_key, thawani_mode: b.mode }
+  let ok = false
+  try { ok = await firmThawaniClient(deps, row)!.verifyKey() } catch { throw unavailable('thawani_unreachable', 'Thawani could not be reached to check the key. Please try again in a moment.') }
+  if (!ok) throw badRequest(`Thawani did not accept this secret key in ${b.mode === 'live' ? 'live' : 'test'} mode. Check the key and that test keys are used with test mode.`)
+  await deps.db.query(
+    `UPDATE organizations SET thawani_secret_sealed = $2, thawani_publishable_key = $3, thawani_mode = $4, thawani_key_hint = $5, thawani_connected_at = now(), updated_at = now() WHERE id = $1`,
+    [org.id, row.thawani_secret_sealed, b.publishable_key, b.mode, b.secret_key.slice(-4)])
+  await audit(c, 'billing.thawani_connected', 'organization', org.id, { mode: b.mode })
+  return c.json(await onlinePaymentSettings(deps.db, deps.config, org.id))
+})
+
+billingRoutes.delete('/online-payments/thawani', async (c) => {
+  requireRole(c, 'owner', 'admin')
+  const { org } = auth(c)
+  const { db, config } = c.get('deps')
+  await db.query(`UPDATE organizations SET thawani_secret_sealed = NULL, thawani_publishable_key = NULL, thawani_mode = NULL, thawani_key_hint = NULL, thawani_connected_at = NULL, updated_at = now() WHERE id = $1`, [org.id])
+  await audit(c, 'billing.thawani_disconnected', 'organization', org.id)
   return c.json(await onlinePaymentSettings(db, config, org.id))
 })
 
@@ -400,14 +435,15 @@ async function onlineFor(c: Ctx, invoice: Record<string, any>) {
   const { db, config } = c.get('deps')
   const settings = await onlinePaymentSettings(db, config, invoice.org_id)
   const payments = await db.query(
-    `SELECT p.id, p.method, p.amount, p.currency, p.status, p.charge_id, p.needs_refund, p.paid_at, p.created_at, u.name AS recorded_by_name
+    `SELECT p.id, p.method, p.amount, p.currency, p.status, p.charge_id, p.provider, p.needs_refund, p.paid_at, p.created_at, u.name AS recorded_by_name
        FROM invoice_payments p LEFT JOIN users u ON u.id = p.recorded_by
       WHERE p.invoice_id = $1 AND (p.status IN ('paid', 'failed') OR p.method = 'manual') ORDER BY p.created_at DESC LIMIT 100`, [invoice.id])
   return {
     payments,
     online: {
-      connected: settings.connected, mode: settings.mode, currency_supported: supportsOnline(invoice.currency),
-      can_pay: settings.connected && supportsOnline(invoice.currency) && invoice.status === 'issued' && outstanding(invoice as any) > 0,
+      connected: settings.connected || settings.thawani.connected, mode: settings.mode ?? settings.thawani.mode,
+      providers: onlineProviders(settings, invoice.currency), currency_supported: canPayOnline(settings, invoice.currency),
+      can_pay: canPayOnline(settings, invoice.currency) && invoice.status === 'issued' && outstanding(invoice as any) > 0,
       pay_url: invoice.pay_token ? payUrl(config, invoice.pay_token) : null
     }
   }
@@ -429,8 +465,8 @@ billingRoutes.post('/invoices/:id/pay-link', jsonBody(z.object({ send: z.boolean
   const { db, config, mailer, log } = c.get('deps')
   const { invoice } = await loadInvoice(db, org.id, id)
   const settings = await onlinePaymentSettings(db, config, org.id)
-  if (!settings.connected) throw conflict('Connect your Tap account in Billing settings to take online payments.')
-  if (!supportsOnline(invoice.currency)) throw badRequest(`Online payment is not available for invoices in ${invoice.currency}.`)
+  if (!settings.connected && !settings.thawani.connected) throw conflict('Connect your Tap or Thawani account in Billing settings to take online payments.')
+  if (!canPayOnline(settings, invoice.currency)) throw badRequest(`Online payment is not available for invoices in ${invoice.currency}.`)
   if (invoice.status !== 'issued' || outstanding(invoice) <= 0) throw conflict('Only issued invoices with an amount outstanding can be paid online.')
   const url = payUrl(config, await ensurePayToken(db, org.id, id))
   let emailed = false

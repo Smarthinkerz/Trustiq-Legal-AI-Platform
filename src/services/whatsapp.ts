@@ -173,7 +173,7 @@ export async function deliver(deps: RunDeps, acct: WaAccount, v: {
 export async function runWhatsAppReminders(deps: RunDeps, now = new Date()) {
   const { db, config } = deps
   const orgs = await db.query(
-    `SELECT o.id, o.name, o.default_jurisdiction, o.wa_token_sealed, o.wa_phone_number_id, o.wa_display_phone, o.wa_settings, o.tap_secret_sealed, b.firm_name, b.firm_name_ar
+    `SELECT o.id, o.name, o.default_jurisdiction, o.wa_token_sealed, o.wa_phone_number_id, o.wa_display_phone, o.wa_settings, o.tap_secret_sealed, o.thawani_secret_sealed, b.firm_name, b.firm_name_ar
        FROM organizations o LEFT JOIN branding b ON b.org_id = o.id
       WHERE o.wa_token_sealed IS NOT NULL AND (o.plan_expires_at IS NULL OR o.plan_expires_at > now() OR o.plan = 'trial')`)
   let sent = 0
@@ -226,7 +226,7 @@ export async function runWhatsAppReminders(deps: RunDeps, now = new Date()) {
         if (r.reminders >= 3 || (r.last_at && now.getTime() - new Date(r.last_at).getTime() < 7 * 86400_000)) continue
         const to = await target({ ...r, id: r.client_id })
         if (!to) continue
-        const link = online && supportsOnline(r.currency)
+        const link = (online && supportsOnline(r.currency)) || (!!org.thawani_secret_sealed && r.currency === 'OMR')
           ? payUrl(config, await ensurePayToken(db, org.id, r.id)) : `${config.appUrl}/app#/portal`
         if (await deliver(deps, acct, {
           orgId: org.id, clientId: r.client_id, kind: 'invoice', entityId: r.id, ref: `n${r.reminders + 1}`, phone: to.phone,

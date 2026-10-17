@@ -11,6 +11,7 @@ import { runPriceNotices } from './services/price-lock'
 import { runDailyDigest, runRenewalReminders } from './services/jobs'
 import { createTapClient } from './services/tap'
 import { runWhatsAppReminders } from './services/whatsapp'
+import { sweepThawaniPayments } from './services/invoice-payments'
 import { runLibraryImports } from './services/library-import'
 import { runCalendarSync } from './services/google-calendar'
 import { createEmbeddingService, createRerankService, runEmbeddingBackfill } from './services/retrieval'
@@ -84,6 +85,16 @@ async function main() {
     runPriceNotices(db, mailer, config, log).catch((err) => log.error('price notices failed', { err }))
   })
 
+  // Settles Thawani invoice payments whose clients closed the page before returning.
+  let thawaniSweeping = false
+  const thawaniSweep = every(3 * 60_000, () => {
+    if (thawaniSweeping) return
+    thawaniSweeping = true
+    sweepThawaniPayments({ db, config, log, mailer })
+      .catch((err) => log.error('thawani payment sweep failed', { err }))
+      .finally(() => { thawaniSweeping = false })
+  })
+
   // Law-library imports run in the background, one document at a time.
   let importing = false
   const importer = every(5_000, () => {
@@ -127,6 +138,7 @@ async function main() {
     stopSharing()
     clearInterval(jobs)
     clearInterval(importer)
+    clearInterval(thawaniSweep)
     clearInterval(calendarSync)
     clearInterval(embedder)
     server.close(async () => {

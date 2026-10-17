@@ -6,11 +6,12 @@ import { newToken } from '../lib/crypto'
 import { open, seal } from '../lib/secret-box'
 import { roundMoney } from './billing'
 import { createTapClient, mapTapStatus, TAP_CURRENCIES, type TapCharge, type TapClient } from './tap'
+import { createThawaniClient, sessionAsCharge, THAWANI_MIN_OMR, type ThawaniClient, type ThawaniMode } from './thawani'
 
 // ---------------------------------------------------------------------------
-// Online invoice payments. Each firm connects its own Tap account, so client
-// money goes straight to the firm; the platform only keeps the key (sealed)
-// and reconciles each charge against the invoice.
+// Online invoice payments. Each firm connects its own Tap account and, in Oman,
+// its own Thawani account, so client money goes straight to the firm; the
+// platform only keeps the keys (sealed) and reconciles each charge against the invoice.
 // ---------------------------------------------------------------------------
 
 export const TAP_KEY_RE = /^sk_(live|test)_[A-Za-z0-9]{8,200}$/
@@ -29,10 +30,24 @@ export function firmTapClient(deps: Pick<Deps, 'config' | 'log' | 'firmTap'>, se
   return deps.firmTap ? deps.firmTap(key) : createTapClient(deps.config, deps.log, fetch, key)
 }
 
+export type ThawaniRow = { thawani_secret_sealed?: string | null; thawani_publishable_key?: string | null; thawani_mode?: string | null }
+
+export function firmThawaniClient(deps: Pick<Deps, 'config' | 'log' | 'firmThawani'>, row: ThawaniRow | null | undefined): ThawaniClient | null {
+  const secret = paymentSecret(deps.config)
+  if (!row?.thawani_secret_sealed || !row.thawani_publishable_key || !secret) return null
+  const key = open(row.thawani_secret_sealed, secret)
+  if (!key) return null
+  const keys = { secretKey: key, publishableKey: row.thawani_publishable_key, mode: (row.thawani_mode === 'live' ? 'live' : 'test') as ThawaniMode }
+  return deps.firmThawani ? deps.firmThawani(keys) : createThawaniClient(keys, deps.log)
+}
+
 export async function onlinePaymentSettings(db: Queryable, config: Config, orgId: string) {
-  const [o] = await db.query('SELECT tap_secret_sealed, tap_key_mode, tap_key_hint, tap_connected_at FROM organizations WHERE id = $1', [orgId])
+  const [o] = await db.query(
+    `SELECT tap_secret_sealed, tap_key_mode, tap_key_hint, tap_connected_at,
+            thawani_secret_sealed, thawani_publishable_key, thawani_mode, thawani_key_hint, thawani_connected_at FROM organizations WHERE id = $1`, [orgId])
   const secret = paymentSecret(config)
   const readable = !!(o?.tap_secret_sealed && secret && open(o.tap_secret_sealed, secret))
+  const thawani = !!(o?.thawani_secret_sealed && o.thawani_publishable_key && secret && open(o.thawani_secret_sealed, secret))
   return {
     available: !!secret,
     connected: readable,
@@ -40,11 +55,29 @@ export async function onlinePaymentSettings(db: Queryable, config: Config, orgId
     needs_reconnect: !!o?.tap_secret_sealed && !readable,
     mode: readable ? o.tap_key_mode : null,
     key_hint: readable ? o.tap_key_hint : null,
-    connected_at: readable ? o.tap_connected_at : null
+    connected_at: readable ? o.tap_connected_at : null,
+    thawani: {
+      connected: thawani,
+      needs_reconnect: !!o?.thawani_secret_sealed && !thawani,
+      mode: thawani ? o.thawani_mode : null,
+      key_hint: thawani ? o.thawani_key_hint : null,
+      connected_at: thawani ? o.thawani_connected_at : null
+    }
   }
 }
 
 export const supportsOnline = (currency: string) => (TAP_CURRENCIES as readonly string[]).includes(currency)
+// Thawani takes Omani rials only.
+export const thawaniSupports = (currency: string, amount?: number) => currency === 'OMR' && (amount === undefined || amount >= THAWANI_MIN_OMR)
+
+// The gateways a firm can take this invoice's currency through, Tap first.
+export function onlineProviders(s: { connected: boolean; thawani: { connected: boolean } }, currency: string, amount?: number): ('tap' | 'thawani')[] {
+  const out: ('tap' | 'thawani')[] = []
+  if (s.connected && supportsOnline(currency)) out.push('tap')
+  if (s.thawani.connected && thawaniSupports(currency, amount)) out.push('thawani')
+  return out
+}
+export const canPayOnline = (s: Parameters<typeof onlineProviders>[0], currency: string) => onlineProviders(s, currency).length > 0
 
 export const outstanding = (inv: Record<string, any>) =>
   roundMoney(Math.max(0, Number(inv.total) - Number(inv.amount_paid)), inv.currency)
@@ -65,7 +98,7 @@ export async function invoiceByPayToken(db: Queryable, token: string) {
   const [inv] = await db.query(
     `SELECT i.id, i.org_id, i.number, i.status, i.currency, i.total, i.amount_paid, i.due_date, i.client_id,
             cl.name AS client_name, cl.email AS client_email,
-            o.name AS org_name, o.tap_secret_sealed, o.tap_key_mode,
+            o.name AS org_name, o.tap_secret_sealed, o.tap_key_mode, o.thawani_secret_sealed, o.thawani_publishable_key, o.thawani_mode,
             b.firm_name, b.firm_name_ar, b.primary_color
        FROM invoices i JOIN clients cl ON cl.id = i.client_id JOIN organizations o ON o.id = i.org_id
        LEFT JOIN branding b ON b.org_id = i.org_id
@@ -122,7 +155,8 @@ export async function notifyFirmOfPayment(deps: Pick<Deps, 'db' | 'mailer' | 'co
   if (!mailer.configured || !outcome.becamePaid || !outcome.invoiceId) return
   const [inv] = await db.query(
     `SELECT i.id, i.number, i.status, i.currency, i.total, i.amount_paid, i.created_by, cl.name AS client_name, k.assigned_to,
-            (SELECT amount FROM invoice_payments WHERE invoice_id = i.id AND method = 'online' AND status = 'paid' ORDER BY paid_at DESC LIMIT 1) AS last_amount
+            (SELECT amount FROM invoice_payments WHERE invoice_id = i.id AND method = 'online' AND status = 'paid' ORDER BY paid_at DESC LIMIT 1) AS last_amount,
+            (SELECT provider FROM invoice_payments WHERE invoice_id = i.id AND method = 'online' AND status = 'paid' ORDER BY paid_at DESC LIMIT 1) AS last_provider
        FROM invoices i JOIN clients cl ON cl.id = i.client_id LEFT JOIN cases k ON k.id = i.case_id WHERE i.id = $1`, [outcome.invoiceId])
   if (!inv) return
   const to = await db.query(
@@ -133,10 +167,39 @@ export async function notifyFirmOfPayment(deps: Pick<Deps, 'db' | 'mailer' | 'co
     ? `Action needed: online payment on ${inv.number} must be refunded`
     : `${inv.client_name} paid invoice ${inv.number} online (${amount})`
   const text = (outcome.needsRefund
-    ? `${inv.client_name} paid ${amount} online for invoice ${inv.number}, but the invoice had already been paid or voided. Refund the extra amount from your Tap dashboard.`
+    ? `${inv.client_name} paid ${amount} online for invoice ${inv.number}, but the invoice had already been paid or voided. Refund the extra amount from your ${inv.last_provider === 'thawani' ? 'Thawani' : 'Tap'} dashboard.`
     : `${inv.client_name} paid ${amount} online for invoice ${inv.number}. ${inv.status === 'paid' ? 'The invoice is now fully paid.' : `Balance remaining: ${outstanding(inv)} ${inv.currency}.`}`) +
     `\n\n${config.appUrl}/app#/billing/invoices/${inv.id}`
   for (const r of to.slice(0, 10)) await mailer.send({ to: r.email, subject, text }).catch((err) => log.warn('payment notification failed', { err }))
 }
 
 export const newOrderRef = () => `inv_${Date.now()}_${randomBytes(4).toString('hex')}`
+
+
+// Thawani has no signed callback here, so open Thawani payments are read back from Thawani: on the
+// client's return and by this sweep, which catches clients who closed the page after paying.
+// Sessions left unpaid for a day are marked cancelled.
+export async function sweepThawaniPayments(deps: Pick<Deps, 'db' | 'config' | 'log' | 'firmThawani' | 'mailer'>, opts: { minAgeMs?: number; limit?: number } = {}) {
+  const { db, log } = deps
+  const rows = await db.query(
+    `SELECT p.id, p.charge_id, p.created_at, o.thawani_secret_sealed, o.thawani_publishable_key, o.thawani_mode
+       FROM invoice_payments p JOIN organizations o ON o.id = p.org_id
+      WHERE p.provider = 'thawani' AND p.status = 'initiated' AND p.charge_id IS NOT NULL AND p.created_at < now() - ($1::int * interval '1 millisecond')
+      ORDER BY p.created_at LIMIT $2`, [opts.minAgeMs ?? 120_000, opts.limit ?? 50])
+  let settled = 0
+  for (const r of rows) {
+    try {
+      const thawani = firmThawaniClient(deps, r)
+      const outcome = thawani ? await reconcileInvoiceCharge(db, sessionAsCharge(await thawani.retrieveSession(r.charge_id))) : null
+      if (outcome) await notifyFirmOfPayment(deps, outcome)
+      if (outcome && outcome.status !== 'initiated') settled++
+      else if (Date.now() - new Date(r.created_at).getTime() > 86400_000) {
+        await db.query(`UPDATE invoice_payments SET status = 'cancelled', failure_message = $2, updated_at = now() WHERE id = $1 AND status = 'initiated'`,
+          [r.id, thawani ? 'Not paid within a day' : 'Thawani account disconnected'])
+      }
+    } catch (err) {
+      log.warn('thawani payment check failed', { err, payment: r.id })
+    }
+  }
+  return settled
+}

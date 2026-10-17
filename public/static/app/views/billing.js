@@ -343,6 +343,7 @@ async function settings(root, { isCurrent, rerender }) {
       </form>
     </section>
     ${onlinePaymentsCard(op)}
+    ${thawaniCard(op)}
     <section class="card">
       <div class="px-5 py-4 border-b border-slate-100"><h2 class="font-semibold">${t('billing.hourly_rates')}</h2><p class="text-xs text-slate-500">${t('billing.hourly_rates_help')}</p></div>
       <ul class="divide-y divide-slate-100">${rates.map((r) => html`<li class="px-5 py-3 flex items-center gap-3">
@@ -362,6 +363,10 @@ async function settings(root, { isCurrent, rerender }) {
       'tap-key': (form) => busy(submitButton(form), async () => {
         clearFieldErrors(form)
         try { await api.put('/api/billing/online-payments', formData(form)); toast(t('pay.connected_toast')); rerender() } catch (err) { showError(err, form) }
+      }),
+      'thawani-key': (form) => busy(submitButton(form), async () => {
+        clearFieldErrors(form)
+        try { await api.put('/api/billing/online-payments/thawani', formData(form)); toast(t('thawani.connected_toast')); rerender() } catch (err) { showError(err, form) }
       })
     },
     actions: {
@@ -373,6 +378,15 @@ async function settings(root, { isCurrent, rerender }) {
       'tap-disconnect': async () => {
         if (!(await confirmDialog(t('pay.confirm_disconnect')))) return
         try { await api.del('/api/billing/online-payments'); toast(t('common.saved')); rerender() } catch (err) { showError(err) }
+      },
+      'thawani-replace': () => {
+        const f = root.querySelector('[data-thawani-replace]')
+        f?.classList.remove('hidden')
+        f?.querySelector('input')?.focus()
+      },
+      'thawani-disconnect': async () => {
+        if (!(await confirmDialog(t('thawani.confirm_disconnect')))) return
+        try { await api.del('/api/billing/online-payments/thawani'); toast(t('common.saved')); rerender() } catch (err) { showError(err) }
       }
     },
     changes: {
@@ -402,6 +416,34 @@ function onlinePaymentsCard(op) {
       : html`<p class="text-sm text-slate-500">${t('pay.ask_admin')}</p>`}
   </section>`
 }
+
+// The firm's own Thawani account (Oman): clients pay invoices in rials with Omani cards.
+function thawaniCard(op) {
+  const th = op.thawani ?? {}
+  const manage = can('owner', 'admin') && !readOnly()
+  return html`<section class="card card-pad">
+    <h2 class="font-semibold mb-1 flex items-center gap-2"><i class="fas fa-wallet text-brand-600"></i>${t('thawani.title')}
+      ${th.connected ? html`<span class="badge ${th.mode === 'live' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}">${th.mode === 'live' ? t('pay.live') : t('pay.test')}</span>` : ''}</h2>
+    <p class="text-sm text-slate-500 mb-4">${t('thawani.help')}</p>
+    ${!op.available ? html`<p class="text-sm rounded-lg bg-amber-50 border border-amber-200 text-amber-800 p-3">${t('pay.no_encryption')}</p>`
+      : th.connected ? html`<div class="text-sm space-y-3">
+          <p><i class="fas fa-circle-check text-green-600 me-1"></i>${t('thawani.connected', { hint: th.key_hint })}</p>
+          ${th.mode === 'test' ? html`<p class="text-xs text-amber-700">${t('thawani.test_hint')}</p>` : ''}
+          ${manage ? html`<div class="flex flex-wrap gap-2"><button class="btn btn-outline btn-sm" data-action="thawani-replace">${t('pay.replace')}</button>
+            <button class="btn btn-danger-ghost btn-sm" data-action="thawani-disconnect">${t('pay.disconnect')}</button></div>` : ''}
+        </div>
+        ${manage ? html`<form data-form="thawani-key" class="hidden mt-4 space-y-3" data-thawani-replace novalidate>${thawaniKeyFields(th.mode)}</form>` : ''}`
+      : manage ? html`${th.needs_reconnect ? html`<p class="text-sm rounded-lg bg-amber-50 border border-amber-200 text-amber-800 p-3 mb-3">${t('thawani.needs_reconnect')}</p>` : ''}
+        <form data-form="thawani-key" class="space-y-3" novalidate>${thawaniKeyFields()}</form>`
+      : html`<p class="text-sm text-slate-500">${t('thawani.ask_admin')}</p>`}
+  </section>`
+}
+
+const thawaniKeyFields = (mode) => html`
+  ${selectField({ name: 'mode', label: t('thawani.mode'), value: mode || 'test', options: [{ value: 'test', label: t('pay.test') }, { value: 'live', label: t('pay.live') }], hint: t('thawani.mode_hint') })}
+  ${inputField({ name: 'secret_key', label: t('thawani.secret_key'), type: 'password', required: true, attrs: 'dir="ltr" autocomplete="off" spellcheck="false"' })}
+  ${inputField({ name: 'publishable_key', label: t('thawani.publishable_key'), required: true, hint: t('thawani.keys_hint'), attrs: 'dir="ltr" autocomplete="off" spellcheck="false"' })}
+  <div class="flex justify-end"><button type="submit" class="btn btn-primary">${t('thawani.connect')}</button></div>`
 
 const tapKeyFields = () => html`
   ${inputField({ name: 'secret_key', label: t('pay.secret_key'), type: 'password', required: true, placeholder: 'sk_live_…', hint: t('pay.secret_key_hint'), attrs: 'dir="ltr" autocomplete="off" spellcheck="false"' })}
@@ -446,9 +488,9 @@ function openPayLink(inv, onDone) {
 const paymentRow = (p) => html`<li class="py-2 flex items-start justify-between gap-3 text-sm">
   <div><div class="font-medium">${fmtMoney(Number(p.amount), p.currency)}
     <span class="badge ${p.status === 'paid' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}">${t(`pay.status_${p.status}`)}</span></div>
-    <div class="text-xs text-slate-500">${p.method === 'online' ? t('pay.method_online') : t('pay.method_manual')}${p.recorded_by_name ? ` · ${p.recorded_by_name}` : ''} · ${fmtDateTime(p.paid_at || p.created_at)}</div>
+    <div class="text-xs text-slate-500">${p.method === 'online' ? t(p.provider === 'thawani' ? 'thawani.method_online' : 'pay.method_online') : t('pay.method_manual')}${p.recorded_by_name ? ` · ${p.recorded_by_name}` : ''} · ${fmtDateTime(p.paid_at || p.created_at)}</div>
     ${p.charge_id ? html`<div class="text-xs text-slate-400 font-mono" dir="ltr">${p.charge_id}</div>` : ''}
-    ${p.needs_refund ? html`<div class="text-xs text-red-700 font-semibold">${t('pay.needs_refund')}</div>` : ''}</div>
+    ${p.needs_refund ? html`<div class="text-xs text-red-700 font-semibold">${t(p.provider === 'thawani' ? 'thawani.needs_refund' : 'pay.needs_refund')}</div>` : ''}</div>
 </li>`
 
 export async function invoiceView(root, { params, isCurrent, rerender }) {

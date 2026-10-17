@@ -7,6 +7,7 @@ import type { Mail, Mailer } from '../src/lib/mailer'
 import { RateLimiter } from '../src/lib/rate-limit'
 import type { AiService, ChatMessage } from '../src/services/ai'
 import type { TapCharge, TapClient } from '../src/services/tap'
+import type { ThawaniClient, ThawaniKeys, ThawaniSession } from '../src/services/thawani'
 import { runLibraryImports, type WebFetcher } from '../src/services/library-import'
 import type { EmbeddingService, RerankService } from '../src/services/retrieval'
 
@@ -99,6 +100,33 @@ export function fakeFirmTap() {
   return { tap, keys, forKey }
 }
 
+// A fake Thawani Checkout: sessions are stored in memory; set a session's payment_status to simulate the client paying.
+export function fakeFirmThawani() {
+  const sessions = new Map<string, ThawaniSession & { products: any[]; success_url: string; cancel_url: string }>()
+  const keys: ThawaniKeys[] = []
+  const state = { fail: false }
+  const forKeys = (k: ThawaniKeys): ThawaniClient => {
+    keys.push(k)
+    return {
+      async createSession(body) {
+        if (state.fail) throw new Error('Thawani POST checkout failed: 500')
+        const id = `checkout_${crypto.randomUUID().replace(/-/g, '')}`
+        const s = { session_id: id, payment_status: 'unpaid', currency: 'OMR', total_amount: body.products.reduce((n, p) => n + p.unit_amount * p.quantity, 0), ...body }
+        sessions.set(id, s)
+        return s
+      },
+      async retrieveSession(id) {
+        const s = sessions.get(id)
+        if (!s) throw new Error('Thawani GET checkout failed: 404')
+        return s
+      },
+      payUrl: (id) => `https://${k.mode === 'live' ? '' : 'uat'}checkout.thawani.om/pay/${id}?key=${k.publishableKey}`,
+      verifyKey: async () => !k.secretKey.includes('Rejected')
+    }
+  }
+  return { sessions, keys, state, forKeys }
+}
+
 // A fake WhatsApp Cloud API: records requests; set `fail` to make the next calls return a Graph error.
 export function fakeWhatsApp() {
   const wa = {
@@ -129,6 +157,7 @@ export async function setup(env: Record<string, string> = {}, opts: { googleFetc
   const ai = (opts.ai ?? fake) as FakeAi
   const tap = fakeTap()
   const firmTap = fakeFirmTap()
+  const firmThawani = fakeFirmThawani()
   const wa = fakeWhatsApp()
   const web = fakeWeb()
   // Background work is queued and only runs when a test calls runDeferred().
@@ -136,11 +165,11 @@ export async function setup(env: Record<string, string> = {}, opts: { googleFetc
   const runDeferred = async () => { while (deferred.length) await deferred.shift()!() }
   const log = createLogger('error', true)
   const app = createApp({
-    config, db, ai, mailer, tap, firmTap: firmTap.forKey, defer: (task) => { deferred.push(task) }, waFetch: wa.fetch as typeof fetch, webFetch: web.fetch, googleFetch: opts.googleFetch, hubFetch: opts.hubFetch, embeddings: opts.embeddings, reranker: opts.reranker, files: opts.files ?? null,
+    config, db, ai, mailer, tap, firmTap: firmTap.forKey, firmThawani: firmThawani.forKeys, defer: (task) => { deferred.push(task) }, waFetch: wa.fetch as typeof fetch, webFetch: web.fetch, googleFetch: opts.googleFetch, hubFetch: opts.hubFetch, embeddings: opts.embeddings, reranker: opts.reranker, files: opts.files ?? null,
     log,
     limiters: { auth: new RateLimiter(1000, 60_000), api: new RateLimiter(10_000, 60_000), ai: new RateLimiter(1000, 60_000), webhook: new RateLimiter(1000, 60_000), apiKey: new RateLimiter(1000, 60_000) }
   })
-  return { app, db, ai, mails, config, tap, firmTap, wa, web, log, runDeferred, deferred, runImports: () => runLibraryImports({ db, config, ai, log, webFetch: web.fetch }) }
+  return { app, db, ai, mails, config, tap, firmTap, firmThawani, wa, web, log, runDeferred, deferred, runImports: () => runLibraryImports({ db, config, ai, log, webFetch: web.fetch }) }
 }
 
 type App = Awaited<ReturnType<typeof setup>>['app']
