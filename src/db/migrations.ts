@@ -1961,6 +1961,26 @@ CREATE TABLE rate_limit_hits (
 );
 CREATE INDEX rate_limit_hits_window_idx ON rate_limit_hits (window_start);
 `
+  },
+  {
+    version: 54,
+    name: 'zatca_phase2',
+    sql: `
+-- Saudi e-invoicing phase 2 groundwork: seller details ZATCA requires, and the invoice chain.
+ALTER TABLE organizations ADD COLUMN cr_number TEXT;
+ALTER TABLE organizations ADD COLUMN address_street TEXT;
+ALTER TABLE organizations ADD COLUMN address_building TEXT;
+ALTER TABLE organizations ADD COLUMN address_district TEXT;
+ALTER TABLE organizations ADD COLUMN address_city TEXT;
+ALTER TABLE organizations ADD COLUMN address_postal_code TEXT;
+ALTER TABLE organizations ADD COLUMN zatca_icv INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE organizations ADD COLUMN zatca_last_hash TEXT;
+ALTER TABLE invoices ADD COLUMN zatca_uuid UUID;
+ALTER TABLE invoices ADD COLUMN zatca_icv INTEGER;
+ALTER TABLE invoices ADD COLUMN zatca_pih TEXT;
+ALTER TABLE invoices ADD COLUMN zatca_hash TEXT;
+CREATE UNIQUE INDEX invoices_zatca_icv_key ON invoices (org_id, zatca_icv) WHERE zatca_icv IS NOT NULL;
+`
   }
 ]
 

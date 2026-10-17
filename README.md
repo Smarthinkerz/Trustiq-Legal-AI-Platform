@@ -133,6 +133,8 @@ File storage: by default uploaded files (documents, law PDFs, files sent for sig
 
 Several instances: rate limits are counted in memory per instance by default. Set `RATE_LIMIT_STORE=db` on every instance to share counts through PostgreSQL (each instance syncs every 2 seconds, so a limit can be exceeded by at most one sync interval of traffic). Background jobs claim their work in the database and are safe on several instances; set `RUN_WORKERS=false` on instances that should only serve requests.
 
+Saudi e-invoicing (ZATCA): issued invoices of Saudi firms (jurisdiction KSA or currency SAR) carry the phase 1 QR code. For phase 2, each one also gets a UUID, an invoice counter (ICV) and the previous invoice's hash (PIH, starting from the ZATCA initial value), and its own SHA-256 hash is stored, forming the chain ZATCA requires. `GET /api/billing/invoices/:id/zatca.xml` exports the invoice as UBL 2.1 XML in the ZATCA layout, and `GET /api/billing/invoices/:id/zatca` lists what is still missing (seller CR and national address are set in Billing → Settings). Not yet done: the cryptographic stamp and clearance or reporting through the Fatoora API, which need each firm's ZATCA onboarding (CSID). Validate exports with the ZATCA SDK before relying on them.
+
 `JWT_SECRET` is no longer used. Sessions are random tokens stored hashed in the database, so they can be revoked.
 
 ## Deployment (Railway)
