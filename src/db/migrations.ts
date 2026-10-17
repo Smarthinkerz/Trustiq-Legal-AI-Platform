@@ -1917,6 +1917,35 @@ UPDATE library_sources SET ocr = true WHERE notes LIKE '%(OCR)%';
 -- Code checks on each translated document: figures, glossary terms and cut-off parts.
 ALTER TABLE documents ADD COLUMN translation_checks JSONB;
 `
+  },
+  {
+    version: 52,
+    name: 'object_storage',
+    sql: `
+-- Files can live in an S3-compatible object store; the row then keeps only the object key.
+ALTER TABLE documents ADD COLUMN file_key TEXT;
+ALTER TABLE library_sources ADD COLUMN file_key TEXT;
+ALTER TABLE signature_requests ADD COLUMN file_key TEXT;
+ALTER TABLE blog_media ADD COLUMN file_key TEXT;
+ALTER TABLE blog_media ALTER COLUMN data DROP NOT NULL;
+-- Objects whose rows were deleted (directly or by cascade) wait here until the sweeper removes them.
+CREATE TABLE file_deletions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  file_key TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE FUNCTION queue_file_deletion() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF OLD.file_key IS NOT NULL AND (TG_OP = 'DELETE' OR NEW.file_key IS DISTINCT FROM OLD.file_key) THEN
+    INSERT INTO file_deletions (file_key) VALUES (OLD.file_key);
+  END IF;
+  RETURN NULL;
+END $$;
+CREATE TRIGGER documents_file_deletion AFTER DELETE OR UPDATE OF file_key ON documents FOR EACH ROW EXECUTE FUNCTION queue_file_deletion();
+CREATE TRIGGER library_sources_file_deletion AFTER DELETE OR UPDATE OF file_key ON library_sources FOR EACH ROW EXECUTE FUNCTION queue_file_deletion();
+CREATE TRIGGER signature_requests_file_deletion AFTER DELETE OR UPDATE OF file_key ON signature_requests FOR EACH ROW EXECUTE FUNCTION queue_file_deletion();
+CREATE TRIGGER blog_media_file_deletion AFTER DELETE OR UPDATE OF file_key ON blog_media FOR EACH ROW EXECUTE FUNCTION queue_file_deletion();
+`
   }
 ]
 
@@ -1934,6 +1963,16 @@ export async function migrate(db: Db): Promise<void> {
   })
 }
 
+// Splits on ";" at a line end, but not inside a $$ ... $$ function body.
 function splitStatements(sql: string): string[] {
-  return sql.split(/;\s*\n/).map((s) => s.trim()).filter(Boolean)
+  const out: string[] = []
+  let buf = ''
+  for (const [i, part] of sql.split('$$').entries()) {
+    if (i % 2) { buf += `$$${part}$$`; continue }
+    const pieces = part.split(/;\s*\n/)
+    buf += pieces[0]
+    for (const p of pieces.slice(1)) { out.push(buf); buf = p }
+  }
+  out.push(buf)
+  return out.map((s) => s.trim()).filter(Boolean)
 }

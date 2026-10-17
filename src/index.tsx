@@ -14,6 +14,7 @@ import { runWhatsAppReminders } from './services/whatsapp'
 import { runLibraryImports } from './services/library-import'
 import { runCalendarSync } from './services/google-calendar'
 import { createEmbeddingService, createRerankService, runEmbeddingBackfill } from './services/retrieval'
+import { createS3Store, sweepDeletedFiles } from './services/storage'
 
 async function main() {
   const config = loadConfig()
@@ -28,7 +29,10 @@ async function main() {
   const embeddings = createEmbeddingService(config, log)
   const reranker = createRerankService(config, log)
   log.info('law library retrieval', { mode: embeddings.configured ? 'hybrid' : 'bm25', embeddings: embeddings.configured ? embeddings.model : null, reranker: reranker.configured ? reranker.model : null })
+  const files = config.storage.s3 ? createS3Store(config.storage.s3) : null
+  log.info('file storage', { driver: config.storage.driver, bucket: config.storage.s3?.bucket ?? null })
   const app = createApp({
+    files,
     config,
     db,
     log,
@@ -58,6 +62,7 @@ async function main() {
     db.query(`DELETE FROM webhook_events WHERE created_at < now() - make_interval(days => $1)`, [days]).catch((err) => log.error('webhook audit sweep failed', { err }))
     db.query(`DELETE FROM processed_webhook_events WHERE created_at < now() - make_interval(days => $1)`, [days]).catch((err) => log.error('webhook key sweep failed', { err }))
     db.query(`DELETE FROM site_chats WHERE updated_at < now() - interval '90 days'`).catch((err) => log.error('site chat sweep failed', { err }))
+    sweepDeletedFiles(db, files).catch((err) => log.error('object store sweep failed', { err }))
   }, 60 * 60_000)
   sweeper.unref()
 

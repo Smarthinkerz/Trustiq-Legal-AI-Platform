@@ -1,3 +1,4 @@
+import { fileStore, readFile, storeFile } from '../services/storage'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { audit, auth, requireRole, type AppEnv, type Ctx } from '../context'
@@ -101,9 +102,10 @@ libraryRoutes.get('/sources/:id/file', async (c) => {
   const { org } = auth(c)
   const id = uuidParam(c.req.param('id'), 'Source')
   const row = await c.get('deps').db.one(
-    'SELECT file_name, mime_type, file_data FROM library_sources WHERE id = $1 AND (org_id = $2 OR org_id IS NULL) AND file_data IS NOT NULL', [id, org.id])
-  if (!row) throw notFound('Original file')
-  return new Response(Buffer.from(row.file_data), {
+    'SELECT file_name, mime_type, file_data, file_key FROM library_sources WHERE id = $1 AND (org_id = $2 OR org_id IS NULL) AND (file_data IS NOT NULL OR file_key IS NOT NULL)', [id, org.id])
+  const bytes = row && await readFile(fileStore(), { data: row.file_data, key: row.file_key })
+  if (!row || !bytes) throw notFound('Original file')
+  return new Response(Buffer.from(bytes), {
     headers: { 'content-type': row.mime_type, 'content-disposition': contentDisposition(row.file_name), 'x-content-type-options': 'nosniff', 'cache-control': 'private, no-store' }
   })
 })
@@ -162,12 +164,13 @@ libraryRoutes.post('/sources', async (c) => {
   text = text.slice(0, MAX_TEXT)
 
   const ownerOrg = m.scope === 'platform' ? null : org.id
+  const stored = await storeFile(fileStore(), 'library_sources', ownerOrg, fileInfo?.bytes ?? null, fileInfo?.mime ?? 'application/octet-stream')
   const result = await db.tx(async (q) => {
     const src = await q.one(
-      `INSERT INTO library_sources (org_id, jurisdiction, kind, title, number, year, status, language, source_url, notes, file_name, mime_type, file_data, created_by, effective_from, effective_to, version_label, ocr)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) RETURNING id`,
+      `INSERT INTO library_sources (org_id, jurisdiction, kind, title, number, year, status, language, source_url, notes, file_name, mime_type, file_data, created_by, effective_from, effective_to, version_label, ocr, file_key)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) RETURNING id`,
       [ownerOrg, m.jurisdiction, m.kind, m.title, m.number, m.year, m.status, m.language, m.source_url, m.notes,
-       fileInfo?.name ?? null, fileInfo?.mime ?? null, fileInfo ? Buffer.from(fileInfo.bytes) : null, user.id, m.effective_from, m.effective_to, m.version_label, ocr])
+       fileInfo?.name ?? null, fileInfo?.mime ?? null, stored.data, user.id, m.effective_from, m.effective_to, m.version_label, ocr, stored.key])
     const passages = await indexSource(q, src!.id, ownerOrg, text)
     return { id: src!.id as string, passages }
   })

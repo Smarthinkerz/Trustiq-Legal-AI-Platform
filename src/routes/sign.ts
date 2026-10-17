@@ -1,3 +1,4 @@
+import { fileStore, readFile, storeFile } from '../services/storage'
 import { Hono } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import { clientIp, type AppEnv, type Ctx, type Deps } from '../context'
@@ -76,13 +77,15 @@ export function signRoutes(deps: Deps, assetVersion: string) {
   app.get('/:token/file', async (c) => {
     const s = await signerByToken(db, c.req.param('token'))
     if (!s?.has_file || s.request_status === 'cancelled') return c.body(null, 404)
-    const row = await db.one('SELECT file_data, file_mime, file_name FROM signature_requests WHERE id = $1', [s.request_id])
+    const row = await db.one('SELECT file_data, file_key, file_mime, file_name FROM signature_requests WHERE id = $1', [s.request_id])
+    const bytes = await readFile(fileStore(), { data: row!.file_data, key: row!.file_key })
+    if (!bytes) return c.body(null, 404)
     // Shown inline only for PDFs; everything else downloads.
     const pdf = row!.file_mime === 'application/pdf'
     c.header('content-type', pdf ? 'application/pdf' : 'application/octet-stream')
     c.header('content-disposition', pdf ? `inline; filename*=UTF-8''${encodeURIComponent(row!.file_name ?? 'document.pdf')}` : contentDisposition(row!.file_name ?? 'document'))
     c.header('x-content-type-options', 'nosniff')
-    return c.body(new Uint8Array(row!.file_data))
+    return c.body(new Uint8Array(bytes))
   })
 
   app.get('/:token/signed-copy', async (c) => {

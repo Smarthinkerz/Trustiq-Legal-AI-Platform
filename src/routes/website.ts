@@ -1,3 +1,4 @@
+import { fileStore, storeFile } from '../services/storage'
 import { markUnverifiedLaw, publicReplyProblem, VERIFY_MARKER } from '../services/ai-guard'
 import { logAiUse } from '../services/ai-log'
 import { Hono } from 'hono'
@@ -233,9 +234,10 @@ websiteRoutes.post('/media', async (c) => {
   const postId = typeof form!.get('post_id') === 'string' && /^[0-9a-f-]{36}$/.test(String(form!.get('post_id'))) ? String(form!.get('post_id')) : null
   if (postId && !(await db.one('SELECT 1 FROM blog_posts WHERE id = $1 AND org_id = $2', [postId, org.id]))) throw badRequest('Post not found.')
   const alt = typeof form!.get('alt') === 'string' ? String(form!.get('alt')).trim().slice(0, 300) || null : null
+  const stored = await storeFile(fileStore(), 'blog_media', org.id, bytes, kind.mime)
   const media = await db.one(
-    `INSERT INTO blog_media (org_id, post_id, kind, mime, size, file_name, alt, data, created_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING ${MEDIA_COLUMNS}`,
-    [org.id, postId, kind.kind, kind.mime, bytes.length, file.name.slice(0, 200), alt, bytes, user.id])
+    `INSERT INTO blog_media (org_id, post_id, kind, mime, size, file_name, alt, data, created_by, file_key) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING ${MEDIA_COLUMNS}`,
+    [org.id, postId, kind.kind, kind.mime, bytes.length, file.name.slice(0, 200), alt, stored.data, user.id, stored.key])
   await audit(c, 'blog.media_uploaded', 'blog_media', media!.id, { kind: kind.kind, size: bytes.length })
   return c.json({ media }, 201)
 })
@@ -263,9 +265,10 @@ websiteRoutes.post('/media/generate', jsonBody(z.object({
   const img = await ai.generateImage({ prompt })
   if (!sniffMedia(img.bytes)) throw new HttpError(502, 'ai_bad_output', 'The image service returned an unreadable image. Please try again.')
   await recordAiUsage(db, org.id, user.id, 'cover_image', { model: img.model, promptTokens: 0, completionTokens: 0 })
+  const stored = await storeFile(fileStore(), 'blog_media', org.id, img.bytes, img.mime)
   const media = await db.one(
-    `INSERT INTO blog_media (org_id, post_id, kind, mime, size, file_name, alt, source, data, created_by) VALUES ($1, $2, 'image', $3, $4, $5, $6, 'ai', $7, $8) RETURNING ${MEDIA_COLUMNS}`,
-    [org.id, b.post_id, img.mime, img.bytes.length, 'ai-image.png', (b.title ?? b.prompt ?? '').slice(0, 300) || null, img.bytes, user.id])
+    `INSERT INTO blog_media (org_id, post_id, kind, mime, size, file_name, alt, source, data, created_by, file_key) VALUES ($1, $2, 'image', $3, $4, $5, $6, 'ai', $7, $8, $9) RETURNING ${MEDIA_COLUMNS}`,
+    [org.id, b.post_id, img.mime, img.bytes.length, 'ai-image.png', (b.title ?? b.prompt ?? '').slice(0, 300) || null, stored.data, user.id, stored.key])
   await audit(c, 'ai.blog_image', 'blog_media', media!.id, { model: img.model })
   return c.json({ media }, 201)
 })
