@@ -35,9 +35,11 @@ export async function evalContext(ai: AiService) {
   const newCase = async (extra: Record<string, unknown> = {}) =>
     (await c.post('/api/cases', { title: 'Unpaid invoices claim', client_id: client.id, jurisdiction: 'oman', opposing_party: 'Desert Rose Contracting LLC', court: 'Muscat Primary Court', ...extra })).data.case as { id: string }
   const kase = await newCase()
+  const arbitration = await newCase({ title: 'Supply dispute arbitration' })
+  await c.put(`/api/arbitration/case/${arbitration.id}`, { institution: 'ocac', our_side: 'claimant' })
   const doc = async (content: string, caseId = kase.id, title = 'Evaluation document') =>
     (await c.post('/api/documents', { title, content, case_id: caseId })).data.document.id as string
-  return { ...h, c, orgId, userId: me.user.id as string, clientId: client.id as string, caseId: kase.id, newCase, doc }
+  return { ...h, c, orgId, userId: me.user.id as string, clientId: client.id as string, caseId: kase.id, arbitrationCaseId: arbitration.id, newCase, doc }
 }
 
 export const outcome = (wrong: string[], missed: string[] = [], notes: string[] = []): Outcome => ({ pass: !wrong.length && !missed.length, wrong, missed, notes })
