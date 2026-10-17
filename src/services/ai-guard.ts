@@ -123,6 +123,21 @@ export function parseNumberText(text: string | null | undefined): number | null 
   return Number.isFinite(n) ? n : null
 }
 
+// OCR marks words it could not read with certainty as [[?best reading]]. Such text is never treated as
+// proof of a value, and the marks are listed for a person to check against the original.
+export const OCR_UNSURE = /\[\[\?([^\]]*)\]\]/g
+export type OcrReviewItem = { kind: 'unsure' | 'unreadable' | 'mixed_digits'; text: string; context: string; at: number }
+
+export function ocrReviewItems(text: string, max = 200): OcrReviewItem[] {
+  const items: OcrReviewItem[] = []
+  const ctx = (i: number, len: number) => text.slice(Math.max(0, i - 40), i + len + 40).replace(/\s+/g, ' ').trim()
+  for (const m of text.matchAll(OCR_UNSURE)) items.push({ kind: 'unsure', text: m[1]!.trim(), context: ctx(m.index!, m[0].length), at: m.index! })
+  for (const m of text.matchAll(/\[Pages? [^\]]* could not be read\]/g)) items.push({ kind: 'unreadable', text: m[0].slice(1, -1), context: m[0], at: m.index! })
+  // A number written with both Arabic-Indic and Latin digits is usually a misread.
+  for (const m of text.matchAll(/(?=[\d٠-٩]*[0-9])(?=[\d٠-٩]*[٠-٩])[\d٠-٩][\d٠-٩.,/\-]*[\d٠-٩]/g)) items.push({ kind: 'mixed_digits', text: m[0], context: ctx(m.index!, m[0].length), at: m.index! })
+  return items.sort((a, b) => a.at - b.at).slice(0, max)
+}
+
 export type FieldKind = 'date' | 'number' | 'integer' | 'text'
 export type GuardResult<T> = { fields: T; unverified: string[]; verified: string[]; corrected: string[] }
 
@@ -133,6 +148,8 @@ export function verifyFields<T extends Record<string, any>>(fields: T, evidence:
   const verified: string[] = []
   const corrected: string[] = []
   const ev = evidence && typeof evidence === 'object' ? evidence : {}
+  // Text the OCR was unsure of cannot prove anything.
+  source = source.replace(OCR_UNSURE, ' \u00a4 ')
   for (const [key, kind] of Object.entries(spec)) {
     const value = out[key]
     if (value === '' || value === null || value === undefined) continue
