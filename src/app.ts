@@ -72,6 +72,7 @@ import { buildIcs } from './services/jobs'
 import { landingPage } from './landing'
 import { platformBlogRoutes } from './routes/platform-blog'
 import { appShell } from './pages/app-shell'
+import { ADDIN_VERSION, addinManifest, addinTaskpane, OFFICE_FRAME_HOSTS, OFFICE_JS_HOST } from './pages/word-addin'
 import { legalPage } from './pages/legal'
 import { apiDocsPage } from './pages/api-docs'
 
@@ -105,6 +106,18 @@ export function createApp(deps: Deps) {
         ms: Math.round(performance.now() - started), user: c.get('user')?.id
       })
     }
+  })
+
+  // The Word add-in pane is shown inside Office (a frame on Office on the web) and loads Office.js
+  // from Microsoft. Registered before secureHeaders so its policy replaces the default one.
+  app.use('/addin/*', async (c, next) => {
+    await next()
+    c.res.headers.delete('X-Frame-Options')
+    c.res.headers.set('Content-Security-Policy', [
+      "default-src 'self'", `script-src 'self' ${OFFICE_JS_HOST}`, "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' data:", `connect-src 'self' ${OFFICE_JS_HOST}`, "object-src 'none'", "base-uri 'self'", "form-action 'self'",
+      `frame-ancestors 'self' ${OFFICE_FRAME_HOSTS.join(' ')}`
+    ].join('; '))
   })
 
   app.use(secureHeaders({
@@ -220,7 +233,8 @@ export function createApp(deps: Deps) {
   app.get('/api/v1/me', whoAmI)
   for (const [path, routes] of [
     ['/api/v1/clients', clientsRoutes], ['/api/v1/cases', casesRoutes], ['/api/v1/documents', documentsRoutes],
-    ['/api/v1/billing', billingRoutes], ['/api/v1/tasks', tasksRoutes], ['/api/v1/events', eventsRoutes]
+    ['/api/v1/billing', billingRoutes], ['/api/v1/tasks', tasksRoutes], ['/api/v1/events', eventsRoutes],
+    ['/api/v1/clauses', clauseRoutes]
   ] as const) {
     app.use(`${path}/*`, requireActiveSubscription)
     app.use(path, requireActiveSubscription)
@@ -295,6 +309,13 @@ export function createApp(deps: Deps) {
   app.route('/', platformBlogRoutes(deps, assetVersion))
   app.get('/app', html(appShell({ assetVersion })))
   app.get('/app/', (c) => c.redirect('/app'))
+  app.get('/addin/taskpane', html(addinTaskpane(assetVersion)))
+  app.get('/addin/manifest.xml', (c) => {
+    c.header('content-type', 'application/xml; charset=utf-8')
+    c.header('content-disposition', 'attachment; filename="trustiqlegal-word-addin.xml"')
+    c.header('cache-control', 'no-cache')
+    return c.body(addinManifest(config.appUrl, ADDIN_VERSION))
+  })
   app.get('/developers', html(apiDocsPage({ assetVersion, appUrl: config.appUrl })))
   app.get('/terms', html(legalPage('terms', { assetVersion, supportEmail: config.supportEmail })))
   app.get('/privacy', html(legalPage('privacy', { assetVersion, supportEmail: config.supportEmail })))

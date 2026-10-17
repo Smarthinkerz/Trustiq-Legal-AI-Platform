@@ -758,6 +758,7 @@ async function apiKeys(root, { isCurrent, rerender }) {
             <h2 class="font-semibold">${t('apikeys.title')}</h2>
             <p class="text-sm text-slate-500 mt-1">${t('apikeys.help')}</p>
             <a class="text-sm text-brand-600 hover:underline mt-1 inline-block" href="/developers" target="_blank" rel="noopener"><i class="fas fa-book"></i> ${t('apikeys.docs')}</a>
+            <a class="text-sm text-brand-600 hover:underline mt-1 inline-block ms-4" href="/developers#word" target="_blank" rel="noopener"><i class="fas fa-file-word"></i> ${t('apikeys.word')}</a>
           </div>
           ${readOnly() ? '' : html`<button class="btn btn-primary" data-action="create"><i class="fas fa-plus"></i>${t('apikeys.create')}</button>`}
         </div>

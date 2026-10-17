@@ -2004,6 +2004,7 @@ export default {
   'ocr.kind_unsure': 'غير مؤكد',
   'ocr.kind_unreadable': 'غير مقروء',
   'ocr.kind_mixed_digits': 'أرقام مختلطة',
+  'apikeys.word': 'الإضافة لبرنامج Microsoft Word',
   'docs.history': 'سجل الإصدارات',
   'docs.view': 'عرض',
   'docs.version': 'الإصدار',
