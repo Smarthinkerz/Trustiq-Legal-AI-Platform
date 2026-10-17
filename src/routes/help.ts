@@ -19,8 +19,8 @@ const chatSchema = z.object({
 export function helpRoutes(deps: Deps) {
   const { config, log, ai } = deps
   const app = new Hono<AppEnv>()
-  const perIp = new RateLimiter(20, 10 * 60_000)
-  const daily = new RateLimiter(3000, 24 * 3600_000)
+  const perIp = new RateLimiter(20, 10 * 60_000, 'help:ip')
+  const daily = new RateLimiter(3000, 24 * 3600_000, 'help:daily')
   const contact = { salesEmail: config.salesEmail, supportEmail: config.supportEmail, appUrl: config.appUrl }
   const knowledge = platformKnowledge(contact)
 

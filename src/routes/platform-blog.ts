@@ -16,7 +16,7 @@ const COLUMNS = 'slug, title, title_ar, excerpt, excerpt_ar, body, body_ar, publ
 export function platformBlogRoutes(deps: Deps, assetVersion: string) {
   const { db, config } = deps
   const app = new Hono<AppEnv>()
-  const views = new RateLimiter(300, 60_000)
+  const views = new RateLimiter(300, 60_000, 'blog:views')
 
   app.use('*', async (c, next) => {
     if (!views.take(clientIp(c)).ok) throw tooMany()

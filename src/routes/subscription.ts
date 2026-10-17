@@ -129,7 +129,7 @@ subscriptionRoutes.post('/ai-pack', jsonBody(z.object({
 export const tapPublicRoutes = new Hono<AppEnv>()
 
 // Per-IP limits come from deps; this caps all webhook traffic together.
-const globalWebhookLimiter = new RateLimiter(120, 60_000)
+const globalWebhookLimiter = new RateLimiter(120, 60_000, 'webhook:tap_global')
 
 // Tap sends the customer back here; the charge is re-fetched from Tap rather than trusting the query string.
 tapPublicRoutes.get('/billing/tap/return', async (c) => {

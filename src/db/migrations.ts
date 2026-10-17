@@ -1946,6 +1946,21 @@ CREATE TRIGGER library_sources_file_deletion AFTER DELETE OR UPDATE OF file_key 
 CREATE TRIGGER signature_requests_file_deletion AFTER DELETE OR UPDATE OF file_key ON signature_requests FOR EACH ROW EXECUTE FUNCTION queue_file_deletion();
 CREATE TRIGGER blog_media_file_deletion AFTER DELETE OR UPDATE OF file_key ON blog_media FOR EACH ROW EXECUTE FUNCTION queue_file_deletion();
 `
+  },
+  {
+    version: 53,
+    name: 'shared_rate_limits',
+    sql: `
+-- Rate-limit counts shared by several app instances (RATE_LIMIT_STORE=db). window_start is epoch ms.
+CREATE TABLE rate_limit_hits (
+  name TEXT NOT NULL,
+  key TEXT NOT NULL,
+  window_start BIGINT NOT NULL,
+  count INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (name, key, window_start)
+);
+CREATE INDEX rate_limit_hits_window_idx ON rate_limit_hits (window_start);
+`
   }
 ]
 

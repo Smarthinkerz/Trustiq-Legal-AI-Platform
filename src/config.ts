@@ -56,6 +56,10 @@ const envSchema = z.object({
   MAX_UPLOAD_MB: z.coerce.number().positive().default(15),
   // Where uploaded files are kept: "db" (PostgreSQL, the default) or "s3" (any S3-compatible object store).
   STORAGE_DRIVER: z.enum(['db', 's3']).default('db'),
+  // "db" shares rate-limit counts between several app instances through PostgreSQL.
+  RATE_LIMIT_STORE: z.enum(['memory', 'db']).default('memory'),
+  // "false" on extra web-only instances: background jobs (reminders, imports, sync, cleanup) then run elsewhere.
+  RUN_WORKERS: z.enum(['true', 'false']).default('true'),
   S3_ENDPOINT: z.string().url().optional(),
   S3_BUCKET: z.string().optional(),
   S3_REGION: z.string().default('us-east-1'),
@@ -109,6 +113,8 @@ export type Config = {
   platformBlogSlug?: string
   trustProxy: boolean
   maxUploadBytes: number
+  rateLimitStore: 'memory' | 'db'
+  runWorkers: boolean
   storage: { driver: 'db' | 's3'; s3?: { endpoint: string; bucket: string; region: string; accessKeyId: string; secretAccessKey: string; prefix: string } }
   maxVideoBytes: number
   tap: { secretKey?: string; webhookSecret?: string; apiUrl: string; toleranceMs: number; auditRetentionDays: number }
@@ -161,6 +167,8 @@ export function loadConfig(source: Record<string, string | undefined> = process.
     trustProxy: e.TRUST_PROXY ? e.TRUST_PROXY === 'true' : isProduction,
     maxUploadBytes: Math.round(e.MAX_UPLOAD_MB * 1024 * 1024),
     storage: storageConfig(e),
+    rateLimitStore: e.RATE_LIMIT_STORE,
+    runWorkers: e.RUN_WORKERS === 'true',
     maxVideoBytes: Math.round(e.MAX_VIDEO_MB * 1024 * 1024),
     tap: {
       secretKey: e.TAP_SECRET_KEY || undefined,

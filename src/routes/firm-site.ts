@@ -24,11 +24,11 @@ export function firmSiteRoutes(deps: Deps, assetVersion: string) {
   const { db, config, log } = deps
   const app = new Hono<AppEnv>()
   const limits = {
-    contactIp: new RateLimiter(5, 10 * 60_000),
-    contactSite: new RateLimiter(200, 24 * 3600_000),
-    chatIp: new RateLimiter(30, 10 * 60_000),
-    chatSite: new RateLimiter(500, 24 * 3600_000),
-    pages: new RateLimiter(300, 60_000)
+    contactIp: new RateLimiter(5, 10 * 60_000, 'site:contact_ip'),
+    contactSite: new RateLimiter(200, 24 * 3600_000, 'site:contact_site'),
+    chatIp: new RateLimiter(30, 10 * 60_000, 'site:chat_ip'),
+    chatSite: new RateLimiter(500, 24 * 3600_000, 'site:chat_site'),
+    pages: new RateLimiter(300, 60_000, 'site:pages')
   }
 
   const loadSite = async (slug: string): Promise<SiteRow | undefined> => {

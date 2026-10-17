@@ -131,6 +131,8 @@ AI evaluation sets (`evals/`): 709 generated cases across 13 AI features (judgme
 
 File storage: by default uploaded files (documents, law PDFs, files sent for signature, blog media) are stored in PostgreSQL. Set `STORAGE_DRIVER=s3` with `S3_ENDPOINT`, `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY` to keep new files in any S3-compatible object store instead (requests are signed with AWS Signature Version 4; path-style URLs work with Oracle Cloud, MinIO, Ceph and AWS). Rows keep only the object key; rows written before the switch are still read from the database. `npx tsx scripts/move-files.ts to-store` moves existing files out of the database (and `to-db` brings them back); take a backup first. When a row is deleted, a database trigger queues its object and the hourly sweeper deletes it.
 
+Several instances: rate limits are counted in memory per instance by default. Set `RATE_LIMIT_STORE=db` on every instance to share counts through PostgreSQL (each instance syncs every 2 seconds, so a limit can be exceeded by at most one sync interval of traffic). Background jobs claim their work in the database and are safe on several instances; set `RUN_WORKERS=false` on instances that should only serve requests.
+
 `JWT_SECRET` is no longer used. Sessions are random tokens stored hashed in the database, so they can be revoked.
 
 ## Deployment (Railway)
@@ -142,7 +144,7 @@ File storage: by default uploaded files (documents, law PDFs, files sent for sig
 
 A `Dockerfile` is included for other hosts. Health endpoints: `/health` (liveness) and `/ready` (database check).
 
-Rate limiting is in-memory and per instance. Run one instance, or move the limiter to Redis before scaling out horizontally.
+To run several instances behind a load balancer, set `RATE_LIMIT_STORE=db` on all of them (see Configuration), and `STORAGE_DRIVER=s3` so files do not grow the database.
 
 ## Operations
 
@@ -150,7 +152,7 @@ Rate limiting is in-memory and per instance. Run one instance, or move the limit
 - **Expired trials and subscriptions** are read-only; users can still view and export data, and can renew. Owners and admins get a renewal email 5 days before expiry.
 - **Background jobs** (in-process, safe with several instances): daily digest emails after 08:00 Gulf time, renewal reminders, and pruning of expired sessions, tokens and webhook audit rows.
 - **Law library**: platform admins (`PLATFORM_ADMIN_EMAILS`) can publish laws to the shared library that every firm sees; firms can add their own private sources.
-- **Backups**: enable automated backups and point-in-time recovery on the Postgres provider. Uploaded files are stored in the database, so database backups cover them.
+- **Backups**: enable automated backups and point-in-time recovery on the Postgres provider. With the default `STORAGE_DRIVER=db`, uploaded files are in the database, so database backups cover them; with `STORAGE_DRIVER=s3`, also turn on versioning and replication for the bucket.
 - **Logs** are structured JSON, one line per request, with request IDs that are also shown to users on server errors.
 - **Audit log**: sign-ins, record changes, downloads, exports and AI usage are recorded per organization.
 

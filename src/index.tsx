@@ -4,7 +4,7 @@ import { loadConfig } from './config'
 import { createDb } from './db'
 import { createLogger } from './lib/logger'
 import { createMailer } from './lib/mailer'
-import { RateLimiter } from './lib/rate-limit'
+import { RateLimiter, shareRateLimits } from './lib/rate-limit'
 import { createAiService } from './services/ai'
 import { runFairUseAlerts } from './services/fair-use'
 import { runPriceNotices } from './services/price-lock'
@@ -42,11 +42,11 @@ async function main() {
     reranker,
     tap: createTapClient(config, log),
     limiters: {
-      auth: new RateLimiter(20, 15 * 60_000),
-      api: new RateLimiter(600, 60_000),
-      ai: new RateLimiter(20, 60_000),
-      webhook: new RateLimiter(30, 60_000),
-      apiKey: new RateLimiter(120, 60_000)
+      auth: new RateLimiter(20, 15 * 60_000, 'auth'),
+      api: new RateLimiter(600, 60_000, 'api'),
+      ai: new RateLimiter(20, 60_000, 'ai'),
+      webhook: new RateLimiter(30, 60_000, 'webhook'),
+      apiKey: new RateLimiter(120, 60_000, 'apiKey')
     }
   })
 
@@ -55,7 +55,16 @@ async function main() {
   })
 
   // Periodic cleanup of expired sessions and tokens.
+  // Several instances share rate-limit counts through the database.
+  const stopSharing = config.rateLimitStore === 'db' ? shareRateLimits(db, (err) => log.warn('rate limit sync failed', { err })) : () => {}
+  log.info('rate limits', { store: config.rateLimitStore })
+
+  // Background jobs. Each claims its work in the database, so several instances may run them; set
+  // RUN_WORKERS=false on instances that should only serve requests.
+  const every = (ms: number, fn: () => void) => { const t = setInterval(() => { if (config.runWorkers) fn() }, ms); t.unref(); return t }
+  log.info('background workers', { enabled: config.runWorkers })
   const sweeper = setInterval(() => {
+    if (!config.runWorkers) return
     db.query('DELETE FROM sessions WHERE expires_at < now()').catch((err) => log.error('session sweep failed', { err }))
     db.query(`DELETE FROM auth_tokens WHERE expires_at < now() - interval '30 days'`).catch((err) => log.error('token sweep failed', { err }))
     const days = config.tap.auditRetentionDays
@@ -67,47 +76,43 @@ async function main() {
   sweeper.unref()
 
   // Daily digest and renewal reminders (safe with several instances: users are claimed atomically).
-  const jobs = setInterval(() => {
+  const jobs = every(15 * 60_000, () => {
     runDailyDigest(db, mailer, config, log).catch((err) => log.error('daily digest failed', { err }))
     runRenewalReminders(db, mailer, config, log).catch((err) => log.error('renewal reminders failed', { err }))
     runWhatsAppReminders({ db, config, log }).catch((err) => log.error('whatsapp reminders failed', { err }))
     runFairUseAlerts(db, mailer, config, log).catch((err) => log.error('fair use alerts failed', { err }))
     runPriceNotices(db, mailer, config, log).catch((err) => log.error('price notices failed', { err }))
-  }, 15 * 60_000)
-  jobs.unref()
+  })
 
   // Law-library imports run in the background, one document at a time.
   let importing = false
-  const importer = setInterval(() => {
+  const importer = every(5_000, () => {
     if (importing) return
     importing = true
     runLibraryImports({ db, config, ai, log }, { max: 20 })
       .catch((err) => log.error('library import worker failed', { err }))
       .finally(() => { importing = false })
-  }, 5_000)
-  importer.unref()
+  })
 
   // Embeds new law-library passages for hybrid retrieval.
   let embedding = false
-  const embedder = setInterval(() => {
+  const embedder = every(30_000, () => {
     if (embedding || !embeddings.configured) return
     embedding = true
     runEmbeddingBackfill({ db, log, embeddings }, { max: 512 })
       .catch((err) => log.error('embedding backfill failed', { err }))
       .finally(() => { embedding = false })
-  }, 30_000)
-  embedder.unref()
+  })
 
   // Google Calendar sync: pushes firm calendar changes to connected users' Google calendars.
   let syncing = false
-  const calendarSync = setInterval(() => {
+  const calendarSync = every(60_000, () => {
     if (syncing || !config.google) return
     syncing = true
     runCalendarSync({ db, config, log })
       .catch((err) => log.error('calendar sync worker failed', { err }))
       .finally(() => { syncing = false })
-  }, 60_000)
-  calendarSync.unref()
+  })
   if (config.google) {
     // The client ID is public (it appears in every Google sign-in URL); logging it helps match it with Google Cloud Console.
     log.info('Google Calendar sync enabled', { clientId: config.google.clientId, redirectUri: `${config.appUrl}/api/integrations/google/callback` })
@@ -119,6 +124,7 @@ async function main() {
   const shutdown = (signal: string) => {
     log.info('shutting down', { signal })
     clearInterval(sweeper)
+    stopSharing()
     clearInterval(jobs)
     clearInterval(importer)
     clearInterval(calendarSync)

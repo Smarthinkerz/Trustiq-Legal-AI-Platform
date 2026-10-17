@@ -16,8 +16,8 @@ import { signedCopy, storeSignedDocument } from './signatures'
 export function signRoutes(deps: Deps, assetVersion: string) {
   const { db, config, mailer, log } = deps
   const app = new Hono<AppEnv>()
-  const views = new RateLimiter(120, 10 * 60_000)
-  const posts = new RateLimiter(20, 10 * 60_000)
+  const views = new RateLimiter(120, 10 * 60_000, 'sign:views')
+  const posts = new RateLimiter(20, 10 * 60_000, 'sign:posts')
 
   app.use('*', async (c, next) => {
     const r = (c.req.method === 'POST' ? posts : views).take(clientIp(c))
