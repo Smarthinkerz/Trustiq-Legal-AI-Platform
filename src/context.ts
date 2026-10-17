@@ -1,3 +1,4 @@
+import type { FileStore } from './services/storage'
 import type { Context } from 'hono'
 import { getConnInfo } from '@hono/node-server/conninfo'
 import type { Config } from './config'
@@ -70,6 +71,8 @@ export type Deps = {
   // Overridable in tests; used for Google OAuth and Calendar API calls.
   googleFetch?: typeof fetch
   limiters: { auth: RateLimiter; api: RateLimiter; ai: RateLimiter; webhook: RateLimiter; apiKey: RateLimiter }
+  // Object store for uploaded files when STORAGE_DRIVER=s3; null keeps files in the database.
+  files?: FileStore | null
 }
 
 export type AppEnv = {

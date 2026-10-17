@@ -1,3 +1,4 @@
+import { fileStore, readFile } from './storage'
 import type { Ctx } from '../context'
 import type { Queryable } from '../db'
 
@@ -69,7 +70,7 @@ export function coverPrompt(p: { title?: string | null; excerpt?: string | null;
 
 // Streams a media item, honouring HTTP Range requests so videos can seek.
 export async function serveMedia(c: Ctx, db: Queryable, where: { id: string; orgId: string }, cache: string) {
-  const [meta] = await db.query('SELECT mime, size FROM blog_media WHERE id = $1 AND org_id = $2', [where.id, where.orgId])
+  const [meta] = await db.query('SELECT mime, size, file_key FROM blog_media WHERE id = $1 AND org_id = $2', [where.id, where.orgId])
   if (!meta) return c.body(null, 404)
   const size = Number(meta.size)
   const range = c.req.header('range')?.match(/^bytes=(\d*)-(\d*)$/)
@@ -86,11 +87,16 @@ export async function serveMedia(c: Ctx, db: Queryable, where: { id: string; org
     }
     // At most 4 MB per response; players ask for the rest.
     end = Math.min(end, start + 4 * 1024 * 1024 - 1)
+    c.header('content-range', `bytes ${start}-${end}/${size}`)
+    if (meta.file_key) {
+      const all = await readFile(fileStore(), { key: meta.file_key })
+      return all ? c.body(all.slice(start, end + 1), 206) : c.body(null, 404)
+    }
     const [row] = await db.query('SELECT substring(data FROM $3 FOR $4) AS part FROM blog_media WHERE id = $1 AND org_id = $2',
       [where.id, where.orgId, start + 1, end - start + 1])
-    c.header('content-range', `bytes ${start}-${end}/${size}`)
     return c.body(new Uint8Array(row.part), 206)
   }
-  const [row] = await db.query('SELECT data FROM blog_media WHERE id = $1 AND org_id = $2', [where.id, where.orgId])
-  return c.body(new Uint8Array(row.data))
+  const [row] = await db.query('SELECT data, file_key FROM blog_media WHERE id = $1 AND org_id = $2', [where.id, where.orgId])
+  const bytes = await readFile(fileStore(), { data: row.data, key: row.file_key })
+  return bytes ? c.body(new Uint8Array(bytes)) : c.body(null, 404)
 }

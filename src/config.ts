@@ -54,6 +54,19 @@ const envSchema = z.object({
   // Set when running behind a proxy (Railway, Render, Nginx) so client IPs come from X-Forwarded-For.
   TRUST_PROXY: z.enum(['true', 'false']).optional(),
   MAX_UPLOAD_MB: z.coerce.number().positive().default(15),
+  // Where uploaded files are kept: "db" (PostgreSQL, the default) or "s3" (any S3-compatible object store).
+  STORAGE_DRIVER: z.enum(['db', 's3']).default('db'),
+  // "db" shares rate-limit counts between several app instances through PostgreSQL.
+  RATE_LIMIT_STORE: z.enum(['memory', 'db']).default('memory'),
+  // "false" on extra web-only instances: background jobs (reminders, imports, sync, cleanup) then run elsewhere.
+  RUN_WORKERS: z.enum(['true', 'false']).default('true'),
+  S3_ENDPOINT: z.string().url().optional(),
+  S3_BUCKET: z.string().optional(),
+  S3_REGION: z.string().default('us-east-1'),
+  S3_ACCESS_KEY_ID: z.string().optional(),
+  S3_SECRET_ACCESS_KEY: z.string().optional(),
+  // Optional key prefix, e.g. "trustiq/" when the bucket is shared.
+  S3_PREFIX: z.string().default(''),
   // Largest video a firm can upload into a blog article (stored in the database).
   MAX_VIDEO_MB: z.coerce.number().positive().default(50),
   // Tap Payments (https://api.tap.company). Enables self-serve plan checkout when TAP_SECRET_KEY is set.
@@ -100,6 +113,9 @@ export type Config = {
   platformBlogSlug?: string
   trustProxy: boolean
   maxUploadBytes: number
+  rateLimitStore: 'memory' | 'db'
+  runWorkers: boolean
+  storage: { driver: 'db' | 's3'; s3?: { endpoint: string; bucket: string; region: string; accessKeyId: string; secretAccessKey: string; prefix: string } }
   maxVideoBytes: number
   tap: { secretKey?: string; webhookSecret?: string; apiUrl: string; toleranceMs: number; auditRetentionDays: number }
   hub: { partnerSecret?: string; teamCheckoutUrl?: string }
@@ -150,6 +166,9 @@ export function loadConfig(source: Record<string, string | undefined> = process.
     platformAdminEmails: e.PLATFORM_ADMIN_EMAILS.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
     trustProxy: e.TRUST_PROXY ? e.TRUST_PROXY === 'true' : isProduction,
     maxUploadBytes: Math.round(e.MAX_UPLOAD_MB * 1024 * 1024),
+    storage: storageConfig(e),
+    rateLimitStore: e.RATE_LIMIT_STORE,
+    runWorkers: e.RUN_WORKERS === 'true',
     maxVideoBytes: Math.round(e.MAX_VIDEO_MB * 1024 * 1024),
     tap: {
       secretKey: e.TAP_SECRET_KEY || undefined,
@@ -205,4 +224,11 @@ export function blogSlug(raw?: string): string | undefined {
   const parts = cleaned.split(/[?#]/)[0].split('/').map((p) => p.trim()).filter(Boolean)
   const f = parts.lastIndexOf('f')
   return (f >= 0 && parts[f + 1] ? parts[f + 1] : parts.at(-1)) || undefined
+}
+
+function storageConfig(e: { STORAGE_DRIVER: 'db' | 's3'; S3_ENDPOINT?: string; S3_BUCKET?: string; S3_REGION: string; S3_ACCESS_KEY_ID?: string; S3_SECRET_ACCESS_KEY?: string; S3_PREFIX: string }): Config['storage'] {
+  if (e.STORAGE_DRIVER === 'db') return { driver: 'db' }
+  const missing = (['S3_ENDPOINT', 'S3_BUCKET', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY'] as const).filter((k) => !e[k])
+  if (missing.length) throw new Error(`STORAGE_DRIVER=s3 needs ${missing.join(', ')}`)
+  return { driver: 's3', s3: { endpoint: e.S3_ENDPOINT!, bucket: e.S3_BUCKET!, region: e.S3_REGION, accessKeyId: e.S3_ACCESS_KEY_ID!, secretAccessKey: e.S3_SECRET_ACCESS_KEY!, prefix: e.S3_PREFIX } }
 }

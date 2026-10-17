@@ -55,7 +55,7 @@ export async function signerByToken(db: Queryable, token: string): Promise<Signe
   const [row] = await db.query<SignerContext>(
     `SELECT s.id AS signer_id, r.id AS request_id, r.org_id, s.name, s.email, s.status AS signer_status, s.signed_at,
             r.status AS request_status, r.expires_at, r.title, r.message, r.language, r.content, r.content_hash,
-            r.file_name, r.file_mime, (r.file_data IS NOT NULL) AS has_file, r.file_hash, r.created_at, r.completed_at,
+            r.file_name, r.file_mime, (r.file_data IS NOT NULL OR r.file_key IS NOT NULL) AS has_file, r.file_hash, r.created_at, r.completed_at,
             coalesce(nullif(b.firm_name, ''), o.name) AS firm_name, b.firm_name_ar, b.primary_color
        FROM signature_tokens t JOIN signature_signers s ON s.id = t.signer_id JOIN signature_requests r ON r.id = s.request_id
        JOIN organizations o ON o.id = r.org_id LEFT JOIN branding b ON b.org_id = r.org_id

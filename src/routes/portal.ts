@@ -1,3 +1,4 @@
+import { fileStore, readFile, storeFile } from '../services/storage'
 import { balances } from '../services/funds'
 import { Hono } from 'hono'
 import { z } from 'zod'
@@ -96,7 +97,7 @@ portalRoutes.get('/cases/:id', async (c) => {
 async function portalDocument(c: Ctx, id: string) {
   const { org, clientId } = portalUser(c)
   const doc = await c.get('deps').db.one(
-    `SELECT id, title, content, language, file_name, mime_type, file_data FROM documents
+    `SELECT id, title, content, language, file_name, mime_type, file_data, file_key FROM documents
       WHERE id = $1 AND org_id = $2 AND client_id = $3 AND (shared_with_client OR uploaded_by_client)`, [id, org.id, clientId])
   if (!doc) throw notFound('Document')
   return doc
@@ -105,8 +106,9 @@ async function portalDocument(c: Ctx, id: string) {
 portalRoutes.get('/documents/:id/download', async (c) => {
   const doc = await portalDocument(c, uuidParam(c.req.param('id'), 'Document'))
   await audit(c, 'portal.document_downloaded', 'document', doc.id)
-  if (doc.file_data) {
-    return new Response(Buffer.from(doc.file_data), {
+  const bytes = await readFile(fileStore(), { data: doc.file_data, key: doc.file_key })
+  if (bytes) {
+    return new Response(Buffer.from(bytes), {
       headers: { 'content-type': doc.mime_type, 'content-disposition': contentDisposition(doc.file_name), 'x-content-type-options': 'nosniff', 'cache-control': 'private, no-store' }
     })
   }

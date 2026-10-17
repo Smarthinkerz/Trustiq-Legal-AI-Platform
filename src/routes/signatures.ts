@@ -1,3 +1,4 @@
+import { fileStore, readFile, storeFile } from '../services/storage'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { audit, auth, requireRole, type AppEnv, type Ctx } from '../context'
@@ -66,20 +67,22 @@ signaturesRoutes.post('/', jsonBody(z.object({
   const { user, org } = auth(c)
   const b = c.req.valid('json')
   const { db, mailer, config, log } = c.get('deps')
-  const doc = await db.one('SELECT id, title, content, language, case_id, client_id, file_name, mime_type, file_data FROM documents WHERE id = $1 AND org_id = $2', [b.document_id, org.id])
+  const doc = await db.one('SELECT id, title, content, language, case_id, client_id, file_name, mime_type, file_data, file_key FROM documents WHERE id = $1 AND org_id = $2', [b.document_id, org.id])
   if (!doc) throw notFound('Document')
-  if (!doc.content?.trim() && !doc.file_data) throw badRequest('The document is empty.')
+  const fileData = await readFile(fileStore(), { data: doc.file_data, key: doc.file_key })
+  if (!doc.content?.trim() && !fileData) throw badRequest('The document is empty.')
   for (const s of b.signers) {
     if (s.client_id && !(await db.one('SELECT 1 FROM clients WHERE id = $1 AND org_id = $2', [s.client_id, org.id]))) throw badRequest('Selected client does not exist.')
   }
-  const fileData: Uint8Array | null = doc.file_data ?? null
+  // The frozen copy being signed is stored separately from the document, which can still change.
+  const stored = await storeFile(fileStore(), 'signature_requests', org.id, fileData, doc.mime_type ?? 'application/octet-stream')
   const expiresAt = new Date(Date.now() + b.expires_in_days * 86_400_000)
   const created = await db.tx(async (q) => {
     const r = await q.one(
-      `INSERT INTO signature_requests (org_id, document_id, case_id, client_id, title, message, language, content, content_hash, file_name, file_mime, file_data, file_hash, expires_at, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING id`,
+      `INSERT INTO signature_requests (org_id, document_id, case_id, client_id, title, message, language, content, content_hash, file_name, file_mime, file_data, file_hash, expires_at, created_by, file_key)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING id`,
       [org.id, doc.id, doc.case_id, doc.client_id, doc.title, b.message, doc.language, doc.content ?? '', sha256(doc.content ?? ''),
-       fileData ? doc.file_name : null, fileData ? doc.mime_type : null, fileData, fileData ? sha256(fileData) : null, expiresAt, user.id])
+       fileData ? doc.file_name : null, fileData ? doc.mime_type : null, stored.data, fileData ? sha256(fileData) : null, expiresAt, user.id, stored.key])
     await logSignatureEvent(q, r!.id, null, 'created', { detail: `by ${user.name}`, ip: null })
     const signers = []
     for (const [i, s] of b.signers.entries()) {
@@ -154,8 +157,9 @@ export async function signedCopy(db: Db, orgId: string, requestId: string, forma
     contentHash: r.content_hash, fileName: r.file_name, fileHash: r.file_hash, completedAt: r.completed_at, signers: signers as any, events: events as any
   }
   const suffix = r.status === 'completed' ? 'signed' : r.status
-  if (format !== 'docx' && r.file_data && r.file_mime === 'application/pdf') {
-    const pdf = await renderSignedPdf(new Uint8Array(r.file_data), { ...copy, reference: String(r.id).slice(0, 8).toUpperCase() })
+  const original = format !== 'docx' && r.file_mime === 'application/pdf' ? await readFile(fileStore(), { data: r.file_data, key: r.file_key }) : null
+  if (original) {
+    const pdf = await renderSignedPdf(original, { ...copy, reference: String(r.id).slice(0, 8).toUpperCase() })
     if (pdf) return { buf: Buffer.from(pdf), name: safeFileName(`${r.title} – ${suffix}`, 'pdf'), mime: 'application/pdf' }
   }
   const buf = await renderSignedDocx(copy)

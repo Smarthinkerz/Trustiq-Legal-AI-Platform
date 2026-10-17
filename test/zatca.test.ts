@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+import { FIRST_PIH } from '../src/services/zatca-ubl'
 import { unzipSync } from 'fflate'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { isSaudiVatNumber, parseZatcaTlv, zatcaTlv } from '../src/services/zatca'
@@ -64,6 +66,46 @@ describe('Saudi tax invoices', () => {
     const xml2 = new TextDecoder().decode(unzipSync(new Uint8Array(await (await download(b2b)).arrayBuffer()))['word/document.xml'])
     expect(xml2).not.toContain('Simplified')
     expect(xml2).toContain('300000000000003')
+  })
+
+  it('chains issued Saudi invoices (counter, previous hash) and exports UBL 2.1 XML', async () => {
+    const { c } = await registered(ctx.app)
+    await c.patch('/api/org', { default_jurisdiction: 'ksa', default_currency: 'SAR' })
+    await c.put('/api/billing/settings', { vat_rate: null, payment_terms_days: 30, vat_number: '310122393500003' })
+    const cl = await c.post('/api/clients', { name: 'Gulf Trading Co', kind: 'company', vat_number: '300000000000003', address: 'King Fahd Road, Riyadh' })
+    const issue = async () => {
+      const inv = await c.post('/api/billing/invoices', { client_id: cl.data.client.id, fixed_lines: [{ description: 'Legal services', unit_price: 1000 }] })
+      await c.post(`/api/billing/invoices/${inv.data.invoice.id}/issue`)
+      return inv.data.invoice.id as string
+    }
+    const first = await issue()
+    // Seller address and CR are not set yet: the status lists what is missing.
+    const status1 = await c.get(`/api/billing/invoices/${first}/zatca`)
+    expect(status1.data).toMatchObject({ applies: true, chained: true, icv: 1, stamped: false, standard: true })
+    expect(status1.data.missing).toEqual(expect.arrayContaining(['seller_cr_number', 'seller_building_number', 'seller_postal_code']))
+
+    await c.put('/api/billing/settings', { vat_rate: null, payment_terms_days: 30, vat_number: '310122393500003', cr_number: '1010010000',
+      address_street: 'Olaya Street', address_building: '1234', address_district: 'Al Olaya', address_city: 'Riyadh', address_postal_code: '12211' })
+    const second = await issue()
+    const status2 = await c.get(`/api/billing/invoices/${second}/zatca`)
+    expect(status2.data).toMatchObject({ icv: 2, missing: [] })
+
+    const xml = await ctx.app.request(`/api/billing/invoices/${second}/zatca.xml`, { headers: { cookie: c.cookie } })
+    expect(xml.status).toBe(200)
+    const text = await xml.text()
+    expect(text).toContain('<cbc:ProfileID>reporting:1.0</cbc:ProfileID>')
+    expect(text).toContain('<cbc:InvoiceTypeCode name="0100000">388</cbc:InvoiceTypeCode>')
+    expect(text).toContain('<cbc:CompanyID>310122393500003</cbc:CompanyID>')
+    expect(text).toContain('<cbc:ID schemeID="CRN">1010010000</cbc:ID>')
+    expect(text).toContain('<cbc:TaxInclusiveAmount currencyID="SAR">1150.00</cbc:TaxInclusiveAmount>')
+    // The second invoice points at the first invoice's hash; the first at the ZATCA starting value.
+    const [a, b] = await ctx.db.query<any>('SELECT zatca_icv, zatca_pih, zatca_hash FROM invoices WHERE id = ANY($1) ORDER BY zatca_icv', [[first, second]])
+    expect(a.zatca_pih).toBe(FIRST_PIH)
+    expect(b.zatca_pih).toBe(a.zatca_hash)
+    expect(text).toContain(`<cbc:EmbeddedDocumentBinaryObject mimeCode="text/plain">${b.zatca_pih}</cbc:EmbeddedDocumentBinaryObject>`)
+    // The stored hash is the hash of the exported invoice without its QR reference.
+    const withoutQr = text.replace(/^<\?xml[^>]*>\n/, '').replace(/<cac:AdditionalDocumentReference><cbc:ID>QR<\/cbc:ID>.*?<\/cac:AdditionalDocumentReference>/, '')
+    expect(createHash('sha256').update(withoutQr).digest('base64')).toBe(b.zatca_hash)
   })
 
   it('does not add a QR code outside Saudi Arabia', async () => {

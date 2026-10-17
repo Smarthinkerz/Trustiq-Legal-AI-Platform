@@ -45,7 +45,8 @@ export type OrgBilling = {
 
 export async function orgBilling(q: Queryable, orgId: string): Promise<OrgBilling> {
   const [o] = await q.query(
-    `SELECT default_jurisdiction, default_currency, vat_number, vat_rate, payment_terms_days, bank_details, invoice_footer, default_hourly_rate
+    `SELECT default_jurisdiction, default_currency, vat_number, vat_rate, payment_terms_days, bank_details, invoice_footer, default_hourly_rate,
+            cr_number, address_street, address_building, address_district, address_city, address_postal_code
        FROM organizations WHERE id = $1`, [orgId])
   return {
     ...(o as Omit<OrgBilling, 'effective_vat_rate'>),

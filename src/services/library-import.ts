@@ -1,3 +1,4 @@
+import { fileStore, storeFile } from './storage'
 import { X509Certificate } from 'node:crypto'
 import { lookup } from 'node:dns/promises'
 import tls from 'node:tls'
@@ -534,14 +535,16 @@ async function processImport(deps: ImportDeps, row: ImportRow): Promise<{ status
   if (text.replace(/\s/g, '').length < 100) throw new ImportError('No law text was found at this link. Try the link to the law itself or its PDF.')
   title = (title || new URL(row.url).pathname.split('/').filter(Boolean).pop() || 'Imported law').replace(/\s+/g, ' ').trim().slice(0, 400)
   const meta = guessMeta(title, text)
+  const original = file as { name: string; mime: string; bytes: Uint8Array } | null
+  const stored = await storeFile(fileStore(), 'library_sources', ownerOrg, original?.bytes ?? null, original?.mime ?? 'application/octet-stream')
   const sourceId = await db.tx(async (q) => {
     if (replaces) await q.query('DELETE FROM library_sources WHERE id = $1', [replaces])
     const src = await q.one(
-      `INSERT INTO library_sources (org_id, jurisdiction, kind, title, number, year, status, language, source_url, notes, file_name, mime_type, file_data, created_by, ocr)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING id`,
+      `INSERT INTO library_sources (org_id, jurisdiction, kind, title, number, year, status, language, source_url, notes, file_name, mime_type, file_data, created_by, ocr, file_key)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING id`,
       [ownerOrg, row.jurisdiction, row.kind || meta.kind, title, meta.number, meta.year, row.status_hint || 'in_force', row.language || meta.language,
        row.url, importNote(row.url, ocr),
-       file?.name ?? null, file?.mime ?? null, file ? Buffer.from(file.bytes) : null, row.created_by, ocr])
+       file?.name ?? null, file?.mime ?? null, stored.data, row.created_by, ocr, stored.key])
     await indexSource(q, src!.id, ownerOrg, text)
     return src!.id as string
   })

@@ -18,8 +18,8 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 export function payRoutes(deps: Deps, assetVersion: string) {
   const { db, config, log } = deps
   const app = new Hono<AppEnv>()
-  const views = new RateLimiter(120, 10 * 60_000)
-  const posts = new RateLimiter(15, 10 * 60_000)
+  const views = new RateLimiter(120, 10 * 60_000, 'pay:views')
+  const posts = new RateLimiter(15, 10 * 60_000, 'pay:posts')
 
   app.use('*', async (c, next) => {
     const r = (c.req.method === 'POST' ? posts : views).take(clientIp(c))
@@ -129,7 +129,7 @@ export function payRoutes(deps: Deps, assetVersion: string) {
 export function invoiceWebhookRoutes(deps: Deps) {
   const { db, log, config } = deps
   const app = new Hono<AppEnv>()
-  const global = new RateLimiter(120, 60_000)
+  const global = new RateLimiter(120, 60_000, 'pay:webhook_global')
   app.post('/webhooks/tap/invoices', async (c) => {
     if (!deps.limiters.webhook.take(`inv:${clientIp(c)}`).ok || !global.take('global').ok) {
       c.header('Retry-After', '60')

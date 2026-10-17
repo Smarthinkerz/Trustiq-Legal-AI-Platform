@@ -1,3 +1,4 @@
+import { fileStore, readFile, storeFile } from '../services/storage'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { audit, auth, requireRole, runLater, type AppEnv } from '../context'
@@ -50,15 +51,16 @@ export async function insertDocument(db: Queryable, v: {
   file?: { name: string; mime: string; bytes: Uint8Array }
   ocr?: boolean; uploadedByClient?: boolean; sharedWithClient?: boolean
 }) {
+  const stored = await storeFile(fileStore(), 'documents', v.orgId, v.file?.bytes ?? null, v.file?.mime ?? 'application/octet-stream')
   const doc = await db.query(
     `INSERT INTO documents (org_id, case_id, client_id, title, doc_type, language, jurisdiction, status, source, content, file_name, mime_type, file_size, file_data, created_by,
-                            ocr, uploaded_by_client, shared_with_client)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+                            ocr, uploaded_by_client, shared_with_client, file_key)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
      RETURNING id, org_id, case_id, client_id, title, doc_type, language, jurisdiction, status, source, content, version, file_name, mime_type, file_size,
                ocr, uploaded_by_client, shared_with_client, created_at, updated_at`,
     [v.orgId, v.caseId, v.clientId, v.title, v.docType, v.language, v.jurisdiction, v.status ?? 'draft', v.source, v.content,
-     v.file?.name ?? null, v.file?.mime ?? null, v.file?.bytes.length ?? null, v.file ? Buffer.from(v.file.bytes) : null, v.userId,
-     v.ocr ?? false, v.uploadedByClient ?? false, v.sharedWithClient ?? false])
+     v.file?.name ?? null, v.file?.mime ?? null, v.file?.bytes.length ?? null, stored.data, v.userId,
+     v.ocr ?? false, v.uploadedByClient ?? false, v.sharedWithClient ?? false, stored.key])
   if (v.caseId) await caseActivity(db, v.orgId, v.caseId, v.userId, 'document', `Document added: ${v.title}`)
   return doc[0]
 }
@@ -214,10 +216,11 @@ documentsRoutes.get('/:id/versions/:version', async (c) => {
 documentsRoutes.get('/:id/file', async (c) => {
   const { org } = auth(c)
   const id = uuidParam(c.req.param('id'), 'Document')
-  const row = await c.get('deps').db.one('SELECT file_name, mime_type, file_data FROM documents WHERE id = $1 AND org_id = $2 AND file_data IS NOT NULL', [id, org.id])
-  if (!row) throw notFound('Original file')
+  const row = await c.get('deps').db.one('SELECT file_name, mime_type, file_data, file_key FROM documents WHERE id = $1 AND org_id = $2 AND (file_data IS NOT NULL OR file_key IS NOT NULL)', [id, org.id])
+  const bytes = row && await readFile(fileStore(), { data: row.file_data, key: row.file_key })
+  if (!row || !bytes) throw notFound('Original file')
   await audit(c, 'document.downloaded', 'document', id)
-  return new Response(Buffer.from(row.file_data), {
+  return new Response(Buffer.from(bytes), {
     headers: { 'content-type': row.mime_type, 'content-disposition': contentDisposition(row.file_name), 'x-content-type-options': 'nosniff', 'cache-control': 'private, no-store' }
   })
 })

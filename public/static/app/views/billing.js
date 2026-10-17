@@ -1,7 +1,7 @@
 import { fundsReport } from './funds.js'
 import { api, download } from '../api.js'
 import { bind, formData, html, qs, raw, render } from '../dom.js'
-import { fmtDate, fmtDateTime, fmtMoney, t } from '../i18n.js'
+import { fmtDate, fmtDateTime, fmtMoney, getLang, t } from '../i18n.js'
 import { can, readOnly, store } from '../store.js'
 import {
   busy, clearFieldErrors, confirmDialog, emptyState, formActions, inputField, modal, pageHeader, pagination, selectField,
@@ -329,6 +329,16 @@ async function settings(root, { isCurrent, rerender }) {
         ${inputField({ name: 'default_hourly_rate', label: t('billing.default_rate'), type: 'number', value: s.default_hourly_rate, attrs: 'data-type="number" min="0" step="0.001"' })}
         ${textareaField({ name: 'bank_details', label: t('billing.bank_details'), value: s.bank_details, rows: 3, cls: 'sm:col-span-2', placeholder: t('billing.bank_placeholder') })}
         ${inputField({ name: 'invoice_footer', label: t('billing.invoice_footer'), value: s.invoice_footer, cls: 'sm:col-span-2' })}
+        ${store.me.org.default_jurisdiction === 'ksa' || store.me.org.default_currency === 'SAR' ? html`<fieldset class="sm:col-span-2 grid sm:grid-cols-2 gap-4 border-t border-slate-100 pt-4">
+          <legend class="text-sm font-semibold mb-1">${t('zatca.seller_details')}</legend>
+          <p class="sm:col-span-2 text-xs text-slate-500">${t('zatca.seller_help')}</p>
+          ${inputField({ name: 'cr_number', label: t('zatca.cr_number'), value: s.cr_number, attrs: 'dir="ltr"' })}
+          ${inputField({ name: 'address_building', label: t('zatca.building'), value: s.address_building, attrs: 'dir="ltr" inputmode="numeric" maxlength="4"' })}
+          ${inputField({ name: 'address_street', label: t('zatca.street'), value: s.address_street, cls: 'sm:col-span-2', attrs: 'dir="auto"' })}
+          ${inputField({ name: 'address_district', label: t('zatca.district'), value: s.address_district, attrs: 'dir="auto"' })}
+          ${inputField({ name: 'address_city', label: t('zatca.city'), value: s.address_city, attrs: 'dir="auto"' })}
+          ${inputField({ name: 'address_postal_code', label: t('zatca.postal_code'), value: s.address_postal_code, attrs: 'dir="ltr" inputmode="numeric" maxlength="5"' })}
+        </fieldset>` : ''}
         <div class="sm:col-span-2 flex justify-end"><button type="submit" class="btn btn-primary">${t('common.save')}</button></div>
       </form>
     </section>
@@ -493,7 +503,8 @@ export async function invoiceView(root, { params, isCurrent, rerender }) {
         </dl>
         ${zatca ? html`<div class="pt-4 border-t border-slate-100 flex items-center gap-4">
           <img src="${zatca.qr}" alt="${t('billing.zatca_qr')}" width="112" height="112" class="rounded border border-slate-200 bg-white" />
-          <div class="text-xs text-slate-600"><p class="font-semibold text-slate-800">${zatca.simplified ? t('billing.simplified_invoice') : t('billing.tax_invoice')}</p><p class="mt-1">${t('billing.zatca_hint')}</p></div>
+          <div class="text-xs text-slate-600"><p class="font-semibold text-slate-800">${zatca.simplified ? t('billing.simplified_invoice') : t('billing.tax_invoice')}</p><p class="mt-1">${t('billing.zatca_hint')}</p>
+            <div data-zatca-status class="mt-2"></div></div>
         </div>` : ''}
         ${inv.status === 'issued' && edit && !online.connected && can('owner', 'admin') ? html`<p class="text-xs text-slate-500 pt-4 border-t border-slate-100"><i class="fas fa-credit-card me-1"></i>${t('pay.invoice_connect_hint')} <a class="text-brand-600 hover:underline" href="#/billing?tab=settings">${t('pay.open_settings')}</a></p>` : ''}
         ${inv.status === 'issued' && online.connected && !online.currency_supported ? html`<p class="text-xs text-slate-500 pt-4 border-t border-slate-100">${t('pay.currency_unsupported', { currency: inv.currency })}</p>` : ''}
@@ -510,9 +521,18 @@ export async function invoiceView(root, { params, isCurrent, rerender }) {
   const post = (path, body) => async () => {
     try { await api.post(`/api/billing/invoices/${inv.id}/${path}`, body); toast(t('common.saved')); rerender() } catch (err) { showError(err) }
   }
+  // Saudi e-invoice status (phase 2 groundwork): chain data, XML export and what is still missing.
+  const zbox = root.querySelector('[data-zatca-status]')
+  if (zbox) api.get(`/api/billing/invoices/${inv.id}/zatca`).then((z) => {
+    if (!z.applies || !isCurrent()) return
+    render(zbox, html`${z.chained ? html`<p>${t('zatca.chained', { icv: z.icv })} <button type="button" class="text-brand-600 hover:underline" data-action="zatca-xml">${t('zatca.download_xml')}</button></p>` : ''}
+      ${z.missing.length ? html`<p class="text-amber-700 mt-1"><i class="fas fa-triangle-exclamation"></i> ${t('zatca.missing')} ${z.missing.map((m) => t(`zatca.m.${m}`)).join(getLang() === 'ar' ? '، ' : ', ')}</p>` : ''}
+      <p class="text-slate-500 mt-1">${t('zatca.not_stamped')}</p>`)
+  }).catch(() => {})
   bind(root, {
     actions: {
       export: (el) => download(`/api/billing/invoices/${inv.id}/export?lang=${el.dataset.lang}`),
+      'zatca-xml': () => download(`/api/billing/invoices/${inv.id}/zatca.xml`),
       'pay-link': () => openPayLink({ ...inv, pay_url: online.pay_url }, rerender),
       issue: async (el) => {
         if (!(await confirmDialog(t('billing.confirm_issue'), { danger: false, confirmLabel: t('billing.issue') }))) return

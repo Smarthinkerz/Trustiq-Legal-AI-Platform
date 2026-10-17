@@ -51,7 +51,7 @@ function summary(b: z.infer<typeof requestSchema>, q: FirmQuote, chosen: FirmOpt
 export function firmRoutes(deps: Deps) {
   const { config, db, mailer, log } = deps
   const app = new Hono<AppEnv>()
-  const perIp = new RateLimiter(10, 60 * 60_000)
+  const perIp = new RateLimiter(10, 60 * 60_000, 'firms:ip')
 
   app.post('/request', bodyLimit({ maxSize: 16 * 1024 }), async (c) => {
     const origin = c.req.header('origin')
@@ -121,7 +121,7 @@ export function firmRoutes(deps: Deps) {
 
 export function hubWebhookRoutes(deps: Deps) {
   const app = new Hono<AppEnv>()
-  const limiter = new RateLimiter(120, 60_000)
+  const limiter = new RateLimiter(120, 60_000, 'firms:global')
   app.post('/webhooks/hub', bodyLimit({ maxSize: 64 * 1024 }), async (c) => {
     const { config, db, log } = deps
     if (!limiter.take('all').ok) return c.json({ error: 'rate_limited' }, 429)

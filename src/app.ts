@@ -1,3 +1,4 @@
+import { useFileStore } from './services/storage'
 import { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { bodyLimit } from 'hono/body-limit'
@@ -87,6 +88,7 @@ const isPublicApi = (method: string, path: string) =>
 
 export function createApp(deps: Deps) {
   const { config, log } = deps
+  useFileStore(deps.files ?? null)
   const assetVersion = Date.now().toString(36)
   const app = new Hono<AppEnv>()
 

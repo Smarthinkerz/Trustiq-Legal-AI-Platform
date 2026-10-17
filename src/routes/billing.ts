@@ -1,3 +1,4 @@
+import { FIRST_PIH, invoiceHash, invoiceXml, zatcaReadiness, type ZatcaInvoice, type ZatcaSeller } from '../services/zatca-ubl'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { audit, auth, requireRole, type AppEnv, type Ctx } from '../context'
@@ -76,7 +77,14 @@ billingRoutes.put('/settings', jsonBody(z.object({
   payment_terms_days: z.number().int().min(0).max(365),
   bank_details: optText(2000),
   invoice_footer: optText(1000),
-  default_hourly_rate: money.nullish().transform((v) => v ?? null)
+  default_hourly_rate: money.nullish().transform((v) => v ?? null),
+  // Seller details Saudi e-invoices need (ZATCA).
+  cr_number: optText(40),
+  address_street: optText(200),
+  address_building: optText(10),
+  address_district: optText(120),
+  address_city: optText(120),
+  address_postal_code: optText(10)
 })), async (c) => {
   requireRole(c, 'owner', 'admin')
   const { org } = auth(c)
@@ -86,8 +94,11 @@ billingRoutes.put('/settings', jsonBody(z.object({
   }
   if (b.vat_number && zatcaApplies(org.default_jurisdiction, org.default_currency)) b.vat_number = b.vat_number.replace(/\s/g, '')
   await c.get('deps').db.query(
-    `UPDATE organizations SET vat_number = $2, vat_rate = $3, payment_terms_days = $4, bank_details = $5, invoice_footer = $6, default_hourly_rate = $7, updated_at = now()
-      WHERE id = $1`, [org.id, b.vat_number, b.vat_rate, b.payment_terms_days, b.bank_details, b.invoice_footer, b.default_hourly_rate])
+    `UPDATE organizations SET vat_number = $2, vat_rate = $3, payment_terms_days = $4, bank_details = $5, invoice_footer = $6, default_hourly_rate = $7,
+            cr_number = COALESCE($8, cr_number), address_street = COALESCE($9, address_street), address_building = COALESCE($10, address_building),
+            address_district = COALESCE($11, address_district), address_city = COALESCE($12, address_city), address_postal_code = COALESCE($13, address_postal_code), updated_at = now()
+      WHERE id = $1`, [org.id, b.vat_number, b.vat_rate, b.payment_terms_days, b.bank_details, b.invoice_footer, b.default_hourly_rate,
+      b.cr_number, b.address_street, b.address_building, b.address_district, b.address_city, b.address_postal_code])
   await audit(c, 'billing.settings_updated', 'organization', org.id)
   return c.json({ ok: true })
 })
@@ -327,6 +338,58 @@ async function zatcaFor(q: Queryable, orgId: string, invoice: Record<string, any
   return invoiceZatcaQr(invoice, { name: o.name, vat_number: o.vat_number, jurisdiction: o.default_jurisdiction })
 }
 
+async function zatcaSeller(q: Queryable, orgId: string) {
+  const [o] = await q.query(
+    `SELECT name, vat_number, cr_number, address_street AS street, address_building AS building, address_district AS district, address_city AS city,
+            address_postal_code AS postal_code, default_jurisdiction, zatca_icv, zatca_last_hash FROM organizations WHERE id = $1`, [orgId])
+  return o as ZatcaSeller & { default_jurisdiction: string; zatca_icv: number; zatca_last_hash: string | null }
+}
+
+function zatcaData(invoice: Record<string, any>, lines: any[]): ZatcaInvoice {
+  return {
+    number: invoice.number, uuid: invoice.zatca_uuid, icv: Number(invoice.zatca_icv), pih: invoice.zatca_pih, issued_at: new Date(invoice.issued_at),
+    currency: invoice.currency, subtotal: Number(invoice.subtotal), vat_rate: Number(invoice.vat_rate), vat_amount: Number(invoice.vat_amount), total: Number(invoice.total),
+    client_name: invoice.client_name, client_vat_number: invoice.client_vat_number, client_address: invoice.client_address,
+    lines: lines.map((l) => ({ description: l.description, quantity: Number(l.quantity), unit_price: Number(l.unit_price), amount: Number(l.amount) }))
+  }
+}
+
+async function chainZatcaInvoice(q: Queryable, orgId: string, id: string) {
+  const [lock] = await q.query('SELECT default_jurisdiction FROM organizations WHERE id = $1 FOR UPDATE', [orgId])
+  const { invoice, lines } = await loadInvoice(q, orgId, id)
+  if (!zatcaApplies(lock.default_jurisdiction, invoice.currency)) return
+  const seller = await zatcaSeller(q, orgId)
+  const [uuid] = await q.query<{ id: string }>('SELECT gen_random_uuid() AS id')
+  const data = zatcaData({ ...invoice, zatca_uuid: uuid!.id, zatca_icv: seller.zatca_icv + 1, zatca_pih: seller.zatca_last_hash ?? FIRST_PIH }, lines)
+  const hash = invoiceHash(data, seller)
+  await q.query('UPDATE invoices SET zatca_uuid = $2, zatca_icv = $3, zatca_pih = $4, zatca_hash = $5 WHERE id = $1', [id, data.uuid, data.icv, data.pih, hash])
+  await q.query('UPDATE organizations SET zatca_icv = $2, zatca_last_hash = $3 WHERE id = $1', [orgId, data.icv, hash])
+}
+
+// Saudi e-invoice status, and the UBL 2.1 XML export.
+billingRoutes.get('/invoices/:id/zatca', async (c) => {
+  const { org } = auth(c)
+  const id = uuidParam(c.req.param('id'), 'Invoice')
+  const { db } = c.get('deps')
+  const { invoice } = await loadInvoice(db, org.id, id)
+  const seller = await zatcaSeller(db, org.id)
+  if (!zatcaApplies(seller.default_jurisdiction, invoice.currency)) return c.json({ applies: false })
+  const missing = zatcaReadiness(seller, invoice as { client_vat_number: string | null; client_address: string | null })
+  return c.json({ applies: true, chained: !!invoice.zatca_uuid, uuid: invoice.zatca_uuid, icv: invoice.zatca_icv, hash: invoice.zatca_hash, missing,
+    standard: !!invoice.client_vat_number, stamped: false })
+})
+
+billingRoutes.get('/invoices/:id/zatca.xml', async (c) => {
+  const { org } = auth(c)
+  const id = uuidParam(c.req.param('id'), 'Invoice')
+  const { db } = c.get('deps')
+  const { invoice, lines } = await loadInvoice(db, org.id, id)
+  if (!invoice.zatca_uuid) throw conflict('This invoice has no Saudi e-invoice data. Only Saudi invoices issued after e-invoicing was enabled have it.')
+  const xml = invoiceXml(zatcaData(invoice, lines), await zatcaSeller(db, org.id))
+  await audit(c, 'billing.zatca_exported', 'invoice', id)
+  return new Response(xml, { headers: { 'content-type': 'application/xml; charset=utf-8', 'content-disposition': contentDisposition(safeFileName(`${invoice.number}-ubl`, 'xml')), 'cache-control': 'private, no-store' } })
+})
+
 async function invoiceJson(q: Queryable, orgId: string, id: string) {
   const data = await loadInvoice(q, orgId, id)
   const qr = await zatcaFor(q, orgId, data.invoice)
@@ -502,6 +565,8 @@ billingRoutes.post('/invoices/:id/issue', async (c) => {
       `UPDATE invoices SET status = 'issued', number = $3, issue_date = CURRENT_DATE, issued_at = now(),
               due_date = COALESCE(due_date, CURRENT_DATE + $4::int), updated_at = now() WHERE id = $1 AND org_id = $2`,
       [id, org.id, number, o.payment_terms_days])
+    // Saudi invoices join the seller's ZATCA chain: counter, previous hash, own hash.
+    await chainZatcaInvoice(q, org.id, id)
   })
   await audit(c, 'billing.invoice_issued', 'invoice', id)
   return c.json(await invoiceJson(db, org.id, id))

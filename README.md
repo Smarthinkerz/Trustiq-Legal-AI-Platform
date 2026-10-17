@@ -127,6 +127,14 @@ Court-grade research (law library and AI):
 - **Hybrid retrieval**: set `EMBEDDINGS_URL` to the base URL of an OpenAI-compatible embeddings endpoint (for example Hugging Face Text Embeddings Inference, Infinity or vLLM serving `BAAI/bge-m3`), and optionally `EMBEDDINGS_API_KEY` and `EMBEDDINGS_MODEL`. Set `RERANK_URL` to a Cohere-compatible `/rerank` endpoint serving `BAAI/bge-reranker-v2-m3` (`RERANK_API_KEY`, `RERANK_MODEL`). A background worker embeds library passages (about 500 every 30 seconds); each app instance keeps an int8 copy in memory for exact cosine search (`VECTOR_INDEX_MAX_CHUNKS`, default 150,000, about 1 KB each), so no Postgres extension is needed. Without these variables retrieval is BM25 only. Self-hosting the models in the region keeps library text and questions out of third-party services.
 - **Evaluation set** (`src/services/legal-eval-cases.ts`): platform admins start a run with `POST /api/admin/legal-eval` (optionally `case_ids` and `languages`) and read results at `GET /api/admin/legal-eval/runs/:id`. Each case is asked in English and Arabic through the same retrieval, model and verifier. Cases whose expected law is not in the library are reported as coverage gaps. The instrument numbers in the set must be confirmed by a lawyer before results are relied on. A run uses one AI request per case and language.
 
+AI evaluation sets (`evals/`): 709 generated cases across 13 AI features (judgment, notice, POA/ID and procedural order readers, client updates, clause translation, dictation, resolutions, compare, contract review, research chat, drafting and the website chatbot), at least 50 per feature, in Arabic and English, with trap cases (a missing value, a decoy date, an instruction hidden in a document, a law or article that does not exist, a question the library cannot answer). Each case runs through the real route, prompt, model and code checks on a fresh in-memory database and is graded by code; research cases use invented test instruments (decree year 2030) so an answer can only come from the library. `npx tsx evals/run.ts` prints the cost of one run without calling the model; `npx tsx evals/run.ts --live` (with `OPENAI_API_KEY`) runs it and writes a pass-rate report to `reports/evals/`. Use `--feature a,b` and `--limit n` for a partial run. Keyword search does not match an Arabic question to an English-only law (or the reverse); keep both language versions in the library or enable embeddings.
+
+File storage: by default uploaded files (documents, law PDFs, files sent for signature, blog media) are stored in PostgreSQL. Set `STORAGE_DRIVER=s3` with `S3_ENDPOINT`, `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY` to keep new files in any S3-compatible object store instead (requests are signed with AWS Signature Version 4; path-style URLs work with Oracle Cloud, MinIO, Ceph and AWS). Rows keep only the object key; rows written before the switch are still read from the database. `npx tsx scripts/move-files.ts to-store` moves existing files out of the database (and `to-db` brings them back); take a backup first. When a row is deleted, a database trigger queues its object and the hourly sweeper deletes it.
+
+Several instances: rate limits are counted in memory per instance by default. Set `RATE_LIMIT_STORE=db` on every instance to share counts through PostgreSQL (each instance syncs every 2 seconds, so a limit can be exceeded by at most one sync interval of traffic). Background jobs claim their work in the database and are safe on several instances; set `RUN_WORKERS=false` on instances that should only serve requests.
+
+Saudi e-invoicing (ZATCA): issued invoices of Saudi firms (jurisdiction KSA or currency SAR) carry the phase 1 QR code. For phase 2, each one also gets a UUID, an invoice counter (ICV) and the previous invoice's hash (PIH, starting from the ZATCA initial value), and its own SHA-256 hash is stored, forming the chain ZATCA requires. `GET /api/billing/invoices/:id/zatca.xml` exports the invoice as UBL 2.1 XML in the ZATCA layout, and `GET /api/billing/invoices/:id/zatca` lists what is still missing (seller CR and national address are set in Billing → Settings). Not yet done: the cryptographic stamp and clearance or reporting through the Fatoora API, which need each firm's ZATCA onboarding (CSID). Validate exports with the ZATCA SDK before relying on them.
+
 `JWT_SECRET` is no longer used. Sessions are random tokens stored hashed in the database, so they can be revoked.
 
 ## Deployment (Railway)
@@ -138,7 +146,7 @@ Court-grade research (law library and AI):
 
 A `Dockerfile` is included for other hosts. Health endpoints: `/health` (liveness) and `/ready` (database check).
 
-Rate limiting is in-memory and per instance. Run one instance, or move the limiter to Redis before scaling out horizontally.
+To run several instances behind a load balancer, set `RATE_LIMIT_STORE=db` on all of them (see Configuration), and `STORAGE_DRIVER=s3` so files do not grow the database.
 
 ## Operations
 
@@ -146,7 +154,7 @@ Rate limiting is in-memory and per instance. Run one instance, or move the limit
 - **Expired trials and subscriptions** are read-only; users can still view and export data, and can renew. Owners and admins get a renewal email 5 days before expiry.
 - **Background jobs** (in-process, safe with several instances): daily digest emails after 08:00 Gulf time, renewal reminders, and pruning of expired sessions, tokens and webhook audit rows.
 - **Law library**: platform admins (`PLATFORM_ADMIN_EMAILS`) can publish laws to the shared library that every firm sees; firms can add their own private sources.
-- **Backups**: enable automated backups and point-in-time recovery on the Postgres provider. Uploaded files are stored in the database, so database backups cover them.
+- **Backups**: enable automated backups and point-in-time recovery on the Postgres provider. With the default `STORAGE_DRIVER=db`, uploaded files are in the database, so database backups cover them; with `STORAGE_DRIVER=s3`, also turn on versioning and replication for the bucket.
 - **Logs** are structured JSON, one line per request, with request IDs that are also shown to users on server errors.
 - **Audit log**: sign-ins, record changes, downloads, exports and AI usage are recorded per organization.
 
