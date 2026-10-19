@@ -2,7 +2,7 @@ import { esc } from './layout'
 
 // ---------------------------------------------------------------------------
 // Public page where a client pays an invoice online (/pay/:token).
-// No scripts: a plain form posts to the server, which redirects to Tap.
+// No scripts: a plain form posts to the server, which redirects to Tap or Thawani.
 // ---------------------------------------------------------------------------
 
 type Lang = 'en' | 'ar'
@@ -18,7 +18,10 @@ const copy = {
     failedTitle: 'The payment did not go through.', failedText: 'No money was taken. You can try again below.',
     unavailableTitle: 'Online payment is not available for this invoice.', unavailableText: 'Please contact the firm for other ways to pay.',
     invalidTitle: 'This payment link is not valid.', invalidText: 'Check that you opened the full link, or contact the firm.',
-    emailRequired: 'Please enter your email address for the receipt.', other: 'العربية'
+    emailRequired: 'Please enter your email address for the receipt.', other: 'العربية',
+    payTap: 'Pay by card', payThawani: 'Pay with Thawani',
+    secureThawani: 'Thawani takes you to its secure page to pay in Omani rials by Omani debit or credit card. Your card details are never shared with the firm or with TrustiqLegal.',
+    secureBoth: 'Both options open a secure payment page. Your card details are never shared with the firm or with TrustiqLegal.'
   },
   ar: {
     title: 'دفع فاتورة', from: 'فاتورة من', invoice: 'رقم الفاتورة', due: 'تاريخ الاستحقاق', outstanding: 'المبلغ المستحق', total: 'إجمالي الفاتورة', paidSoFar: 'المدفوع حتى الآن',
@@ -28,7 +31,10 @@ const copy = {
     failedTitle: 'لم تتم عملية الدفع.', failedText: 'لم يتم خصم أي مبلغ. يمكنك المحاولة مرة أخرى أدناه.',
     unavailableTitle: 'الدفع الإلكتروني غير متاح لهذه الفاتورة.', unavailableText: 'يُرجى التواصل مع المكتب لمعرفة طرق الدفع الأخرى.',
     invalidTitle: 'رابط الدفع غير صالح.', invalidText: 'تأكد من فتح الرابط كاملًا، أو تواصل مع المكتب.',
-    emailRequired: 'يُرجى إدخال بريدك الإلكتروني لإرسال الإيصال.', other: 'English'
+    emailRequired: 'يُرجى إدخال بريدك الإلكتروني لإرسال الإيصال.', other: 'English',
+    payTap: 'ادفع بالبطاقة', payThawani: 'ادفع عبر ثواني',
+    secureThawani: 'تنقلك ثواني إلى صفحتها الآمنة للدفع بالريال العماني باستخدام البطاقات العمانية المدينة أو الائتمانية. لا تتم مشاركة بيانات بطاقتك مع المكتب أو مع TrustiqLegal.',
+    secureBoth: 'يفتح كلا الخيارين صفحة دفع آمنة. لا تتم مشاركة بيانات بطاقتك مع المكتب أو مع TrustiqLegal.'
   }
 } as const
 
@@ -48,12 +54,20 @@ export function payPage(o: {
   outstanding?: string
   testMode?: boolean
   error?: 'email'
+  providers?: ('tap' | 'thawani')[]
 }) {
   const t = copy[o.lang]
   const color = /^#[0-9a-f]{6}$/i.test(o.color ?? '') ? o.color! : '#1a365d'
   const base = o.token ? `/pay/${o.token}` : ''
   const other = o.lang === 'ar' ? 'en' : 'ar'
   const money = (v?: string) => `<span dir="ltr">${esc(v)} ${esc(o.currency)}</span>`
+  const providers: ('tap' | 'thawani')[] = o.providers?.length ? o.providers : ['tap']
+  const button = (provider: 'tap' | 'thawani', label: string, primary: boolean) =>
+    `<button type="submit" name="provider" value="${provider}" class="w-full rounded-lg px-5 py-3 font-semibold text-lg ${primary ? 'text-white' : 'border-2'}" style="${primary ? `background:${color}` : `border-color:${color};color:${color}`}"><i class="fas fa-lock me-2"></i>${label} ${money(o.outstanding)}</button>`
+  const buttons = providers.length > 1
+    ? `${button('tap', t.payTap, true)}${button('thawani', t.payThawani, false)}`
+    : button(providers[0]!, providers[0] === 'thawani' ? t.payThawani : t.pay, true)
+  const secure = providers.length > 1 ? t.secureBoth : providers[0] === 'thawani' ? t.secureThawani : t.secure
   const status = (icon: string, title: string, text = '', tone = color) => `
     <section class="bg-white rounded-2xl border border-slate-200 p-8 text-center">
       <i class="fas ${icon} text-4xl" style="color:${tone}"></i>
@@ -88,9 +102,9 @@ export function payPage(o: {
           <label class="block"><span class="text-sm font-medium">${t.email}</span>
             <input name="email" type="email" maxlength="254" autocomplete="email" dir="ltr" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-3" />
             <span class="block text-xs text-slate-500 mt-1">${t.emailHint}</span></label>
-          <button type="submit" class="w-full rounded-lg px-5 py-3 font-semibold text-white text-lg" style="background:${color}"><i class="fas fa-lock me-2"></i>${t.pay} ${money(o.outstanding)}</button>
+          ${buttons}
         </form>
-        <p class="text-xs text-slate-500">${t.secure}</p>` : ''}
+        <p class="text-xs text-slate-500">${secure}</p>` : ''}
       </section>`
   }
 

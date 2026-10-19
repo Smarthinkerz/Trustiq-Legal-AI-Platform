@@ -12,7 +12,7 @@ import { insertDocument } from './documents'
 import { invoiceDocxResponse } from './billing'
 import { issueSigningToken, signingUrl } from '../services/signatures'
 import { detectImage, loadDocumentRequest } from '../services/document-requests'
-import { ensurePayToken, onlinePaymentSettings, outstanding, payUrl, supportsOnline } from '../services/invoice-payments'
+import { canPayOnline, ensurePayToken, onlinePaymentSettings, outstanding, payUrl } from '../services/invoice-payments'
 
 // Everything here is scoped to the signed-in portal user's own client record.
 function portalUser(c: Ctx) {
@@ -64,8 +64,8 @@ portalRoutes.get('/overview', async (c) => {
   ])
   if (!client) throw notFound('Client')
   const firm = await db.one('SELECT firm_name, firm_name_ar, phone, email, (logo IS NOT NULL) AS has_logo FROM branding WHERE org_id = $1', [org.id])
-  const online = (await onlinePaymentSettings(db, c.get('deps').config, org.id)).connected
-  for (const i of invoices) i.can_pay = online && i.status === 'issued' && outstanding(i) > 0 && supportsOnline(i.currency)
+  const online = await onlinePaymentSettings(db, c.get('deps').config, org.id)
+  for (const i of invoices) i.can_pay = i.status === 'issued' && outstanding(i) > 0 && canPayOnline(online, i.currency)
   return c.json({ client, cases, documents, invoices, unread_messages: unread[0].n, firm })
 })
 
@@ -212,7 +212,7 @@ portalRoutes.post('/invoices/:id/pay', async (c) => {
   const { db, config } = c.get('deps')
   const [inv] = await db.query(`SELECT id, status, total, amount_paid, currency FROM invoices WHERE id = $1 AND org_id = $2 AND client_id = $3 AND status IN ('issued', 'paid')`, [id, org.id, clientId])
   if (!inv) throw notFound('Invoice')
-  if (!(await onlinePaymentSettings(db, config, org.id)).connected || !supportsOnline(inv.currency)) throw badRequest('Online payment is not available for this invoice. Please contact the firm.')
+  if (!canPayOnline(await onlinePaymentSettings(db, config, org.id), inv.currency)) throw badRequest('Online payment is not available for this invoice. Please contact the firm.')
   if (inv.status !== 'issued' || outstanding(inv) <= 0) throw badRequest('This invoice has already been paid.')
   const url = payUrl(config, await ensurePayToken(db, org.id, id))
   await audit(c, 'portal.invoice_pay_opened', 'invoice', id)

@@ -8,6 +8,7 @@ import type { Mailer } from './lib/mailer'
 import type { AiService } from './services/ai'
 import type { EmbeddingService, RerankService } from './services/retrieval'
 import type { TapClient } from './services/tap'
+import type { ThawaniClient, ThawaniKeys } from './services/thawani'
 import type { WebFetcher } from './services/library-import'
 import type { RateLimiter } from './lib/rate-limit'
 import { forbidden, unauthorized } from './lib/errors'
@@ -60,6 +61,8 @@ export type Deps = {
   tap: TapClient
   // Builds a client for a firm's own Tap account (invoice payments). Overridable in tests.
   firmTap?: (secretKey: string) => TapClient
+  // Builds a client for a firm's own Thawani account (Oman invoice payments). Overridable in tests.
+  firmThawani?: (keys: ThawaniKeys) => ThawaniClient
   // Runs work after the response (e.g. AI intake of a new enquiry). Tests replace it to run tasks on demand.
   defer?: (task: () => Promise<unknown>) => void
   // Overridable in tests; used for the WhatsApp Cloud API (graph.facebook.com).
