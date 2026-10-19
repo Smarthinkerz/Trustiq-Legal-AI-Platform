@@ -76,11 +76,14 @@ import { THAWANI_HOSTS } from './services/thawani'
 import { ADDIN_VERSION, addinManifest, addinTaskpane, OFFICE_FRAME_HOSTS, OFFICE_JS_HOST } from './pages/word-addin'
 import { legalPage } from './pages/legal'
 import { apiDocsPage } from './pages/api-docs'
+import { demoRoutes } from './routes/demo'
+import { demoGuard, INTERNAL_SEED_TOKEN } from './services/demo'
 
 // Endpoints reachable without a session.
 const PUBLIC_API = new Set([
   'POST /api/auth/register', 'POST /api/auth/login', 'POST /api/auth/logout', 'POST /api/auth/forgot-password',
-  'POST /api/auth/reset-password', 'POST /api/auth/accept-invite', 'POST /api/auth/login/mfa', 'GET /api/reference'
+  'POST /api/auth/reset-password', 'POST /api/auth/accept-invite', 'POST /api/auth/login/mfa', 'GET /api/reference',
+  'POST /api/demo/access'
 ])
 // Client-portal users may only reach these API prefixes.
 const CLIENT_API = ['/api/portal', '/api/auth', '/api/reference']
@@ -168,7 +171,8 @@ export function createApp(deps: Deps) {
       if (origin && origin !== allowed && origin !== self) throw forbidden('Cross-origin request blocked.')
       if (!origin && c.req.header('sec-fetch-site') === 'cross-site') throw forbidden('Cross-origin request blocked.')
     }
-    const r = deps.limiters.api.take(clientIp(c))
+    // The app's own demo seeding requests do not count against anyone's limit.
+    const r = c.req.header('x-tq-internal') === INTERNAL_SEED_TOKEN ? { ok: true, retryAfterSec: 0 } : deps.limiters.api.take(clientIp(c))
     if (!r.ok) {
       c.header('Retry-After', String(r.retryAfterSec))
       throw tooMany()
@@ -197,6 +201,8 @@ export function createApp(deps: Deps) {
     if (user?.role === 'client' && !clientAllowed(c.req.path)) throw forbidden('This area is only available to the law firm.')
     await next()
   })
+  // Demo workspaces (Hub access codes): ends revoked sessions and refuses what a demo may not do.
+  app.use('/api/*', demoGuard)
 
   // Changes to the firm calendar, tasks or cases queue a Google Calendar sync for the firm's connected users.
   const CALENDAR_SOURCES = /^\/api\/(v1\/)?(events|tasks|cases)(\/|$)/
@@ -241,6 +247,8 @@ export function createApp(deps: Deps) {
     app.use(path, requireActiveSubscription)
     app.route(path, routes)
   }
+  app.route('/api/demo', demoRoutes(deps, (method, path, body, headers) =>
+    Promise.resolve(app.request(path, { method, headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify(body) }))))
   app.all('/api/*', (c) => c.json({ error: { code: 'not_found', message: 'API endpoint not found' } }, 404))
 
   // ---------- Payments (public, verified by signature / re-fetch from Tap) ----------

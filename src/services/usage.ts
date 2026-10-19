@@ -2,6 +2,7 @@ import type { Queryable } from '../db'
 import type { Org } from '../context'
 import { forbidden, paymentRequired } from '../lib/errors'
 import { planOf } from '../lib/plans'
+import { assertDemoAiAllowance } from './demo'
 
 export async function usageThisMonth(db: Queryable, orgId: string) {
   const [row] = await db.query(
@@ -49,6 +50,8 @@ export async function assertCanUseAi(db: Queryable, org: Org, advanced = false) 
   // Support staff seats bought with a firm subscription can view, upload and organize, but not use AI.
   // Firms that existed before seats (support_seats is NULL) keep AI for their staff users.
   if (org.acting_role === 'staff' && org.support_seats != null) throw forbidden('AI features are not included in support staff seats. Ask a lawyer or an admin.')
+  // Demo workspaces run on SmarThinkerz's AI budget, with a daily allowance per session.
+  if (org.is_demo) await assertDemoAiAllowance(db, org.id)
   const plan = await limitsOf(db, org)
   if (advanced && !plan.advancedAnalysis) {
     throw paymentRequired('plan_feature_advanced_analysis', 'Risk, compliance and full reviews are available on the Professional plan and above.')

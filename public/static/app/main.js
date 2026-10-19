@@ -217,11 +217,11 @@ export async function signOut() {
   navigate('/login', { replace: true })
 }
 
-onUnauthorized(() => {
+onUnauthorized((err) => {
   if (!store.me) return
   store.me = null
   shellMounted = false
-  toast(t('auth.session_expired'), 'info')
+  toast(t(err?.code === 'demo_ended' ? 'demo.ended' : 'auth.session_expired'), 'info')
   navigate('/login', { replace: true })
 })
 

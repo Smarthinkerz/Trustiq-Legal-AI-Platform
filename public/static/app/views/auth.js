@@ -38,11 +38,38 @@ export async function loginView(root, { query }) {
       ${inputField({ name: 'password', label: t('auth.password'), type: 'password', required: true, attrs: 'autocomplete="current-password" dir="ltr"' })}
       <div class="flex justify-end"><a href="#/forgot-password" class="text-sm text-brand-600 hover:underline">${t('auth.forgot_link')}</a></div>
       <button type="submit" class="btn btn-primary w-full py-2.5">${t('auth.sign_in')}</button>
-    </form>`,
+    </form>
+    <div class="mt-6 pt-5 border-t border-slate-100">
+      <button type="button" class="text-sm font-semibold text-brand-600 hover:underline" data-action="access-code" aria-expanded="false" aria-controls="access-code-form">
+        <i class="fas fa-key me-1"></i>${t('auth.access_code_link')}</button>
+      <form data-form="access" id="access-code-form" class="hidden space-y-3 mt-4" novalidate>
+        ${inputField({ name: 'code', label: t('auth.access_code'), required: true, hint: t('auth.access_code_hint'), attrs: 'autocomplete="off" autocapitalize="characters" spellcheck="false" dir="ltr" maxlength="64"' })}
+        <button type="submit" class="btn btn-outline w-full py-2.5">${t('auth.access_code_submit')}</button>
+      </form>
+    </div>`,
     html`${t('auth.no_account')} <a href="#/register" class="font-semibold text-brand-600 hover:underline">${t('auth.start_trial')}</a>`))
   bind(root, {
-    actions: langAction,
+    actions: {
+      ...langAction,
+      'access-code': (el) => {
+        const form = root.querySelector('[data-form="access"]')
+        form.classList.toggle('hidden')
+        el.setAttribute('aria-expanded', String(!form.classList.contains('hidden')))
+        if (!form.classList.contains('hidden')) form.elements.code.focus()
+      }
+    },
     forms: {
+      // A SmarThinkerz Hub access code opens a demo workspace; the code is checked by the Hub.
+      access: (form) => busy(submitButton(form), async () => {
+        clearFieldErrors(form)
+        try {
+          const me = await api.post('/api/demo/access', { code: form.elements.code.value, locale: getLang() })
+          form.elements.code.value = ''
+          await signedIn(me)
+        } catch (err) {
+          showError(err, form)
+        }
+      }),
       login: (form) => busy(submitButton(form), async () => {
         clearFieldErrors(form)
         try {

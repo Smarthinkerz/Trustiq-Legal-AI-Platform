@@ -342,8 +342,7 @@ async function settings(root, { isCurrent, rerender }) {
         <div class="sm:col-span-2 flex justify-end"><button type="submit" class="btn btn-primary">${t('common.save')}</button></div>
       </form>
     </section>
-    ${onlinePaymentsCard(op)}
-    ${thawaniCard(op)}
+    ${store.me.org.is_demo ? '' : html`${onlinePaymentsCard(op)}${thawaniCard(op)}`}
     <section class="card">
       <div class="px-5 py-4 border-b border-slate-100"><h2 class="font-semibold">${t('billing.hourly_rates')}</h2><p class="text-xs text-slate-500">${t('billing.hourly_rates_help')}</p></div>
       <ul class="divide-y divide-slate-100">${rates.map((r) => html`<li class="px-5 py-3 flex items-center gap-3">
@@ -512,7 +511,7 @@ export async function invoiceView(root, { params, isCurrent, rerender }) {
         <button class="btn btn-outline" data-action="export" data-lang="en"><i class="fas fa-file-word"></i>${t('billing.download_en')}</button>
         <button class="btn btn-outline" data-action="export" data-lang="ar"><i class="fas fa-file-word"></i>${t('billing.download_ar')}</button>
         ${edit && inv.status === 'draft' ? html`<button class="btn btn-primary" data-action="issue"><i class="fas fa-paper-plane"></i>${t('billing.issue')}</button>` : ''}
-        ${edit && online.can_pay ? html`<button class="btn btn-outline" data-action="pay-link"><i class="fas fa-link"></i>${t('pay.get_link')}</button>` : ''}
+        ${edit && online.can_pay && !store.me.org.is_demo ? html`<button class="btn btn-outline" data-action="pay-link"><i class="fas fa-link"></i>${t('pay.get_link')}</button>` : ''}
         ${manage && !ro && inv.status === 'issued' ? html`<button class="btn btn-primary" data-action="payment"><i class="fas fa-money-bill"></i>${t('billing.record_payment')}</button>` : ''}
         ${manage && !ro && inv.status === 'issued' && Number(inv.amount_paid) === 0 ? html`<button class="btn btn-danger-ghost" data-action="void">${t('billing.void')}</button>` : ''}
         ${edit && inv.status === 'draft' ? html`<button class="btn btn-danger-ghost" data-action="delete" aria-label="${t('common.delete')}"><i class="fas fa-trash"></i></button>` : ''}
@@ -548,7 +547,7 @@ export async function invoiceView(root, { params, isCurrent, rerender }) {
           <div class="text-xs text-slate-600"><p class="font-semibold text-slate-800">${zatca.simplified ? t('billing.simplified_invoice') : t('billing.tax_invoice')}</p><p class="mt-1">${t('billing.zatca_hint')}</p>
             <div data-zatca-status class="mt-2"></div></div>
         </div>` : ''}
-        ${inv.status === 'issued' && edit && !online.connected && can('owner', 'admin') ? html`<p class="text-xs text-slate-500 pt-4 border-t border-slate-100"><i class="fas fa-credit-card me-1"></i>${t('pay.invoice_connect_hint')} <a class="text-brand-600 hover:underline" href="#/billing?tab=settings">${t('pay.open_settings')}</a></p>` : ''}
+        ${inv.status === 'issued' && edit && !online.connected && can('owner', 'admin') && !store.me.org.is_demo ? html`<p class="text-xs text-slate-500 pt-4 border-t border-slate-100"><i class="fas fa-credit-card me-1"></i>${t('pay.invoice_connect_hint')} <a class="text-brand-600 hover:underline" href="#/billing?tab=settings">${t('pay.open_settings')}</a></p>` : ''}
         ${inv.status === 'issued' && online.connected && !online.currency_supported ? html`<p class="text-xs text-slate-500 pt-4 border-t border-slate-100">${t('pay.currency_unsupported', { currency: inv.currency })}</p>` : ''}
         ${payments.length ? html`<div class="pt-4 border-t border-slate-100"><h3 class="text-sm font-semibold mb-1">${t('pay.history')}</h3><ul class="divide-y divide-slate-100">${payments.map(paymentRow)}</ul></div>` : ''}
         ${inv.client_vat_number ? html`<p class="text-xs text-slate-500">${t('clients.vat_number')}: <span dir="ltr">${inv.client_vat_number}</span></p>` : ''}
