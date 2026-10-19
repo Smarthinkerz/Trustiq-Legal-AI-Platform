@@ -33,6 +33,15 @@ export class RateLimiter {
     return { ok: entry.count + entry.others <= this.limit, retryAfterSec: Math.max(1, Math.ceil(((window + 1) * this.windowMs - now) / 1000)) }
   }
 
+  // Whether `key` has used up the current window, without counting a hit (for limits on failures only).
+  blocked(key: string): { blocked: boolean; retryAfterSec: number } {
+    const now = Date.now()
+    const window = Math.floor(now / this.windowMs)
+    const entry = this.hits.get(key)
+    const used = entry && entry.window === window ? entry.count + entry.others : 0
+    return { blocked: used >= this.limit, retryAfterSec: Math.max(1, Math.ceil(((window + 1) * this.windowMs - now) / 1000)) }
+  }
+
   private sweep(window: number) {
     for (const [k, v] of this.hits) if (v.window < window) this.hits.delete(k)
   }

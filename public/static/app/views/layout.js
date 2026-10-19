@@ -3,7 +3,7 @@ import { $, $$, bind, html, render } from '../dom.js'
 import { getLang, t } from '../i18n.js'
 import { applyLanguage, signOut } from '../main.js'
 import { can, store } from '../store.js'
-import { debounce } from '../ui.js'
+import { confirmDialog, debounce, showError, toast } from '../ui.js'
 
 const NAV = [
   ['dashboard', 'fa-gauge-high', '/dashboard'],
@@ -36,6 +36,15 @@ function subscriptionBanner() {
   return html`<div class="bg-amber-100 text-amber-900 text-sm px-4 py-2 flex flex-wrap items-center justify-center gap-3">
     <span><i class="fas fa-hourglass-half"></i> ${t('subscription.ends_in', { days })}</span>
     <a class="underline font-semibold" href="#/settings?tab=plan">${t('subscription.renew')}</a></div>`
+}
+
+// Shown on every screen of a demo workspace opened with a SmarThinkerz Hub access code.
+function demoBanner() {
+  if (!store.me.org.is_demo) return ''
+  return html`<div class="bg-indigo-700 text-white text-sm px-4 py-2 flex flex-wrap items-center justify-center gap-x-3 gap-y-1" role="status">
+    <span class="font-semibold"><i class="fas fa-flask me-1"></i>${t('demo.badge')}</span>
+    <span class="text-indigo-100">${t('demo.note')}</span>
+    <button class="underline font-semibold" data-action="demo-reset"><i class="fas fa-rotate-left me-1"></i>${t('demo.reset')}</button></div>`
 }
 
 function trialBanner() {
@@ -74,7 +83,7 @@ export function layout() {
     </aside>
     <div id="sidebar-backdrop" class="hidden fixed inset-0 z-30 bg-slate-900/50 lg:hidden" data-action="layout-menu"></div>
     <div class="flex-1 min-w-0 flex flex-col">
-      ${trialBanner()}${subscriptionBanner()}
+      ${demoBanner()}${store.me.org.is_demo ? '' : html`${trialBanner()}${subscriptionBanner()}`}
       <header class="sticky top-0 z-20 h-16 bg-white/95 backdrop-blur border-b border-slate-200 flex items-center justify-between gap-3 px-4 lg:px-8">
         <div class="flex items-center gap-3 min-w-0">
           <button class="btn btn-ghost lg:hidden" data-action="layout-menu" aria-label="${t('nav.menu')}"><i class="fas fa-bars"></i></button>
@@ -115,6 +124,16 @@ export function layout() {
     bind(root, {
       actions: {
         'layout-menu': toggleMenu,
+        'demo-reset': async (el) => {
+          if (!(await confirmDialog(t('demo.reset_confirm')))) return
+          el.disabled = true
+          try {
+            store.me = await api.post('/api/demo/reset')
+            toast(t('demo.reset_done'))
+            location.hash = '#/dashboard'
+            location.reload()
+          } catch (err) { showError(err); el.disabled = false }
+        },
         'layout-user': (el) => {
           const menu = $('#user-menu')
           menu.classList.toggle('hidden')

@@ -1,3 +1,4 @@
+import { demoInfo } from '../services/demo'
 import { Hono } from 'hono'
 import { orgPrices } from '../services/price-lock'
 import { z } from 'zod'
@@ -47,7 +48,9 @@ export async function mePayload(c: Ctx) {
     usage,
     branding: branding ?? null,
     client: client ?? null,
-    features: { ai: ai.configured, email: mailer.configured, payments: c.get('deps').tap.configured },
+    // A demo workspace sends no email and takes no payments.
+    features: { ai: ai.configured, email: mailer.configured && !org.is_demo, payments: c.get('deps').tap.configured && !org.is_demo },
+    demo: org.is_demo ? await demoInfo(db, org.id) : null,
     limits: { max_upload_mb: Math.round(c.get('deps').config.maxUploadBytes / 1048576), max_video_mb: Math.round(c.get('deps').config.maxVideoBytes / 1048576) },
     prices,
     is_platform_admin: user.role !== 'client' && config.platformAdminEmails.includes(user.email.toLowerCase()),

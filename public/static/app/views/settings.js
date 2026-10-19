@@ -20,8 +20,11 @@ const TABS = [
   ['audit', 'fa-clipboard-list', () => canManageTeam()]
 ]
 
+// A demo workspace shows the profile, the team and the audit log; firm, plan and connection settings stay real-account only.
+const DEMO_TABS = ['profile', 'team', 'audit']
+
 export async function settingsView(root, ctx) {
-  const tabs = TABS.filter(([, , ok]) => ok())
+  const tabs = TABS.filter(([k, , ok]) => ok() && (!store.me.org.is_demo || DEMO_TABS.includes(k)))
   const active = tabs.find(([k]) => k === ctx.query.get('tab'))?.[0] || 'profile'
   render(root, html`
     <h1 class="text-2xl font-bold mb-4">${t('nav.settings')}</h1>

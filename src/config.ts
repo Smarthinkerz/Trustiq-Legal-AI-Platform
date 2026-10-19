@@ -75,6 +75,13 @@ const envSchema = z.object({
   // SmarThinkerz Hub Team Checkout for firm subscriptions. The secret signs quotes and verifies Hub webhooks.
   HUB_PARTNER_SECRET: z.string().optional(),
   HUB_TEAM_CHECKOUT_URL: z.string().url().optional(),
+  // Demo workspaces for SmarThinkerz sales hires: their Hub access code is checked with the Hub's
+  // signed demo validation (the same call Hala makes), signed with HUB_PARTNER_SECRET as HUB_APP_ID.
+  HUB_APP_ID: z.string().trim().toLowerCase().default('trustiq'),
+  HUB_DEMO_VALIDATE_URL: z.string().url().default('https://smarthinkerz.com/api/demo/validate'),
+  DEMO_AI_DAILY_CAP_USD: z.coerce.number().min(0).default(3),
+  DEMO_SESSION_HOURS: z.coerce.number().positive().max(24).default(8),
+  DEMO_RECHECK_SECONDS: z.coerce.number().int().min(0).max(3600).default(60),
   TAP_API_URL: z.string().url().default('https://api.tap.company/v2'),
   TAP_WEBHOOK_TOLERANCE_MS: z.coerce.number().int().positive().default(300_000),
   WEBHOOK_AUDIT_RETENTION_DAYS: z.coerce.number().int().positive().default(90),
@@ -118,7 +125,8 @@ export type Config = {
   storage: { driver: 'db' | 's3'; s3?: { endpoint: string; bucket: string; region: string; accessKeyId: string; secretAccessKey: string; prefix: string } }
   maxVideoBytes: number
   tap: { secretKey?: string; webhookSecret?: string; apiUrl: string; toleranceMs: number; auditRetentionDays: number }
-  hub: { partnerSecret?: string; teamCheckoutUrl?: string }
+  hub: { partnerSecret?: string; teamCheckoutUrl?: string; appId: string; demoValidateUrl: string }
+  demo: { aiDailyCapUsd: number; sessionHours: number; recheckSeconds: number }
   platformVatPercent: number
   libraryImportDomains: string[]
   libraryImportExtraCa: string
@@ -177,7 +185,8 @@ export function loadConfig(source: Record<string, string | undefined> = process.
       toleranceMs: e.TAP_WEBHOOK_TOLERANCE_MS,
       auditRetentionDays: e.WEBHOOK_AUDIT_RETENTION_DAYS
     },
-    hub: { partnerSecret: e.HUB_PARTNER_SECRET || undefined, teamCheckoutUrl: e.HUB_TEAM_CHECKOUT_URL || undefined },
+    hub: { partnerSecret: e.HUB_PARTNER_SECRET || undefined, teamCheckoutUrl: e.HUB_TEAM_CHECKOUT_URL || undefined, appId: e.HUB_APP_ID, demoValidateUrl: e.HUB_DEMO_VALIDATE_URL },
+    demo: { aiDailyCapUsd: e.DEMO_AI_DAILY_CAP_USD, sessionHours: e.DEMO_SESSION_HOURS, recheckSeconds: e.DEMO_RECHECK_SECONDS },
     platformVatPercent: e.PLATFORM_VAT_PERCENT,
     libraryImportExtraCa: e.LIBRARY_IMPORT_EXTRA_CA,
     libraryImportDomains: e.LIBRARY_IMPORT_DOMAINS.split(',').map((d) => d.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/^\*\./, '')).filter(Boolean),

@@ -47,6 +47,8 @@ export type Org = {
   support_seats?: number | null
   // Role of the signed-in member making this request (unset for public or background work).
   acting_role?: Role
+  // A demo workspace opened with a SmarThinkerz Hub access code.
+  is_demo?: boolean
 }
 
 export type Deps = {

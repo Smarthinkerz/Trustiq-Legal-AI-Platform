@@ -1999,6 +1999,90 @@ ALTER TABLE invoice_payments ADD COLUMN provider_ref TEXT;
 CREATE UNIQUE INDEX invoice_payments_provider_ref_key ON invoice_payments (provider_ref) WHERE provider_ref IS NOT NULL;
 CREATE INDEX invoice_payments_open_thawani_idx ON invoice_payments (created_at) WHERE provider = 'thawani' AND status = 'initiated'
 `
+  },
+  {
+    version: 56,
+    name: 'demo_workspaces',
+    sql: `
+-- Demo workspaces for SmarThinkerz sales hires (Hub access codes). Each demo session gets its own
+-- invented firm. The flag is fixed when the firm is created, and the triggers below keep demo and
+-- real firms apart in the database itself, not only in the application.
+ALTER TABLE organizations ADD COLUMN is_demo BOOLEAN NOT NULL DEFAULT false;
+
+CREATE OR REPLACE FUNCTION organizations_demo_flag_fixed() RETURNS trigger AS $$
+BEGIN
+  IF NEW.is_demo IS DISTINCT FROM OLD.is_demo THEN
+    RAISE EXCEPTION 'organizations.is_demo cannot change after the firm is created';
+  END IF;
+  RETURN NEW;
+END $$ LANGUAGE plpgsql;
+CREATE TRIGGER organizations_demo_flag_fixed BEFORE UPDATE OF is_demo ON organizations FOR EACH ROW EXECUTE FUNCTION organizations_demo_flag_fixed();
+
+-- Demo users carry a reserved, undeliverable address and can only belong to a demo firm; no real
+-- firm can hold a demo user, and no demo firm can hold a real one.
+CREATE OR REPLACE FUNCTION users_demo_boundary() RETURNS trigger AS $$
+DECLARE demo BOOLEAN;
+BEGIN
+  SELECT is_demo INTO demo FROM organizations WHERE id = NEW.org_id;
+  IF coalesce(demo, false) <> (lower(NEW.email) LIKE '%@demo.trustiq.invalid') THEN
+    RAISE EXCEPTION 'demo users belong only to demo firms';
+  END IF;
+  RETURN NEW;
+END $$ LANGUAGE plpgsql;
+CREATE TRIGGER users_demo_boundary BEFORE INSERT OR UPDATE OF org_id, email ON users FOR EACH ROW EXECUTE FUNCTION users_demo_boundary();
+
+-- One row per demo session: who (the hire's name from the Hub, never the code), when, what they
+-- used and what the AI cost. Kept after the demo firm itself is deleted.
+CREATE TABLE demo_sessions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id UUID REFERENCES organizations(id) ON DELETE SET NULL,
+  user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  hire_name TEXT,
+  code_type TEXT,
+  started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at TIMESTAMPTZ NOT NULL,
+  last_checked_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_ok_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  ended_at TIMESTAMPTZ,
+  end_reason TEXT,
+  resets INTEGER NOT NULL DEFAULT 0,
+  features_used TEXT[] NOT NULL DEFAULT '{}',
+  ai_requests INTEGER NOT NULL DEFAULT 0,
+  ai_cost_usd NUMERIC(12,6) NOT NULL DEFAULT 0,
+  ai_day DATE,
+  ai_day_cost_usd NUMERIC(12,6) NOT NULL DEFAULT 0,
+  ai_daily_cap_usd NUMERIC(10,4) NOT NULL,
+  price_in_per_mtok NUMERIC(12,6) NOT NULL,
+  price_out_per_mtok NUMERIC(12,6) NOT NULL
+);
+CREATE UNIQUE INDEX demo_sessions_open_org ON demo_sessions (org_id) WHERE ended_at IS NULL;
+CREATE INDEX demo_sessions_started_idx ON demo_sessions (started_at DESC);
+
+CREATE OR REPLACE FUNCTION demo_sessions_demo_only() RETURNS trigger AS $$
+BEGIN
+  IF NEW.org_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM organizations WHERE id = NEW.org_id AND is_demo) THEN
+    RAISE EXCEPTION 'a demo session can only open a demo firm';
+  END IF;
+  RETURN NEW;
+END $$ LANGUAGE plpgsql;
+CREATE TRIGGER demo_sessions_demo_only BEFORE INSERT OR UPDATE OF org_id ON demo_sessions FOR EACH ROW EXECUTE FUNCTION demo_sessions_demo_only();
+
+-- Every AI request in a demo firm is costed onto its session as it is recorded (Muscat days), so the
+-- daily cap and the cost log survive a demo reset.
+CREATE OR REPLACE FUNCTION ai_usage_demo_cost() RETURNS trigger AS $$
+DECLARE today DATE := (timezone('UTC', now()) + interval '4 hours')::date;
+BEGIN
+  UPDATE demo_sessions SET
+    ai_requests = ai_requests + 1,
+    ai_cost_usd = ai_cost_usd + (coalesce(NEW.prompt_tokens, 0) * price_in_per_mtok + coalesce(NEW.completion_tokens, 0) * price_out_per_mtok) / 1000000,
+    ai_day_cost_usd = CASE WHEN ai_day = today THEN ai_day_cost_usd ELSE 0 END
+      + (coalesce(NEW.prompt_tokens, 0) * price_in_per_mtok + coalesce(NEW.completion_tokens, 0) * price_out_per_mtok) / 1000000,
+    ai_day = today
+  WHERE org_id = NEW.org_id AND ended_at IS NULL;
+  RETURN NEW;
+END $$ LANGUAGE plpgsql;
+CREATE TRIGGER ai_usage_demo_cost AFTER INSERT ON ai_usage FOR EACH ROW EXECUTE FUNCTION ai_usage_demo_cost()
+`
   }
 ]
 

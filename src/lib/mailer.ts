@@ -8,7 +8,23 @@ export interface Mailer {
   send(mail: Mail): Promise<void>
 }
 
+// Reserved, undeliverable domains (RFC 2606/6761): demo users and the invented demo firm's clients
+// use them, so background jobs can never email anyone on their behalf.
+const RESERVED = /@(?:[^@]+\.)?(?:example\.(?:com|net|org)|[^@]*\.invalid|[^@]*\.test|[^@]*\.example|[^@]*\.localhost)$/i
+export const isReservedAddress = (to: string) => RESERVED.test(to.trim())
+
 export function createMailer(config: Config, log: Logger): Mailer {
+  const inner = createTransportMailer(config, log)
+  return {
+    configured: inner.configured,
+    async send(mail) {
+      if (isReservedAddress(mail.to)) return log.info('email skipped: reserved address', { subject: mail.subject })
+      return inner.send(mail)
+    }
+  }
+}
+
+function createTransportMailer(config: Config, log: Logger): Mailer {
   if (!config.smtp) {
     return {
       configured: false,
